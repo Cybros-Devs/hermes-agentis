@@ -1,0 +1,66 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Archivo', system-ui, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #050c0a;
+    color: #ecf3f0;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+  }
+
+  code, pre, kbd, .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Deep organic smoked-emerald & warm ochre atmospheric canvas matching reference */
+.emerald-ambient-bg {
+  background-color: #050c0a;
+  background-image:
+    radial-gradient(ellipse 68% 58% at 14% 28%, rgba(16, 86, 66, 0.58) 0%, transparent 64%),
+    radial-gradient(ellipse 52% 48% at 38% 78%, rgba(120, 74, 24, 0.36) 0%, transparent 62%),
+    radial-gradient(ellipse 64% 62% at 80% 42%, rgba(18, 96, 74, 0.52) 0%, transparent 68%),
+    radial-gradient(ellipse 46% 42% at 62% 16%, rgba(8, 52, 42, 0.65) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 45% at 88% 88%, rgba(13, 68, 54, 0.5) 0%, transparent 65%);
+}
+
+/* Soft top fade under the floating monochrome halftone portrait */
+.transcript-fade-mask {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 11%, black 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 11%, black 100%);
+}
+
+/* Custom thin smoked-emerald scrollbar */
+.cyber-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.cyber-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cyber-scroll::-webkit-scrollbar-thumb {
+  background: rgba(167, 243, 208, 0.16);
+  border-radius: 9999px;
+}
+.cyber-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(52, 211, 153, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-safe-only {
+    animation: none !important;
+    transition: none !important;
+  }
+}
