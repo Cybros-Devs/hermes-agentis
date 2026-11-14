@@ -13,6 +13,7 @@ import {
   Brain,
   Check,
   X,
+  Shapes,
 } from 'lucide-react';
 import type {
   ApprovalCard,
@@ -27,14 +28,17 @@ import type {
 } from '../types/hermes';
 import { amplitudeToViseme, resolveEyeState } from '../utils/asciiCharacter';
 import type { LookTarget } from '../utils/asciiPortraitEngine';
+import type { BrailleShapeKind, BrailleShapeTint } from '../utils/brailleShapesEngine';
+import type { CanvasSession } from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
+import { BrailleSessionsCanvas } from './BrailleSessionsCanvas';
 import { DecodedText } from './DecodedText';
 import { DuetOperationsPanel } from './DuetOperationsPanel';
 import { CommandTerminal } from './CommandTerminal';
 
-export type WorkspacePanelView = 'home' | 'voice' | 'queue' | 'cli';
+export type WorkspacePanelView = 'home' | 'canvas' | 'voice' | 'queue' | 'cli';
 
 interface VoiceWorkspacePaneProps {
   channels: Channel[];
@@ -63,6 +67,20 @@ interface VoiceWorkspacePaneProps {
   /** Whether the agent's live activity trace is shown in the transcript. */
   showThinking: boolean;
   onToggleThinking: () => void;
+  canvasSessions: CanvasSession[];
+  onSelectCanvasSession: (session: CanvasSession) => void;
+  onMoveCanvasSession: (id: string, xPct: number, yPct: number) => void;
+  onAddCanvasSession: (payload: {
+    name: string;
+    topic: string;
+    shape: BrailleShapeKind;
+    tint: BrailleShapeTint;
+    eyeStyle: 'open' | 'sleepy';
+  }) => void;
+  onAutoArrangeCanvas: () => void;
+  onCycleSessionMood: (id: string) => void;
+  onRemoveCanvasSession: (id: string) => void;
+  onOpenSessionThread: (session: CanvasSession) => void;
 }
 
 export function VoiceWorkspacePane({
@@ -91,6 +109,14 @@ export function VoiceWorkspacePane({
   onSubmitInput,
   showThinking,
   onToggleThinking,
+  canvasSessions,
+  onSelectCanvasSession,
+  onMoveCanvasSession,
+  onAddCanvasSession,
+  onAutoArrangeCanvas,
+  onCycleSessionMood,
+  onRemoveCanvasSession,
+  onOpenSessionThread,
 }: VoiceWorkspacePaneProps) {
   const [tick, setTick] = useState(0);
   const [input, setInput] = useState('');
@@ -261,7 +287,7 @@ export function VoiceWorkspacePane({
     >
       {/* Top Bar matching reference: left breadcrumbs + right utility controls */}
       <div className="flex items-center justify-between gap-3 px-4 sm:px-5 pt-3 pb-1 z-30 shrink-0">
-        <div className="flex items-center gap-3 min-w-0 text-xs text-emerald-100/60">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 overflow-hidden text-xs text-emerald-100/60">
           <button
             type="button"
             onClick={() => onChangePanelView('home')}
@@ -273,19 +299,31 @@ export function VoiceWorkspacePane({
           >
             Home
           </button>
-          <span aria-hidden="true" className="text-emerald-100/30">·</span>
+          <span aria-hidden="true" className="text-emerald-100/30 shrink-0">·</span>
+          <button
+            type="button"
+            onClick={() => onChangePanelView('canvas')}
+            className={`underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              panelView === 'canvas'
+                ? 'text-[#6EE7B7] font-medium decoration-[#34D399]/60'
+                : 'text-emerald-50/80 hover:text-white decoration-white/20'
+            }`}
+          >
+            Canvas
+          </button>
+          <span aria-hidden="true" className="hidden sm:inline text-emerald-100/30 shrink-0">·</span>
           <button
             type="button"
             onClick={() => onChangePanelView(panelView === 'queue' ? 'home' : 'queue')}
-            className="hover:text-white underline underline-offset-4 decoration-white/20 truncate cursor-pointer"
+            className="hidden sm:inline hover:text-white underline underline-offset-4 decoration-white/20 truncate cursor-pointer"
           >
             ← {runningTask ? runningTask.title : `#${activeChannel}`}
           </button>
-          <span aria-hidden="true" className="hidden sm:inline text-emerald-100/30">·</span>
+          <span aria-hidden="true" className="hidden md:inline text-emerald-100/30 shrink-0">·</span>
           <button
             type="button"
             onClick={() => onSubmitInput('/brief', 'cli')}
-            className="hidden sm:inline hover:text-white underline underline-offset-4 decoration-white/20 whitespace-nowrap shrink-0 cursor-pointer"
+            className="hidden md:inline hover:text-white underline underline-offset-4 decoration-white/20 whitespace-nowrap shrink-0 cursor-pointer"
           >
             Morning brief
           </button>
@@ -326,7 +364,7 @@ export function VoiceWorkspacePane({
             aria-pressed={panelView === 'home'}
             aria-label="Character overview home view"
             title="Character Overview (Home)"
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
+            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
               panelView === 'home'
                 ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
                 : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
@@ -337,11 +375,26 @@ export function VoiceWorkspacePane({
 
           <button
             type="button"
+            onClick={() => onChangePanelView(panelView === 'canvas' ? 'home' : 'canvas')}
+            aria-pressed={panelView === 'canvas'}
+            aria-label="Open Braille sessions canvas"
+            title="Braille Sessions Canvas"
+            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
+              panelView === 'canvas'
+                ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
+                : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
+            }`}
+          >
+            <Shapes className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
             onClick={() => onChangePanelView(panelView === 'voice' ? 'home' : 'voice')}
             aria-pressed={panelView === 'voice'}
             aria-label="Switch to voice conversation thread view"
             title="Voice Conversation Thread"
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
+            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
               panelView === 'voice'
                 ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
                 : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
@@ -356,7 +409,7 @@ export function VoiceWorkspacePane({
             aria-pressed={panelView === 'queue'}
             aria-label="Toggle approvals and Hermes runtime queue"
             title="Duet Gates, Brief & Hermes Agent Runtime"
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
+            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
               panelView === 'queue'
                 ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
                 : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
@@ -371,7 +424,7 @@ export function VoiceWorkspacePane({
             aria-pressed={panelView === 'cli'}
             aria-label="Toggle interactive CLI console"
             title="Interactive Command Line (hermes-duet)"
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
+            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
               panelView === 'cli'
                 ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
                 : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
@@ -474,6 +527,22 @@ export function VoiceWorkspacePane({
             </div>
           </div>
         </div>
+      ) : panelView === 'canvas' ? (
+        <BrailleSessionsCanvas
+          sessions={canvasSessions}
+          activeChannel={activeChannel}
+          entries={entries}
+          voiceState={voiceState}
+          viseme={viseme}
+          lastSpokenLine={lastSpokenLine}
+          onSelectSession={onSelectCanvasSession}
+          onMoveSession={onMoveCanvasSession}
+          onAddSession={onAddCanvasSession}
+          onAutoArrange={onAutoArrangeCanvas}
+          onCycleSessionMood={onCycleSessionMood}
+          onRemoveSession={onRemoveCanvasSession}
+          onOpenSessionThread={onOpenSessionThread}
+        />
       ) : (
         <>
           {/* Compact Top-Center Portrait for Thread / Queue / CLI Views */}

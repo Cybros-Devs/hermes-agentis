@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, Layers, ListTodo, Terminal as TerminalIcon } from 'lucide-react';
+import { Sparkles, Shapes, Layers, ListTodo, Terminal as TerminalIcon } from 'lucide-react';
 import { SidebarWorkspace } from './components/SidebarWorkspace';
 import { VoiceWorkspacePane, type WorkspacePanelView } from './components/VoiceWorkspacePane';
 import { useDuet, duetItemToEntry } from './hooks/useDuet';
@@ -14,7 +14,15 @@ import type {
   HermesGatewayStatus,
   TerminalEntry,
 } from './types/hermes';
-import { executeCliInput } from './utils/cliEngine';
+import type { BrailleShapeKind, BrailleShapeTint } from './utils/brailleShapesEngine';
+import {
+  autoArrangeSessions,
+  createSeedCanvasSessions,
+  findOpenCanvasSpot,
+  slugifySessionName,
+  type CanvasSession,
+} from './utils/canvasSessions';
+import { INITIAL_CHANNELS, executeCliInput } from './utils/cliEngine';
 
 const MOOD_CYCLE: ExpressionMood[] = ['neutral', 'happy', 'focused', 'thinking', 'alert'];
 
@@ -65,7 +73,9 @@ function buildLocalFallbackReply(
   };
 }
 
-type MobileTab = 'home' | 'voice' | 'tasks' | 'queue' | 'cli';
+const CANVAS_STORAGE_KEY = 'duet.canvasSessions.v1';
+
+type MobileTab = 'home' | 'canvas' | 'voice' | 'tasks' | 'queue' | 'cli';
 
 export default function App() {
   const [activeChannel, setActiveChannel] = useState<ChannelId>('general');
@@ -73,13 +83,31 @@ export default function App() {
   const [brief, setBrief] = useState<BriefDecision[]>([]);
   const [tasks, setTasks] = useState<BackgroundTask[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [canvasSessions, setCanvasSessions] = useState<CanvasSession[]>(() => {
+    try {
+      const raw = localStorage.getItem(CANVAS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as CanvasSession[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // fall back to seeded sessions
+    }
+    return createSeedCanvasSessions(INITIAL_CHANNELS);
+  });
   const [mood, setMood] = useState<ExpressionMood>('happy');
-  const [panelView, setPanelView] = useState<WorkspacePanelView>(() =>
-    typeof window !== 'undefined' && window.location.search.includes('autostart=1')
-      ? 'voice'
+  const [panelView, setPanelView] = useState<WorkspacePanelView>(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.search.includes('view=canvas')) return 'canvas';
+      if (window.location.search.includes('autostart=1')) return 'voice';
+    }
+    return 'home';
+  });
+  const [mobileTab, setMobileTab] = useState<MobileTab>(() =>
+    typeof window !== 'undefined' && window.location.search.includes('view=canvas')
+      ? 'canvas'
       : 'home'
   );
-  const [mobileTab, setMobileTab] = useState<MobileTab>('home');
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [animateSpeechLine, setAnimateSpeechLine] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<HermesGatewayStatus | null>(null);
@@ -96,8 +124,9 @@ export default function App() {
     tasks,
     brief,
     entries,
+    canvasSessions,
   });
-  stateRef.current = { activeChannel, approvals, tasks, brief, entries };
+  stateRef.current = { activeChannel, approvals, tasks, brief, entries, canvasSessions };
 
   const chatAbortRef = useRef<AbortController | null>(null);
 
@@ -162,16 +191,35 @@ export default function App() {
   });
   const { connected: duetConnected, sendMessage: duetSendMessage, actOnCard: duetActOnCard } = duet;
 
-  // Mirror Duet state locally; optimistic edits reconcile on the next SSE event.
+  // Persist Braille Canvas sessions locally
   useEffect(() => {
-    setChannels(duet.channels);
-    if (duet.channels.length > 0) {
-      // UI channel ids must be real Duet channel ids for the message API.
-      setActiveChannel((prev) =>
-        duet.channels.some((c) => c.id === prev) ? prev : duet.channels[0].id
-      );
+    try {
+      localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(canvasSessions));
+    } catch {
+      // ignore storage quota errors
     }
-  }, [duet.channels]);
+  }, [canvasSessions]);
+
+  // Mirror Duet state locally + merge custom canvas sessions so new Braille sessions act as real lanes.
+  useEffect(() => {
+    const baseChannels = duet.channels.length > 0 ? duet.channels : INITIAL_CHANNELS;
+    const merged: Channel[] = [...baseChannels];
+    for (const cs of canvasSessions) {
+      if (!merged.some((c) => c.id === cs.channelId)) {
+        merged.push({
+          id: cs.channelId,
+          name: cs.name,
+          sessionId: `duet-${cs.channelId}`,
+          description: cs.topic,
+          unreadCount: 0,
+        });
+      }
+    }
+    setChannels(merged);
+    if (merged.length > 0) {
+      setActiveChannel((prev) => (merged.some((c) => c.id === prev) ? prev : merged[0].id));
+    }
+  }, [duet.channels, canvasSessions]);
   useEffect(() => setApprovals(duet.approvals), [duet.approvals]);
   useEffect(() => setTasks(duet.tasks), [duet.tasks]);
   useEffect(() => setBrief(duet.brief), [duet.brief]);
@@ -186,12 +234,18 @@ export default function App() {
       text: 'HERMES DUET LINK ACTIVE // live state, runs, and approval gates wired.',
       timestamp: nowTime(),
     });
+  }, [duetConnected, upsertEntry]);
+
+  useEffect(() => {
+    if (!duetConnected) return;
+    if (lastSpokenLine !== 'Linking to Hermes Duet…') return;
     const lastHermes = [...entries]
       .reverse()
       .find((e) => e.role === 'hermes' && e.text.trim().length > 0);
-    if (lastHermes) setLastSpokenLineState(lastHermes.text.slice(0, 140));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [duetConnected]);
+    if (lastHermes) {
+      setLastSpokenLineState(lastHermes.text.slice(0, 140));
+    }
+  }, [duetConnected, entries, lastSpokenLine]);
 
   const [showThinking, setShowThinking] = useState<boolean>(() => {
     try {
@@ -574,9 +628,117 @@ export default function App() {
     ]);
   }, [updateSpokenLine]);
 
+  const handleSelectCanvasSession = useCallback(
+    (session: CanvasSession) => {
+      setActiveChannel(session.channelId);
+      setMood(session.mood);
+      const latestHermes = [...stateRef.current.entries]
+        .reverse()
+        .find((e) => e.channelId === session.channelId && e.role === 'hermes' && e.text.trim());
+      updateSpokenLine(
+        latestHermes ? latestHermes.text : `${session.name}: ${session.topic}`
+      );
+    },
+    [updateSpokenLine]
+  );
+
+  const handleMoveCanvasSession = useCallback((id: string, xPct: number, yPct: number) => {
+    setCanvasSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, xPct, yPct } : s))
+    );
+  }, []);
+
+  const handleAddCanvasSession = useCallback(
+    (payload: {
+      name: string;
+      topic: string;
+      shape: BrailleShapeKind;
+      tint: BrailleShapeTint;
+      eyeStyle: 'open' | 'sleepy';
+    }) => {
+      const currentSessions = stateRef.current.canvasSessions;
+      const slug = slugifySessionName(
+        payload.name,
+        currentSessions.map((s) => s.channelId)
+      );
+      const spot = findOpenCanvasSpot(currentSessions);
+      const nextSession: CanvasSession = {
+        id: `session-${slug}-${Date.now().toString(36)}`,
+        channelId: slug,
+        name: slug,
+        topic: payload.topic,
+        shape: payload.shape,
+        tint: payload.tint,
+        xPct: spot.xPct,
+        yPct: spot.yPct,
+        mood: 'happy',
+        eyeStyle: payload.eyeStyle,
+        isCore: false,
+      };
+      setCanvasSessions((prev) => [...prev, nextSession]);
+      setActiveChannel(slug);
+      setMood('happy');
+      const msg = `Spawned #${slug} (${payload.shape}) onto the Braille canvas.`;
+      updateSpokenLine(msg);
+      appendEntry({
+        channelId: slug,
+        role: 'hermes',
+        source: 'ui',
+        mood: 'happy',
+        text: msg,
+      });
+    },
+    [appendEntry, updateSpokenLine]
+  );
+
+  const handleAutoArrangeCanvas = useCallback(() => {
+    setCanvasSessions((prev) => autoArrangeSessions(prev));
+  }, []);
+
+  const handleCycleSessionMood = useCallback(
+    (id: string) => {
+      setCanvasSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== id) return s;
+          const idx = MOOD_CYCLE.indexOf(s.mood);
+          const next = MOOD_CYCLE[(idx + 1) % MOOD_CYCLE.length];
+          if (s.channelId === stateRef.current.activeChannel) {
+            setMood(next);
+            updateSpokenLine(`#${s.name} expression shifted to ${next}.`);
+          }
+          return { ...s, mood: next };
+        })
+      );
+    },
+    [updateSpokenLine]
+  );
+
+  const handleRemoveCanvasSession = useCallback((id: string) => {
+    setCanvasSessions((prev) => {
+      if (prev.length <= 1) return prev;
+      const target = prev.find((s) => s.id === id);
+      const next = prev.filter((s) => s.id !== id);
+      if (target && target.channelId === stateRef.current.activeChannel && next[0]) {
+        setActiveChannel(next[0].channelId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleOpenSessionThread = useCallback(
+    (session: CanvasSession) => {
+      setActiveChannel(session.channelId);
+      setMood(session.mood);
+      setPanelView('voice');
+      setMobileTab('voice');
+    },
+    []
+  );
+
   const handleMobileTabChange = (tab: MobileTab) => {
     setMobileTab(tab);
     if (tab === 'home') setPanelView('home');
+    else if (tab === 'canvas') setPanelView('canvas');
     else if (tab === 'voice') setPanelView('voice');
     else if (tab === 'queue') setPanelView('queue');
     else if (tab === 'cli') setPanelView('cli');
@@ -673,6 +835,14 @@ export default function App() {
             onSubmitInput={(val, src) => processUserInput(val, src)}
             showThinking={showThinking}
             onToggleThinking={handleToggleThinking}
+            canvasSessions={canvasSessions}
+            onSelectCanvasSession={handleSelectCanvasSession}
+            onMoveCanvasSession={handleMoveCanvasSession}
+            onAddCanvasSession={handleAddCanvasSession}
+            onAutoArrangeCanvas={handleAutoArrangeCanvas}
+            onCycleSessionMood={handleCycleSessionMood}
+            onRemoveCanvasSession={handleRemoveCanvasSession}
+            onOpenSessionThread={handleOpenSessionThread}
           />
         </div>
       </main>
@@ -680,7 +850,7 @@ export default function App() {
       {/* Compact Mobile Bottom Nav (<= 56px height, < 7% of 844px viewport) */}
       <nav
         aria-label="Mobile workspace views"
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 h-14 bg-[#07120F]/95 backdrop-blur-md border-t border-white/10 grid grid-cols-4"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 h-14 bg-[#07120F]/95 backdrop-blur-md border-t border-white/10 grid grid-cols-5"
       >
         <button
           type="button"
@@ -691,6 +861,16 @@ export default function App() {
         >
           <Sparkles className="w-4 h-4" />
           <span>Home</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => handleMobileTabChange('canvas')}
+          className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer ${
+            mobileTab === 'canvas' ? 'text-[#4ADE80]' : 'text-emerald-100/55'
+          }`}
+        >
+          <Shapes className="w-4 h-4" />
+          <span>Canvas</span>
         </button>
         <button
           type="button"
