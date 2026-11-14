@@ -7,6 +7,8 @@ interface BrailleHorizonCanvasProps {
   isActive: boolean;
   frequencyBands: number[];
   lookTargetRef?: RefObject<LookTarget | null>;
+  speedScale?: number;
+  reducedMotionOverride?: boolean;
   className?: string;
 }
 
@@ -21,16 +23,52 @@ const SUBPIXEL_BITS: ReadonlyArray<readonly [number, number, number]> = [
   [1, 3, 0x80],
 ];
 
+function blendHorizonHex(hexA: string, hexB: string, t: number): string {
+  const cleanA = hexA.replace('#', '');
+  const cleanB = hexB.replace('#', '');
+  if (cleanA.length !== 6 || cleanB.length !== 6) return hexA;
+  const r1 = parseInt(cleanA.slice(0, 2), 16);
+  const g1 = parseInt(cleanA.slice(2, 4), 16);
+  const b1 = parseInt(cleanA.slice(4, 6), 16);
+  const r2 = parseInt(cleanB.slice(0, 2), 16);
+  const g2 = parseInt(cleanB.slice(2, 4), 16);
+  const b2 = parseInt(cleanB.slice(4, 6), 16);
+  const w = Math.max(0, Math.min(1, t));
+  return `#${Math.round(r1 + (r2 - r1) * w)
+    .toString(16)
+    .padStart(2, '0')}${Math.round(g1 + (g2 - g1) * w)
+    .toString(16)
+    .padStart(2, '0')}${Math.round(b1 + (b2 - b1) * w)
+    .toString(16)
+    .padStart(2, '0')}`;
+}
+
 export function BrailleHorizonCanvas({
   energy,
   isActive,
   frequencyBands,
   lookTargetRef,
+  speedScale = 1,
+  reducedMotionOverride = false,
   className = '',
 }: BrailleHorizonCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef({ energy, isActive, frequencyBands, lookTargetRef });
-  stateRef.current = { energy, isActive, frequencyBands, lookTargetRef };
+  const stateRef = useRef({
+    energy,
+    isActive,
+    frequencyBands,
+    lookTargetRef,
+    speedScale,
+    reducedMotionOverride,
+  });
+  stateRef.current = {
+    energy,
+    isActive,
+    frequencyBands,
+    lookTargetRef,
+    speedScale,
+    reducedMotionOverride,
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -38,7 +76,7 @@ export function BrailleHorizonCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const reducedMotion =
+    const systemReduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -65,13 +103,38 @@ export function BrailleHorizonCanvas({
 
     const startTime = performance.now();
     let lastDraw = startTime;
+    let elapsedPhase = 0;
+    let cachedAccent = '#6EE7B7';
+    let cachedAccentHigh = '#A7F3D0';
+    let cachedLow = '#94B8AE';
+    let themeFrameCounter = 0;
     const animator = createHorizonAnimator();
     let rafId = 0;
 
     const drawFrame = (now: number) => {
       const s = stateRef.current;
-      const dt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
+      const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
+      const speed = Math.max(0.25, Math.min(2.0, s.speedScale || 1));
+      const rawDt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
+      const dt = isReduced ? rawDt : rawDt * speed;
       lastDraw = now;
+      if (!isReduced) {
+        elapsedPhase += dt;
+      }
+
+      if (themeFrameCounter % 12 === 0 && typeof document !== 'undefined') {
+        const styles = getComputedStyle(document.documentElement);
+        const uiAccent = styles.getPropertyValue('--ui-accent').trim() || '#34D399';
+        const uiSoft = styles.getPropertyValue('--ui-accent-soft').trim() || '#6EE7B7';
+        if (uiSoft.startsWith('#') && uiSoft.length === 7) {
+          cachedAccent = uiSoft;
+          cachedAccentHigh = blendHorizonHex(uiSoft, '#FFFFFF', 0.42);
+        }
+        if (uiAccent.startsWith('#') && uiAccent.length === 7) {
+          cachedLow = blendHorizonHex('#6E8580', uiAccent, 0.35);
+        }
+      }
+      themeFrameCounter++;
 
       const look = s.lookTargetRef?.current;
       const motion = animator.step(
@@ -82,10 +145,10 @@ export function BrailleHorizonCanvas({
           bands: s.frequencyBands,
         },
         dt,
-        Boolean(reducedMotion)
+        isReduced
       );
 
-      const elapsed = reducedMotion ? 0.6 : (now - startTime) / 1000;
+      const elapsed = isReduced ? 0.6 : elapsedPhase;
       const frame = renderBrailleHorizon({
         cols,
         rows,
@@ -136,15 +199,15 @@ export function BrailleHorizonCanvas({
         }
       }
 
-      ctx.fillStyle = '#94B8AE';
+      ctx.fillStyle = cachedLow;
       ctx.globalAlpha = 0.32;
       ctx.fill(pLow);
 
-      ctx.fillStyle = s.isActive ? '#6EE7B7' : '#A7F3D0';
-      ctx.globalAlpha = 0.48;
+      ctx.fillStyle = cachedAccent;
+      ctx.globalAlpha = s.isActive ? 0.56 : 0.44;
       ctx.fill(pMid);
 
-      ctx.fillStyle = s.isActive ? '#A7F3D0' : '#E6F0EC';
+      ctx.fillStyle = s.isActive ? cachedAccentHigh : '#E6F0EC';
       ctx.globalAlpha = 0.74;
       ctx.fill(pHigh);
 
@@ -152,20 +215,18 @@ export function BrailleHorizonCanvas({
     };
 
     drawFrame(startTime);
-    if (reducedMotion) {
-      return () => window.removeEventListener('resize', resize);
-    }
 
     let timerId = 0;
     const loop = (now: number) => {
       const active = stateRef.current.isActive;
-      const interval = active ? 28 : 50;
+      const isReduced = Boolean(systemReduced || stateRef.current.reducedMotionOverride);
+      const interval = isReduced ? 220 : active ? 28 : 50;
       if (now - lastDraw >= interval) {
         drawFrame(now);
       }
       timerId = window.setTimeout(() => {
         rafId = window.requestAnimationFrame(loop);
-      }, active ? 20 : 40);
+      }, active && !isReduced ? 20 : 40);
     };
 
     rafId = window.requestAnimationFrame(loop);

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  loadBackgroundSettings,
+  publishBackgroundSettings,
+} from './backgrounds/persistence';
+import type { BackgroundSettings } from './backgrounds/types';
 import { SidebarWorkspace } from './components/SidebarWorkspace';
+import { UiCustomizerStudio, type StudioTab } from './components/UiCustomizerStudio';
 import { VoiceWorkspacePane, type WorkspacePanelView } from './components/VoiceWorkspacePane';
 import { useDuet, duetItemToEntry } from './hooks/useDuet';
 import { useVoiceAgent } from './hooks/useVoiceAgent';
@@ -24,7 +30,18 @@ import {
   type CanvasSession,
 } from './utils/canvasSessions';
 import { INITIAL_CHANNELS, executeCliInput } from './utils/cliEngine';
+import {
+  UI_PATCH_EVENT,
+  applyUiPatch,
+  hydrateUiConfigOnBoot,
+  parseNaturalUiIntent,
+  publishUiConfig,
+  subscribeUiCustomizerOpen,
+  type UiCustomizationConfig,
+  type UiCustomizationPatch,
+} from './utils/uiCustomization';
 
+const INITIAL_UI_CONFIG = hydrateUiConfigOnBoot();
 const MOOD_CYCLE: ExpressionMood[] = ['neutral', 'happy', 'focused', 'thinking', 'alert'];
 
 function nowTime(): string {
@@ -118,6 +135,13 @@ export default function App() {
   );
 
   const [entries, setEntries] = useState<TerminalEntry[]>([]);
+  const [uiConfig, setUiConfig] = useState<UiCustomizationConfig>(INITIAL_UI_CONFIG);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
+  const [customizerTab, setCustomizerTab] = useState<StudioTab>('theme');
+  const [canUndoUi, setCanUndoUi] = useState(false);
+  const uiHistoryRef = useRef<Array<{ uiConfig: UiCustomizationConfig; bg: BackgroundSettings }>>([]);
+  const lastUndoPushAtRef = useRef(0);
+  const lastPatchSigRef = useRef<{ sig: string; at: number } | null>(null);
 
   const stateRef = useRef({
     activeChannel,
@@ -126,8 +150,17 @@ export default function App() {
     brief,
     entries,
     canvasSessions,
+    uiConfig,
   });
-  stateRef.current = { activeChannel, approvals, tasks, brief, entries, canvasSessions };
+  stateRef.current = {
+    activeChannel,
+    approvals,
+    tasks,
+    brief,
+    entries,
+    canvasSessions,
+    uiConfig,
+  };
 
   const chatAbortsRef = useRef<Map<string, AbortController>>(new Map());
 
@@ -193,10 +226,133 @@ export default function App() {
     }
   }, []);
 
+  const applyAgentUiPatch = useCallback(
+    (rawPatch: UiCustomizationPatch, sourceLabel = 'hermes') => {
+      const current = stateRef.current.uiConfig;
+      const { next, sanitized, changedKeys, summary } = applyUiPatch(current, rawPatch);
+      const sig = JSON.stringify(sanitized);
+      const now = Date.now();
+      if (
+        sourceLabel === 'hermes' &&
+        lastPatchSigRef.current &&
+        lastPatchSigRef.current.sig === sig &&
+        now - lastPatchSigRef.current.at < 1500
+      ) {
+        return { changed: false, summary };
+      }
+      lastPatchSigRef.current = { sig, at: now };
+
+      const prevBg = loadBackgroundSettings();
+
+      if (sanitized.openCustomizer) {
+        setCustomizerOpen(true);
+      }
+      if (sanitized.closeCustomizer) {
+        setCustomizerOpen(false);
+      }
+      if (sanitized.activeView) {
+        setPanelView(sanitized.activeView);
+        setMobileSidebarOpen(false);
+      }
+      if (sanitized.mood) {
+        setMood(sanitized.mood);
+      }
+      if (sanitized.showThinking !== undefined) {
+        const nextThink = sanitized.showThinking;
+        setShowThinking(nextThink);
+        try {
+          localStorage.setItem('duet.showThinking', nextThink ? '1' : '0');
+        } catch {
+          // ignore
+        }
+      }
+      if (
+        sanitized.voiceMuted !== undefined &&
+        voiceRef.current &&
+        voiceRef.current.isMuted !== sanitized.voiceMuted
+      ) {
+        voiceRef.current.toggleMute();
+      }
+      if (sanitized.canvasAutoArrange) {
+        setCanvasSessions((prev) => autoArrangeSessions(prev));
+      }
+      if (sanitized.canvasMoodAll) {
+        const targetMood = sanitized.canvasMoodAll;
+        setMood(targetMood);
+        setCanvasSessions((prev) => prev.map((s) => ({ ...s, mood: targetMood })));
+      }
+
+      const bgChanged =
+        sanitized.backgroundPresetId !== undefined ||
+        sanitized.backgroundOpacity !== undefined ||
+        sanitized.glassBlurPx !== undefined ||
+        Boolean(sanitized.resetAll);
+
+      if (bgChanged) {
+        publishBackgroundSettings({
+          ...prevBg,
+          activeId: sanitized.backgroundPresetId ?? prevBg.activeId,
+          opacity: sanitized.backgroundOpacity ?? prevBg.opacity,
+          blurPx: sanitized.glassBlurPx ?? prevBg.blurPx,
+        });
+      }
+
+      if (changedKeys.length > 0) {
+        const shouldPushUndo =
+          sourceLabel !== 'studio' || now - lastUndoPushAtRef.current > 700;
+        if (shouldPushUndo) {
+          uiHistoryRef.current = [
+            ...uiHistoryRef.current.slice(-19),
+            { uiConfig: current, bg: prevBg },
+          ];
+          lastUndoPushAtRef.current = now;
+          setCanUndoUi(true);
+        }
+        stateRef.current.uiConfig = next;
+        setUiConfig(next);
+        publishUiConfig(next);
+      }
+
+      return { changed: changedKeys.length > 0, summary };
+    },
+    []
+  );
+
+  const handleUndoUi = useCallback(() => {
+    const prev = uiHistoryRef.current.pop();
+    if (!prev) return;
+    setCanUndoUi(uiHistoryRef.current.length > 0);
+    stateRef.current.uiConfig = prev.uiConfig;
+    setUiConfig(prev.uiConfig);
+    publishUiConfig(prev.uiConfig);
+    publishBackgroundSettings(prev.bg);
+  }, []);
+
+  useEffect(() => {
+    const unsubOpen = subscribeUiCustomizerOpen((tab) => {
+      if (tab) setCustomizerTab(tab);
+      setCustomizerOpen(true);
+    });
+    const onExternalPatch = (ev: Event) => {
+      const customEv = ev as CustomEvent<UiCustomizationPatch>;
+      if (customEv.detail) {
+        applyAgentUiPatch(customEv.detail, 'external');
+      }
+    };
+    window.addEventListener(UI_PATCH_EVENT, onExternalPatch);
+    return () => {
+      unsubOpen();
+      window.removeEventListener(UI_PATCH_EVENT, onExternalPatch);
+    };
+  }, [applyAgentUiPatch]);
+
   // The real engine: live Duet state, runs, approvals, and SSE updates.
   const duet = useDuet({
     upsertEntry,
     patchEntryText,
+    onUiPatch: (patch) => {
+      applyAgentUiPatch(patch, 'hermes');
+    },
     onAssistantComplete: (text, channelId) => {
       setChannelThinking(channelId, false);
       updateSpokenLine(text, channelId);
@@ -443,6 +599,9 @@ export default function App() {
       });
 
       if (result.type === 'handled') {
+        if (result.uiPatch) {
+          applyAgentUiPatch(result.uiPatch, 'cli');
+        }
         if (result.clearTerminal) {
           setEntries((prev) => prev.filter((e) => e.channelId !== ch));
           setMood('neutral');
@@ -508,8 +667,12 @@ export default function App() {
           const { item } = await duetSendMessage(result.prompt, ch, {
             sessionId: targetHermesSessionId,
             persona: targetPersona,
+            uiConfig: stateRef.current.uiConfig,
           });
           if (item) {
+            if (item.ui_patch) {
+              applyAgentUiPatch(item.ui_patch, 'hermes');
+            }
             const entry = duetItemToEntry(item);
             if (entry) upsertEntry(entry);
           }
@@ -546,6 +709,7 @@ export default function App() {
             channelId: ch,
             sessionId: targetHermesSessionId,
             persona: targetPersona,
+            uiConfig: stateRef.current.uiConfig,
             history: stateRef.current.entries
               .filter(
                 (e) =>
@@ -572,7 +736,12 @@ export default function App() {
           reply?: string;
           mood?: ExpressionMood;
           suggestedCommand?: string;
+          uiPatch?: UiCustomizationPatch | null;
         };
+
+        if (data.uiPatch) {
+          applyAgentUiPatch(data.uiPatch, 'hermes');
+        }
 
         const reply = data.reply || 'Signal acknowledged.';
         const nextMood = data.mood || 'speaking';
@@ -598,6 +767,25 @@ export default function App() {
         if (err instanceof DOMException && err.name === 'AbortError' && chatAbortsRef.current.get(ch) !== controller) {
           return;
         }
+        const localIntentPatch = parseNaturalUiIntent(result.prompt, stateRef.current.uiConfig);
+        if (localIntentPatch) {
+          const outcome = applyAgentUiPatch(localIntentPatch, 'hermes');
+          const msg = `Updated UI directly: ${outcome.summary}.`;
+          updateSpokenLine(msg, ch);
+          appendEntry({
+            channelId: ch,
+            role: 'hermes',
+            source,
+            mood: 'happy',
+            text: msg,
+          });
+          if (ch === stateRef.current.activeChannel) {
+            setMood('happy');
+            setSpeakingChannel(ch);
+            await voiceRef.current?.speakText(msg, 'happy');
+          }
+          return;
+        }
         const fallback = buildLocalFallbackReply(result.prompt, appList, taskList, briefList);
         updateSpokenLine(fallback.reply, ch);
         appendEntry({
@@ -620,6 +808,7 @@ export default function App() {
     },
     [
       appendEntry,
+      applyAgentUiPatch,
       handleApproveCard,
       handleRejectCard,
       updateSpokenLine,
@@ -880,66 +1069,88 @@ export default function App() {
     []
   );
 
-  return (
-    <div className="h-[100dvh] min-h-[500px] emerald-ambient-bg text-[#ECF3F0] p-1.5 sm:p-3.5 xl:p-4 flex flex-col overflow-hidden">
-      <main
-        id="top"
-        className="flex-1 min-h-0 w-full mx-auto grid grid-cols-1 lg:grid-cols-[clamp(272px,20vw,340px)_1fr] gap-3"
-      >
-        {/* Left Sidebar Window: Tasks, Approvals, Halftone Thumb & Lanes */}
-        <div
-          className={`${
-            mobileSidebarOpen ? 'flex' : 'hidden'
-          } lg:flex flex-col min-h-0 h-full`}
-        >
-          <SidebarWorkspace
-            channels={channels}
-            activeChannel={activeChannel}
-            onSelectChannel={(id) => {
-              handleSelectChannel(id);
-              setMobileSidebarOpen(false);
-            }}
-            approvals={approvals}
-            brief={brief}
-            tasks={tasks}
-            lastSpokenLine={lastSpokenLine}
-            mood={mood}
-            frequencyBands={voice.voiceState.frequencyBands}
-            isSpeaking={voice.voiceState.isSpeaking}
-            isListening={voice.voiceState.isListening}
-            selectedItemId={selectedItemId}
-            onSelectTask={(task) => {
-              setSelectedItemId(task.id);
-              handleToggleTaskStatus(task.id);
-              setPanelView('voice');
-              setMobileSidebarOpen(false);
-            }}
-            onSelectApproval={(card) => {
-              setSelectedItemId(card.id);
-              setActiveChannel(card.channelId);
-              setPanelView('queue');
-              setMobileSidebarOpen(false);
-            }}
-            onSelectBrief={(item) => {
-              setSelectedItemId(item.id);
-              setPanelView('voice');
-              setMobileSidebarOpen(false);
-              handleRunBriefCommand(item.suggestedCommand, item.id);
-            }}
-            onNewTask={handleNewTask}
-            onOpenQueue={() => {
-              setPanelView((prev) => (prev === 'queue' ? 'home' : 'queue'));
-              setMobileSidebarOpen(false);
-            }}
-            onCloseMobile={() => setMobileSidebarOpen(false)}
-          />
-        </div>
+  const rootDensityPadding =
+    uiConfig.density === 'compact'
+      ? 'p-1 sm:p-2'
+      : uiConfig.density === 'airy'
+      ? 'p-2.5 sm:p-5 xl:p-6'
+      : 'p-1.5 sm:p-3.5 xl:p-4';
 
-        {/* Right Emerald-Framed Workspace */}
+  const mainGridClass = !uiConfig.sidebarVisible
+    ? 'grid-cols-1'
+    : uiConfig.sidebarPosition === 'right'
+    ? 'grid-cols-1 lg:grid-cols-[1fr_var(--ui-sidebar-w,296px)]'
+    : 'grid-cols-1 lg:grid-cols-[var(--ui-sidebar-w,296px)_1fr]';
+
+  const gridGapClass =
+    uiConfig.density === 'compact' ? 'gap-2' : uiConfig.density === 'airy' ? 'gap-4' : 'gap-3';
+
+  return (
+    <div
+      className={`h-[100dvh] min-h-[500px] emerald-ambient-bg text-[#ECF3F0] ${rootDensityPadding} flex flex-col overflow-hidden`}
+    >
+      <main id="top" className={`flex-1 min-h-0 w-full mx-auto grid ${mainGridClass} ${gridGapClass}`}>
+        {/* Sidebar Window: Tasks, Approvals, Halftone Thumb & Lanes */}
+        {uiConfig.sidebarVisible && (
+          <div
+            className={`${mobileSidebarOpen ? 'flex' : 'hidden'} lg:flex ${
+              uiConfig.sidebarPosition === 'right' ? 'lg:order-2' : 'lg:order-1'
+            } flex-col min-h-0 h-full`}
+          >
+            <SidebarWorkspace
+              channels={channels}
+              activeChannel={activeChannel}
+              onSelectChannel={(id) => {
+                handleSelectChannel(id);
+                setMobileSidebarOpen(false);
+              }}
+              approvals={approvals}
+              brief={brief}
+              tasks={tasks}
+              lastSpokenLine={lastSpokenLine}
+              mood={mood}
+              frequencyBands={voice.voiceState.frequencyBands}
+              isSpeaking={voice.voiceState.isSpeaking}
+              isListening={voice.voiceState.isListening}
+              selectedItemId={selectedItemId}
+              onSelectTask={(task) => {
+                setSelectedItemId(task.id);
+                handleToggleTaskStatus(task.id);
+                setPanelView('voice');
+                setMobileSidebarOpen(false);
+              }}
+              onSelectApproval={(card) => {
+                setSelectedItemId(card.id);
+                setActiveChannel(card.channelId);
+                setPanelView('queue');
+                setMobileSidebarOpen(false);
+              }}
+              onSelectBrief={(item) => {
+                setSelectedItemId(item.id);
+                setPanelView('voice');
+                setMobileSidebarOpen(false);
+                handleRunBriefCommand(item.suggestedCommand, item.id);
+              }}
+              onNewTask={handleNewTask}
+              onOpenQueue={() => {
+                setPanelView((prev) => (prev === 'queue' ? 'home' : 'queue'));
+                setMobileSidebarOpen(false);
+              }}
+              onCloseMobile={() => setMobileSidebarOpen(false)}
+              workspaceTitle={uiConfig.workspaceTitle}
+              queueVisible={uiConfig.sidebarQueueVisible}
+              channelsVisible={uiConfig.sidebarChannelsVisible}
+              sidebarPosition={uiConfig.sidebarPosition}
+              onOpenStudio={() => setCustomizerOpen(true)}
+            />
+          </div>
+        )}
+
+        {/* Main Workspace Stage */}
         <div
-          className={`${
-            mobileSidebarOpen ? 'hidden' : 'flex'
-          } lg:flex flex-col min-h-0 h-full`}
+          className={`${mobileSidebarOpen && uiConfig.sidebarVisible ? 'hidden' : 'flex'} lg:flex ${
+            uiConfig.sidebarPosition === 'right' ? 'lg:order-1' : 'lg:order-2'
+          } flex-col min-h-0 h-full`}
         >
           <VoiceWorkspacePane
             channels={channels}
@@ -952,7 +1163,9 @@ export default function App() {
               setPanelView(view);
               setMobileSidebarOpen(false);
             }}
-            onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+            onOpenMobileSidebar={
+              uiConfig.sidebarVisible ? () => setMobileSidebarOpen(true) : undefined
+            }
             voiceState={voice.voiceState}
             lastSpokenLine={lastSpokenLine}
             animateSpeechLine={animateSpeechLine}
@@ -993,9 +1206,28 @@ export default function App() {
             onResetSession={handleResetCanvasSession}
             onRemoveCanvasSession={handleRemoveCanvasSession}
             onOpenSessionThread={handleOpenSessionThread}
+            uiConfig={uiConfig}
+            onOpenStudio={() => setCustomizerOpen(true)}
           />
         </div>
       </main>
+
+      <UiCustomizerStudio
+        open={customizerOpen}
+        activeTab={customizerTab}
+        onChangeTab={setCustomizerTab}
+        onClose={() => setCustomizerOpen(false)}
+        config={uiConfig}
+        mood={mood}
+        showThinking={showThinking}
+        voiceMuted={voice.voiceState.isMuted}
+        canUndo={canUndoUi}
+        onApplyPatch={applyAgentUiPatch}
+        onUndo={handleUndoUi}
+        onAskAgent={(prompt) => {
+          void processUserInput(prompt, 'cli');
+        }}
+      />
     </div>
   );
 }

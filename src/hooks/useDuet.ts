@@ -7,6 +7,7 @@ import type {
   HermesAgentSession,
   TerminalEntry,
 } from '../types/hermes';
+import type { UiCustomizationConfig, UiCustomizationPatch } from '../utils/uiCustomization';
 
 /** Minimal shapes of the Duet server's shared types (snake_case, as served). */
 interface DuetCard {
@@ -30,6 +31,7 @@ interface DuetItem {
   streaming?: boolean;
   run_id?: string | null;
   card?: DuetCard;
+  ui_patch?: UiCustomizationPatch;
   activity?: {
     run_id: string;
     status: string;
@@ -74,7 +76,8 @@ type DuetServerEvent =
   | { type: 'channel'; channel: DuetChannel }
   | { type: 'session'; session: HermesAgentSession }
   | { type: 'session_reset'; channelId: string; session: HermesAgentSession; item?: DuetItem }
-  | { type: 'session_deleted'; channelId: string };
+  | { type: 'session_deleted'; channelId: string }
+  | { type: 'ui_patch'; channelId?: string; patch: UiCustomizationPatch };
 
 export interface UseDuetOptions {
   /** Upsert a transcript entry derived from a Duet item (by id). */
@@ -87,6 +90,8 @@ export interface UseDuetOptions {
   onSessionReset?: (channelId: string) => void;
   /** An approval card settled (so the UI can react optimistically). */
   onCardSettled?: (itemId: string, status: 'approved' | 'declined') => void;
+  /** Agent requested a dynamic live UI customization patch. */
+  onUiPatch?: (patch: UiCustomizationPatch, channelId?: string) => void;
 }
 
 function hhmm(epochMs: number): string {
@@ -297,6 +302,9 @@ export function useDuet(opts: UseDuetOptions) {
       ) {
         if (!spokenItemIdsRef.current.has(item.id)) {
           spokenItemIdsRef.current.add(item.id);
+          if (item.ui_patch) {
+            optsRef.current.onUiPatch?.(item.ui_patch, entry.channelId);
+          }
           optsRef.current.onAssistantComplete(item.text.trim(), entry.channelId);
         }
       }
@@ -401,6 +409,8 @@ export function useDuet(opts: UseDuetOptions) {
         } else if (data.type === 'session_deleted') {
           setSessions((prev) => prev.filter((s) => s.channelId !== data.channelId));
           setChannels((prev) => prev.filter((c) => c.id !== data.channelId));
+        } else if (data.type === 'ui_patch' && data.patch) {
+          optsRef.current.onUiPatch?.(data.patch, data.channelId);
         }
       } catch {
         // ignore malformed frames
@@ -418,7 +428,7 @@ export function useDuet(opts: UseDuetOptions) {
     async (
       text: string,
       channelId: string,
-      sessionMeta?: { sessionId?: string; persona?: string }
+      sessionMeta?: { sessionId?: string; persona?: string; uiConfig?: Partial<UiCustomizationConfig> }
     ) => {
       const res = await fetch('/api/duet/messages', {
         method: 'POST',
@@ -428,6 +438,7 @@ export function useDuet(opts: UseDuetOptions) {
           channel_id: channelId,
           session_id: sessionMeta?.sessionId,
           persona: sessionMeta?.persona,
+          ui_config: sessionMeta?.uiConfig,
         }),
       });
       if (!res.ok) throw new Error(`duet message failed: HTTP ${res.status}`);

@@ -119,5 +119,35 @@ test('executeCliInput handles Hermes Agent /skills, /memory, /cron, /gateway, an
   }
 });
 
+test('executeCliInput handles /ui presets, natural arguments, reset, and /customize', () => {
+  const studio = executeCliInput('/customize', baseCtx);
+  assert.equal(studio.type, 'handled');
+  if (studio.type === 'handled') {
+    assert.equal(studio.uiPatch?.openCustomizer, true);
+  }
+
+  const preset = executeCliInput('/ui cyber-violet', baseCtx);
+  assert.equal(preset.type, 'handled');
+  if (preset.type === 'handled') {
+    assert.equal(preset.uiPatch?.presetId, 'cyber-violet');
+  }
+
+  const natural = executeCliInput('/ui amber mono sharp right sidebar', baseCtx);
+  assert.equal(natural.type, 'handled');
+  if (natural.type === 'handled') {
+    assert.equal(natural.uiPatch?.accentPreset, 'amber');
+    assert.equal(natural.uiPatch?.fontPreset, 'mono');
+    assert.equal(natural.uiPatch?.cornerRadius, 'sharp');
+    assert.equal(natural.uiPatch?.sidebarPosition, 'right');
+  }
+
+  const reset = executeCliInput('/ui reset', baseCtx);
+  assert.equal(reset.type, 'handled');
+  if (reset.type === 'handled') {
+    assert.equal(reset.uiPatch?.resetAll, true);
+  }
+});
+
+
 
 

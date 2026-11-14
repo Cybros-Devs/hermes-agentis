@@ -9,6 +9,13 @@ import type {
   HermesMemoryItem,
   HermesSkill,
 } from '../types/hermes';
+import {
+  CURATED_UI_PRESETS,
+  DEFAULT_UI_CONFIG,
+  getCuratedPreset,
+  parseNaturalUiIntent,
+  type UiCustomizationPatch,
+} from './uiCustomization';
 
 export const INITIAL_CHANNELS: Channel[] = [
   {
@@ -228,6 +235,7 @@ export type CliExecutionResult =
       setMood?: ExpressionMood;
       setShader?: 'solid' | 'wire' | 'depth' | 'holo' | 'norm';
       setDitherStyle?: 'braille';
+      uiPatch?: UiCustomizationPatch;
     }
   | {
       type: 'chat';
@@ -249,6 +257,8 @@ export const AVAILABLE_COMMANDS = [
   '/resume',
   '/approve',
   '/reject',
+  '/ui',
+  '/customize',
   '/mood',
   '/style',
   '/mute',
@@ -314,6 +324,8 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
           '  /resume <session>    Resume lane by session ID (e.g. duet-ops)',
           '  /approve <id>        Approve a pending mcp__duet gate card',
           '  /reject <id>         Dismiss a pending gate card',
+          '  /ui <spec|preset>    Dynamically customize theme, layout, character & backdrop',
+          '  /customize           Open the interactive UI Studio drawer',
           '  /mood <state>        Shift portrait (neutral|happy|focused|alert|thinking)',
           '  /mute                Toggle Hermes voice audio output',
           '  /status              Report gateway mode, lane, and pending gates',
@@ -576,6 +588,72 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
           `RUNNING TASKS: ${runningCount}`,
           `VOICE AUDIO: ${ctx.isMuted ? 'MUTED' : 'ACTIVE'}`,
         ].join('\n'),
+      };
+    }
+
+    case '/customize': {
+      const maybePatch = argStr
+        ? parseNaturalUiIntent(`make ui ${argStr}`, DEFAULT_UI_CONFIG) ?? { openCustomizer: true }
+        : { openCustomizer: true };
+      return {
+        type: 'handled',
+        mood: 'happy',
+        uiPatch: maybePatch,
+        spokenText: argStr
+          ? 'Updated UI customization and opened the live studio.'
+          : 'UI Customization Studio open. Adjust any theme, layout, or stage element live.',
+        output: 'UI CUSTOMIZATION STUDIO // Opening full theme, layout, character & backdrop controls.',
+      };
+    }
+
+    case '/ui': {
+      const lowerArg = argStr.toLowerCase();
+      if (!lowerArg || lowerArg === 'studio' || lowerArg === 'open') {
+        return {
+          type: 'handled',
+          mood: 'happy',
+          uiPatch: { openCustomizer: true },
+          spokenText: 'UI Studio opened. Every theme, layout, and stage token is live.',
+          output: 'UI STUDIO // Opened customization drawer. Try /ui cyber-violet, /ui reset, or natural language.',
+        };
+      }
+      if (lowerArg === 'reset' || lowerArg === 'default' || lowerArg === 'restore') {
+        return {
+          type: 'handled',
+          mood: 'happy',
+          uiPatch: { resetAll: true },
+          spokenText: 'Restored default Emerald Terminal layout and backdrop.',
+          output: 'UI RESET // Restored default Emerald Terminal theme, layout, character & backdrop.',
+        };
+      }
+      const preset = getCuratedPreset(lowerArg);
+      if (preset) {
+        return {
+          type: 'handled',
+          mood: preset.mood ?? 'happy',
+          uiPatch: { presetId: preset.id },
+          spokenText: `Applied ${preset.name} UI preset across the workspace.`,
+          output: `UI PRESET // Applied "${preset.name}" (${preset.subtitle}).`,
+        };
+      }
+      const parsed =
+        parseNaturalUiIntent(argStr, DEFAULT_UI_CONFIG) ??
+        parseNaturalUiIntent(`make ui ${argStr}`, DEFAULT_UI_CONFIG);
+      if (parsed) {
+        return {
+          type: 'handled',
+          mood: 'happy',
+          uiPatch: parsed,
+          spokenText: 'Applied your requested UI customization across the workspace.',
+          output: `UI UPDATED // ${Object.keys(parsed).join(', ')}`,
+        };
+      }
+      const presetIds = CURATED_UI_PRESETS.map((p) => p.id).join(', ');
+      return {
+        type: 'handled',
+        mood: 'alert',
+        spokenText: 'Specify a UI preset, reset, or customization instructions.',
+        output: `Usage: /ui <preset|reset|instructions>\nPresets: ${presetIds}\nExample: /ui violet mono sharp right sidebar braille rain`,
       };
     }
 

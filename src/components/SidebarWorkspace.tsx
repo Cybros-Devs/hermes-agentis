@@ -1,4 +1,4 @@
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Plus, SlidersHorizontal } from 'lucide-react';
 import type {
   ApprovalCard,
   BackgroundTask,
@@ -28,6 +28,11 @@ interface SidebarWorkspaceProps {
   onNewTask: () => void;
   onOpenQueue: () => void;
   onCloseMobile?: () => void;
+  workspaceTitle?: string;
+  queueVisible?: boolean;
+  channelsVisible?: boolean;
+  sidebarPosition?: 'left' | 'right';
+  onOpenStudio?: () => void;
 }
 
 export function SidebarWorkspace({
@@ -49,13 +54,19 @@ export function SidebarWorkspace({
   onNewTask,
   onOpenQueue,
   onCloseMobile,
+  workspaceTitle = '> hermes',
+  queueVisible = true,
+  channelsVisible = true,
+  sidebarPosition = 'left',
+  onOpenStudio,
 }: SidebarWorkspaceProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
 
   return (
     <aside
       aria-label="Hermes Tasks and Lanes"
-      className="flex flex-col h-full rounded-2xl bg-[#0A1613]/88 border border-white/10 overflow-hidden select-none"
+      data-testid="sidebar-workspace"
+      className="ui-sidebar-shell flex flex-col h-full rounded-2xl border overflow-hidden select-none"
     >
       {/* Clean Minimal Header */}
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5">
@@ -70,19 +81,35 @@ export function SidebarWorkspace({
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <span className="font-mono text-xs font-semibold tracking-tight text-white/90">
-            &gt; hermes
+          <span
+            data-testid="sidebar-workspace-title"
+            className="font-mono text-xs font-semibold tracking-tight text-white/90 truncate"
+          >
+            {workspaceTitle}
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={onNewTask}
-          className="flex items-center gap-1 text-xs font-medium text-emerald-50/75 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/6"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New</span>
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          {onOpenStudio && (
+            <button
+              type="button"
+              onClick={onOpenStudio}
+              aria-label="Customize UI studio"
+              title="Customize UI"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-emerald-100/60 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onNewTask}
+            className="flex items-center gap-1 text-xs font-medium text-emerald-50/75 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/6"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New</span>
+          </button>
+        </div>
       </div>
 
       {/* Active Session Card */}
@@ -115,128 +142,142 @@ export function SidebarWorkspace({
 
       {/* Calm Scannable Queue */}
       <div className="flex-1 overflow-y-auto cyber-scroll px-3 py-3 space-y-1.5">
-        {pendingApprovals.map((card) => {
-          const active = selectedItemId === card.id;
-          return (
-            <button
-              key={card.id}
-              type="button"
-              onClick={() => onSelectApproval(card)}
-              className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                active ? 'bg-white/10' : 'hover:bg-white/5'
-              }`}
-            >
-              <span
-                aria-hidden="true"
-                className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shrink-0 mt-1.5"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-white truncate">{card.title}</div>
-                <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
-                  Approval · #{card.channelId}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-
-        {tasks.map((task) => {
-          const active = selectedItemId === task.id;
-          const isRunning = task.status === 'running';
-          return (
-            <button
-              key={task.id}
-              type="button"
-              onClick={() => onSelectTask(task)}
-              className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                active ? 'bg-white/10' : 'hover:bg-white/5'
-              }`}
-            >
-              <span
-                aria-hidden="true"
-                className={`text-xs leading-4 shrink-0 mt-0.5 ${
-                  isRunning ? 'text-[#6EE7B7]' : 'text-emerald-100/40'
-                }`}
-              >
-                {isRunning ? '❖' : '○'}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[13px] text-emerald-50/85 truncate">{task.title}</span>
-                  <span className="font-mono text-[11px] text-emerald-100/40 tabular-nums shrink-0">
-                    {task.progress}%
-                  </span>
-                </div>
-                <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
-                  #{task.channelId}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-
-        {brief
-          .filter((b) => !b.resolved)
-          .slice(0, 2)
-          .map((item) => {
-            const active = selectedItemId === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onSelectBrief(item)}
-                className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                  active ? 'bg-white/10' : 'hover:bg-white/5'
-                }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className="text-xs leading-4 text-emerald-100/40 shrink-0 mt-0.5"
+        {!queueVisible ? (
+          <div className="px-2.5 py-6 text-center text-[11px] text-emerald-100/40">
+            Queue hidden in UI layout
+          </div>
+        ) : (
+          <>
+            {pendingApprovals.map((card) => {
+              const active = selectedItemId === card.id;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => onSelectApproval(card)}
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                    active ? 'bg-white/10' : 'hover:bg-white/5'
+                  }`}
                 >
-                  ○
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] text-emerald-50/80 truncate">{item.title}</div>
-                  <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">Brief</div>
-                </div>
-              </button>
-            );
-          })}
+                  <span
+                    aria-hidden="true"
+                    className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shrink-0 mt-1.5"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium text-white truncate">{card.title}</div>
+                    <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
+                      Approval · #{card.channelId}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+
+            {tasks.map((task) => {
+              const active = selectedItemId === task.id;
+              const isRunning = task.status === 'running';
+              return (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => onSelectTask(task)}
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                    active ? 'bg-white/10' : 'hover:bg-white/5'
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`text-xs leading-4 shrink-0 mt-0.5 ${
+                      isRunning ? 'text-[#6EE7B7]' : 'text-emerald-100/40'
+                    }`}
+                  >
+                    {isRunning ? '❖' : '○'}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[13px] text-emerald-50/85 truncate">{task.title}</span>
+                      <span className="font-mono text-[11px] text-emerald-100/40 tabular-nums shrink-0">
+                        {task.progress}%
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
+                      #{task.channelId}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+
+            {brief
+              .filter((b) => !b.resolved)
+              .slice(0, 2)
+              .map((item) => {
+                const active = selectedItemId === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onSelectBrief(item)}
+                    className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                      active ? 'bg-white/10' : 'hover:bg-white/5'
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="text-xs leading-4 text-emerald-100/40 shrink-0 mt-0.5"
+                    >
+                      ○
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] text-emerald-50/80 truncate">{item.title}</div>
+                      <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">Brief</div>
+                    </div>
+                  </button>
+                );
+              })}
+          </>
+        )}
       </div>
 
       {/* Minimal Channel Switcher Footer */}
-      <div className="px-3.5 py-2.5 border-t border-white/8 flex items-center justify-between gap-2 font-mono text-[11px]">
-        <div className="flex items-center gap-2 overflow-x-auto cyber-scroll min-w-0">
-          {channels.map((ch) => {
-            const active = ch.id === activeChannel;
-            const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
-            return (
-              <button
-                key={ch.id}
-                type="button"
-                onClick={() => onSelectChannel(ch.id)}
-                className={`transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                  active ? 'text-[#4ADE80] font-semibold' : 'text-emerald-100/45 hover:text-white'
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        {(isSpeaking || isListening) && (
-          <div className="flex items-end gap-0.5 h-3 shrink-0" aria-hidden="true">
-            {frequencyBands.slice(0, 5).map((band, idx) => (
-              <span
-                key={idx}
-                className="w-0.5 rounded-[1px] bg-[#4ADE80] transition-all duration-75"
-                style={{ height: `${Math.max(25, Math.round(band * 100))}%` }}
-              />
-            ))}
+      {channelsVisible && (
+        <div
+          className={`py-2.5 pl-3.5 border-t border-white/8 flex items-center justify-between gap-2 font-mono text-[11px] ${
+            sidebarPosition === 'right' ? 'pr-12' : 'pr-3.5'
+          }`}
+        >
+          <div className="flex items-center gap-2 overflow-x-auto cyber-scroll min-w-0">
+            {channels.map((ch) => {
+              const active = ch.id === activeChannel;
+              const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
+              return (
+                <button
+                  key={ch.id}
+                  type="button"
+                  onClick={() => onSelectChannel(ch.id)}
+                  className={`transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    active ? 'text-[#4ADE80] font-semibold' : 'text-emerald-100/45 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
-        )}
-      </div>
+
+          {(isSpeaking || isListening) && (
+            <div className="flex items-end gap-0.5 h-3 shrink-0" aria-hidden="true">
+              {frequencyBands.slice(0, 5).map((band, idx) => (
+                <span
+                  key={idx}
+                  className="w-0.5 rounded-[1px] bg-[#4ADE80] transition-all duration-75"
+                  style={{ height: `${Math.max(25, Math.round(band * 100))}%` }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

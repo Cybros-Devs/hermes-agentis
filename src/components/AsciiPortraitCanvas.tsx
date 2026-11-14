@@ -101,7 +101,27 @@ interface AsciiPortraitCanvasProps {
   isListening: boolean;
   lookTarget?: LookTarget | null;
   lookTargetRef?: RefObject<LookTarget | null>;
+  tintHex?: string | null;
+  speedScale?: number;
+  reducedMotionOverride?: boolean;
   onClick?: () => void;
+}
+
+function mixPortraitHex(hexA: string, hexB: string, t: number): string {
+  const cleanA = hexA.replace('#', '');
+  const cleanB = hexB.replace('#', '');
+  if (cleanA.length !== 6 || cleanB.length !== 6) return hexA;
+  const r1 = parseInt(cleanA.slice(0, 2), 16);
+  const g1 = parseInt(cleanA.slice(2, 4), 16);
+  const b1 = parseInt(cleanA.slice(4, 6), 16);
+  const r2 = parseInt(cleanB.slice(0, 2), 16);
+  const g2 = parseInt(cleanB.slice(2, 4), 16);
+  const b2 = parseInt(cleanB.slice(4, 6), 16);
+  const w = Math.max(0, Math.min(1, t));
+  const r = Math.round(r1 + (r2 - r1) * w);
+  const g = Math.round(g1 + (g2 - g1) * w);
+  const b = Math.round(b1 + (b2 - b1) * w);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
 // Bitmask lookup order matching standard Unicode Braille U+2800..U+28FF
@@ -126,6 +146,9 @@ export function AsciiPortraitCanvas({
   isListening,
   lookTarget,
   lookTargetRef,
+  tintHex = null,
+  speedScale = 1,
+  reducedMotionOverride = false,
   onClick,
 }: AsciiPortraitCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -143,6 +166,9 @@ export function AsciiPortraitCanvas({
     lookTargetRef,
     sourceField,
     spriteBank,
+    tintHex,
+    speedScale,
+    reducedMotionOverride,
   });
   stateRef.current = {
     mood,
@@ -155,6 +181,9 @@ export function AsciiPortraitCanvas({
     lookTargetRef,
     sourceField,
     spriteBank,
+    tintHex,
+    speedScale,
+    reducedMotionOverride,
   };
 
   useEffect(() => {
@@ -203,21 +232,28 @@ export function AsciiPortraitCanvas({
     const dotRadius = isThumb ? 0.42 : Math.min(dotW, dotH) * (isStage ? 0.44 : 0.42);
     const startTime = performance.now();
     const animator = createPortraitAnimator();
-    const reducedMotion =
+    const systemReduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     let smoothEnergy = stateRef.current.energy;
     let rafId = 0;
     let lastDraw = startTime;
+    let elapsedPhase = 0;
 
     const drawFrame = (now: number) => {
       const s = stateRef.current;
-      const dt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
+      const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
+      const speed = Math.max(0.25, Math.min(2.0, s.speedScale || 1));
+      const rawDt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
+      const dt = isReduced ? rawDt : rawDt * speed;
       lastDraw = now;
+      if (!isReduced) {
+        elapsedPhase += dt;
+      }
 
       smoothEnergy += (s.energy - smoothEnergy) * (1 - Math.exp(-16 * dt));
-      const elapsed = isThumb ? 0.5 : (now - startTime) / 1000;
+      const elapsed = isThumb ? 0.5 : isReduced ? 0.6 : elapsedPhase;
       const activeLook = s.lookTargetRef?.current ?? s.lookTarget ?? null;
 
       const motion = isThumb
@@ -233,7 +269,7 @@ export function AsciiPortraitCanvas({
               isListening: s.isListening,
             },
             dt,
-            reducedMotion,
+            isReduced,
             activeLook
           );
 
@@ -288,15 +324,24 @@ export function AsciiPortraitCanvas({
         }
       }
 
-      ctx.fillStyle = activeTint ? '#A7F3D0' : '#C2D4CE';
+      const customTint = s.tintHex;
+      const lowColor = customTint
+        ? mixPortraitHex('#7E968F', customTint, activeTint ? 0.85 : 0.55)
+        : activeTint
+        ? '#A7F3D0'
+        : '#C2D4CE';
+      const midColor = customTint ? mixPortraitHex('#E6F0EC', customTint, 0.52) : '#E6F0EC';
+      const highColor = customTint ? mixPortraitHex('#FFFFFF', customTint, 0.18) : '#FFFFFF';
+
+      ctx.fillStyle = lowColor;
       ctx.globalAlpha = 0.72;
       ctx.fill(pLow);
 
-      ctx.fillStyle = '#E6F0EC';
+      ctx.fillStyle = midColor;
       ctx.globalAlpha = 0.88;
       ctx.fill(pMid);
 
-      ctx.fillStyle = '#FFFFFF';
+      ctx.fillStyle = highColor;
       ctx.globalAlpha = 0.98;
       ctx.fill(pHigh);
 

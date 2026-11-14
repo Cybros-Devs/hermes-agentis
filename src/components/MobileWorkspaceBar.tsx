@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   PanelLeft,
   RotateCcw,
+  SlidersHorizontal,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -40,6 +41,7 @@ interface MobileWorkspaceBarProps {
   onCycleMood: () => void;
   onToggleMute: () => void;
   onToggleThinking: () => void;
+  onOpenStudio?: () => void;
 }
 
 const VIEW_LABELS: Record<WorkspacePanelView, string> = {
@@ -71,6 +73,7 @@ export function MobileWorkspaceBar({
   onCycleMood,
   onToggleMute,
   onToggleThinking,
+  onOpenStudio,
 }: MobileWorkspaceBarProps) {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const maxAvatars = 4;
@@ -229,6 +232,20 @@ export function MobileWorkspaceBar({
                     {showThinking ? 'on' : 'off'}
                   </span>
                 </button>
+                {onOpenStudio && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setViewMenuOpen(false);
+                      onOpenStudio();
+                    }}
+                    className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/85 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-[#6EE7B7]" />
+                    <span>Customize UI</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"

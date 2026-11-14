@@ -5,6 +5,14 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
+import {
+  DEFAULT_UI_CONFIG,
+  applyUiPatch,
+  parseNaturalUiIntent,
+  sanitizeUiPatch,
+  type UiCustomizationConfig,
+  type UiCustomizationPatch,
+} from "./src/utils/uiCustomization.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -231,6 +239,7 @@ interface StandaloneDuetItem {
   streaming?: boolean;
   run_id?: string | null;
   card?: StandaloneDuetCard;
+  ui_patch?: UiCustomizationPatch;
 }
 
 interface StandaloneDuetTask {
@@ -609,6 +618,7 @@ async function createServer() {
     history?: Array<{ role?: string; text?: string }>;
     pendingApprovals?: Array<{ id?: string; title?: string }>;
     tasks?: Array<{ status?: string }>;
+    uiConfig?: Partial<UiCustomizationConfig>;
   }) {
     const {
       message,
@@ -618,7 +628,14 @@ async function createServer() {
       history = [],
       pendingApprovals = [],
       tasks = [],
+      uiConfig,
     } = params;
+
+    const currentUi: UiCustomizationConfig = applyUiPatch(
+      DEFAULT_UI_CONFIG,
+      sanitizeUiPatch(uiConfig ?? {})
+    ).next;
+    const heuristicPatch = parseNaturalUiIntent(message, currentUi);
 
     const resolvedSessionId =
       typeof sessionId === "string" && sessionId ? sessionId : `hermes-${channelId || "general"}`;
@@ -666,6 +683,7 @@ async function createServer() {
                 reply: content,
                 mood: "happy",
                 suggestedCommand: "",
+                uiPatch: heuristicPatch ?? undefined,
                 sourceMode: "hermes-gateway",
                 sessionId: resolvedSessionId,
               };
@@ -687,8 +705,14 @@ async function createServer() {
         "Each Braille shape on the canvas hosts its own separate hermes-agent session and isolated thread history.",
         `Assigned session persona: ${resolvedPersona}`,
         "Speak concisely (1-3 crisp sentences, <= 55 words) because every reply is spoken aloud via TTS with live facial lip-sync and Braille text decoding.",
-        "Maintain genuine Hermes Agent & Hermes Duet awareness: Gateway API server (:8642, /v1/runs, /v1/chat/completions), MCP bridge tools (mcp__duet__request_approval, mcp__duet__request_payment, mcp__duet__post_brief, mcp__duet__save_page), ~/.hermes/skills/, persistent MEMORY.md, and cronjob_manage schedules.",
-        "If the user asks to approve or reject a pending card, reference /approve <id> or the Approve button; remember a chat 'yes' does not bypass the explicit approval card button.",
+        "DYNAMIC UI CONTROL: You have complete live control over every element of this web UI via the `uiPatch` object!",
+        "Whenever the user asks to customize, restyle, theme, recolor, resize, move, hide, show, blur, slow/speed up, rename, switch views, or transform the interface (even creatively like 'retro submarine terminal', 'minimal zen focus', or 'pink neon cyberpunk'), return a cohesive `uiPatch` setting all matching properties:",
+        "- `presetId`: optional base (`emerald-terminal`, `cyber-violet`, `solaris-amber`, `glacier-cyan`, `sakura-rose`, `zen-mono`)",
+        "- Palette/glass: `accentPreset`, `accentHex`, `surfaceHex`, `panelAlpha` (0.32..0.95), `borderOpacity` (0.08..0.9), `glowIntensity` (0..2), `backgroundPresetId` (`aurora-drift` | `mesh-gradient` | `braille-rain` | `scanline-shimmer` | `nebula` | `constellation-drift` | `horizon-tide`), `backgroundOpacity` (0.15..0.85), `glassBlurPx` (0..28)",
+        "- Layout/typography: `sidebarVisible`, `sidebarPosition` (`left`|`right`), `sidebarWidthPx` (236..420), `sidebarQueueVisible`, `sidebarChannelsVisible`, `showTopNav`, `composerStyle` (`docked`|`floating`|`minimal`), `cornerRadius` (`sharp`|`rounded`|`pill`), `density` (`compact`|`comfortable`|`airy`), `fontPreset` (`jakarta`|`mono`|`display`|`system`), `fontScale` (0.85..1.25), `workspaceTitle`",
+        "- Character/stage/navigation: `portraitVisible`, `portraitScale` (0.6..1.45), `portraitTintHex` (`#RRGGBB` or `auto`), `horizonVisible`, `horizonOpacity` (0..1), `statusReadoutVisible`, `animationSpeed` (0.3..1.8), `reducedMotion`, `activeView` (`home`|`canvas`|`voice`|`queue`|`cli`), `showThinking`, `voiceMuted`, `openCustomizer`, `canvasAutoArrange`, `canvasMoodAll`, `resetAll`.",
+        "Only populate `uiPatch` when the user asks to modify or navigate UI/visual/layout/stage settings; omit `uiPatch` for ordinary Q&A.",
+        `Current UI state snapshot: ${JSON.stringify(currentUi)}`,
         `Isolated session: ${resolvedSessionId} (lane #${channelId || "general"}).`,
         `Pending mcp__duet gates: ${JSON.stringify(pendingApprovals)}.`,
         `Active background runs: ${JSON.stringify(tasks)}.`,
@@ -726,7 +750,50 @@ async function createServer() {
                 },
                 suggestedCommand: {
                   type: Type.STRING,
-                  description: "Optional Hermes Duet command like /brief, /skills, /gateway, or /approve card-1.",
+                  description: "Optional Hermes Duet command like /brief, /skills, /gateway, /ui, or /approve card-1.",
+                },
+                uiPatch: {
+                  type: Type.OBJECT,
+                  description: "Optional UI customization patch to dynamically update theme, layout, character, horizon, typography, or background.",
+                  properties: {
+                    presetId: { type: Type.STRING },
+                    accentPreset: { type: Type.STRING },
+                    accentHex: { type: Type.STRING },
+                    surfaceHex: { type: Type.STRING },
+                    panelAlpha: { type: Type.NUMBER },
+                    borderOpacity: { type: Type.NUMBER },
+                    glowIntensity: { type: Type.NUMBER },
+                    cornerRadius: { type: Type.STRING },
+                    density: { type: Type.STRING },
+                    fontPreset: { type: Type.STRING },
+                    fontScale: { type: Type.NUMBER },
+                    sidebarVisible: { type: Type.BOOLEAN },
+                    sidebarPosition: { type: Type.STRING },
+                    sidebarWidthPx: { type: Type.NUMBER },
+                    sidebarQueueVisible: { type: Type.BOOLEAN },
+                    sidebarChannelsVisible: { type: Type.BOOLEAN },
+                    showTopNav: { type: Type.BOOLEAN },
+                    composerStyle: { type: Type.STRING },
+                    workspaceTitle: { type: Type.STRING },
+                    portraitVisible: { type: Type.BOOLEAN },
+                    portraitScale: { type: Type.NUMBER },
+                    portraitTintHex: { type: Type.STRING },
+                    horizonVisible: { type: Type.BOOLEAN },
+                    horizonOpacity: { type: Type.NUMBER },
+                    statusReadoutVisible: { type: Type.BOOLEAN },
+                    animationSpeed: { type: Type.NUMBER },
+                    reducedMotion: { type: Type.BOOLEAN },
+                    backgroundPresetId: { type: Type.STRING },
+                    backgroundOpacity: { type: Type.NUMBER },
+                    glassBlurPx: { type: Type.NUMBER },
+                    activeView: { type: Type.STRING },
+                    showThinking: { type: Type.BOOLEAN },
+                    voiceMuted: { type: Type.BOOLEAN },
+                    openCustomizer: { type: Type.BOOLEAN },
+                    canvasAutoArrange: { type: Type.BOOLEAN },
+                    canvasMoodAll: { type: Type.STRING },
+                    resetAll: { type: Type.BOOLEAN },
+                  },
                 },
               },
               required: ["reply", "mood"],
@@ -739,7 +806,12 @@ async function createServer() {
       ]);
 
       const raw = (response.text ?? "{}").trim();
-      let parsed: { reply?: string; mood?: string; suggestedCommand?: string };
+      let parsed: {
+        reply?: string;
+        mood?: string;
+        suggestedCommand?: string;
+        uiPatch?: UiCustomizationPatch;
+      };
       try {
         parsed = JSON.parse(raw);
       } catch {
@@ -749,18 +821,40 @@ async function createServer() {
       const allowedMoods = new Set(["neutral", "happy", "focused", "alert", "thinking", "speaking"]);
       const mood = allowedMoods.has(String(parsed.mood)) ? String(parsed.mood) : "speaking";
 
+      const rawGeminiPatch = sanitizeUiPatch(parsed.uiPatch);
+      const mergedPatchRaw: UiCustomizationPatch = {
+        ...(heuristicPatch ?? {}),
+        ...rawGeminiPatch,
+      };
+      const cleanUiPatch =
+        Object.keys(mergedPatchRaw).length > 0 ? sanitizeUiPatch(mergedPatchRaw) : undefined;
+
       return {
         reply: parsed.reply || "Signal received and logged to your Hermes lane.",
         mood,
         suggestedCommand: parsed.suggestedCommand || "",
+        uiPatch: cleanUiPatch && Object.keys(cleanUiPatch).length > 0 ? cleanUiPatch : undefined,
         sourceMode: "gemini-bridge",
         sessionId: resolvedSessionId,
       };
     } catch {
+      if (heuristicPatch) {
+        const applied = applyUiPatch(currentUi, heuristicPatch);
+        return {
+          reply: `Done — ${applied.summary.toLowerCase()}. Tell me if you want to tweak anything else or reset.`,
+          mood: applied.sanitized.mood || "happy",
+          suggestedCommand: "",
+          uiPatch: applied.sanitized,
+          sourceMode: "local-duet-ui",
+          sessionId: resolvedSessionId,
+          fallback: true,
+        };
+      }
+
       const lower = String(message).toLowerCase();
       const pendingList = Array.isArray(pendingApprovals) ? pendingApprovals : [];
       const taskList = Array.isArray(tasks) ? tasks : [];
-      let reply = `Session ${resolvedSessionId} active in #${channelId}. Send a prompt or run /brief, /skills, or /gateway.`;
+      let reply = `Session ${resolvedSessionId} active in #${channelId}. Send a prompt or run /brief, /skills, or /ui.`;
       let mood = "happy";
       let suggestedCommand = "";
 
@@ -809,6 +903,7 @@ async function createServer() {
       history = [],
       pendingApprovals = [],
       tasks = [],
+      uiConfig,
     } = req.body ?? {};
     if (!message || typeof message !== "string") {
       res.status(400).json({ error: "Message is required." });
@@ -823,6 +918,7 @@ async function createServer() {
       history,
       pendingApprovals,
       tasks,
+      uiConfig,
     });
     res.status(200).json(result);
   });
@@ -1109,11 +1205,13 @@ async function createServer() {
       channel_id = "general",
       session_id,
       persona,
+      ui_config,
     } = (req.body ?? {}) as {
       text?: string;
       channel_id?: string;
       session_id?: string;
       persona?: string;
+      ui_config?: Partial<UiCustomizationConfig>;
     };
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "text is required" });
@@ -1198,6 +1296,7 @@ async function createServer() {
           history,
           pendingApprovals,
           tasks: standaloneTasks.filter((t) => (t.channel_id || "general") === channel.id),
+          uiConfig: ui_config,
         });
 
         const assistantItem: StandaloneDuetItem = {
@@ -1206,12 +1305,20 @@ async function createServer() {
           created_at: Date.now(),
           channel_id: channel.id,
           streaming: false,
+          ui_patch: replyData.uiPatch,
           text: replyData.suggestedCommand
             ? `${replyData.reply}\n[Suggested: ${replyData.suggestedCommand}]`
             : replyData.reply,
         };
         standaloneItems.push(assistantItem);
         standaloneSessionStatus.set(channel.id, "idle");
+        if (replyData.uiPatch) {
+          broadcastStandaloneEvent({
+            type: "ui_patch",
+            channelId: channel.id,
+            patch: replyData.uiPatch,
+          });
+        }
         broadcastStandaloneEvent({ type: "item", item: assistantItem });
         broadcastStandaloneEvent({ type: "session", session: buildSessionSnapshot(channel) });
       } catch {

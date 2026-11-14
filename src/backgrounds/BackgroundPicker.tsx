@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Layers, RotateCcw, X } from 'lucide-react';
+import { Layers, RotateCcw, SlidersHorizontal, X } from 'lucide-react';
+import { requestUiCustomizerOpen } from '../utils/uiCustomization';
 import {
   BackgroundCustomSlots,
   BackgroundPresetGrid,
@@ -91,7 +92,20 @@ export function BackgroundPicker({
             />
           </div>
 
-          <div className="pt-2 border-t border-white/8 flex items-center justify-end">
+          <div className="pt-2 border-t border-white/8 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                requestUiCustomizerOpen('theme');
+              }}
+              data-testid="open-full-studio-from-bg"
+              className="inline-flex items-center gap-1.5 text-[11px] text-[#6EE7B7] hover:text-white transition-colors cursor-pointer"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Full UI Studio →</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
