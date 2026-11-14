@@ -249,7 +249,7 @@ export function AsciiPortraitCanvas({
     if (isThumb) return;
 
     let timerId = 0;
-    const minIntervalMs = isStage ? 32 : 26;
+    const minIntervalMs = isStage ? 28 : 24;
 
     const loop = (now: number) => {
       if (now - lastDraw >= minIntervalMs) {
@@ -257,7 +257,7 @@ export function AsciiPortraitCanvas({
       }
       timerId = window.setTimeout(() => {
         rafId = window.requestAnimationFrame(loop);
-      }, 24);
+      }, 16);
     };
 
     rafId = window.requestAnimationFrame(loop);

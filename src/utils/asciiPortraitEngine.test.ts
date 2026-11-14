@@ -315,4 +315,37 @@ test('10-panel talking reference visemes render distinctly and animator damps ja
   assert.ok(sMbp.lipPress > 0.2, 'M/B/P should engage bilabial lipPress channel');
 });
 
+test('createPortraitAnimator prevents 1-frame mouth teleportation and produces fixation saccade dwells', () => {
+  const anim = createPortraitAnimator();
+  const dt = 1 / 30;
+  const mouthOpens: number[] = [];
+  const gazeXSeries: number[] = [];
+
+  for (let i = 0; i < 90; i++) {
+    const t = i * dt;
+    const isSpeaking = i >= 10 && i < 60;
+    const st = anim.step(
+      {
+        time: t,
+        mood: isSpeaking ? 'speaking' : 'neutral',
+        viseme: isSpeaking ? (i % 4 === 0 ? 'wide' : i % 4 === 1 ? 'ee' : 'round') : 'closed',
+        eyeState: 'open',
+        energy: isSpeaking ? 0.88 : 0.08,
+        isSpeaking,
+        isListening: false,
+      },
+      dt
+    );
+    mouthOpens.push(st.mouthOpen);
+    if (!isSpeaking) gazeXSeries.push(st.gazeX);
+  }
+
+  let maxMouthJump = 0;
+  for (let i = 1; i < mouthOpens.length; i++) {
+    maxMouthJump = Math.max(maxMouthJump, Math.abs(mouthOpens[i] - mouthOpens[i - 1]));
+  }
+  assert.ok(maxMouthJump < 0.26, `Expected 2nd-order damped mouthOpen without teleport spikes, got ${maxMouthJump}`);
+  assert.ok(gazeXSeries.some((g) => Math.abs(g) > 0.05), 'Expected subtle eye saccade motion during idle');
+});
+
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { LookTarget } from '../utils/asciiPortraitEngine';
-import { renderBrailleHorizon } from '../utils/brailleFieldEngine';
+import { createHorizonAnimator, renderBrailleHorizon } from '../utils/brailleFieldEngine';
 
 interface BrailleHorizonCanvasProps {
   energy: number;
@@ -65,9 +65,7 @@ export function BrailleHorizonCanvas({
 
     const startTime = performance.now();
     let lastDraw = startTime;
-    let smoothEnergy = stateRef.current.energy;
-    let smoothPtrX = 0;
-    let smoothPtrY = 0;
+    const animator = createHorizonAnimator();
     let rafId = 0;
 
     const drawFrame = (now: number) => {
@@ -75,23 +73,28 @@ export function BrailleHorizonCanvas({
       const dt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
       lastDraw = now;
 
-      const factor = 1 - Math.exp(-8 * dt);
-      smoothEnergy += (s.energy - smoothEnergy) * factor;
       const look = s.lookTargetRef?.current;
-      const tx = look ? look.x : 0;
-      const ty = look ? look.y : 0;
-      smoothPtrX += (tx - smoothPtrX) * factor;
-      smoothPtrY += (ty - smoothPtrY) * factor;
+      const motion = animator.step(
+        {
+          energy: s.energy,
+          pointerX: look ? look.x : 0,
+          pointerY: look ? look.y : 0,
+          bands: s.frequencyBands,
+        },
+        dt,
+        Boolean(reducedMotion)
+      );
 
       const elapsed = reducedMotion ? 0.6 : (now - startTime) / 1000;
       const frame = renderBrailleHorizon({
         cols,
         rows,
         time: elapsed,
-        energy: smoothEnergy,
-        pointerX: smoothPtrX,
-        pointerY: smoothPtrY,
-        bands: s.frequencyBands,
+        energy: motion.energy,
+        pointerX: motion.pointerX,
+        pointerY: motion.pointerY,
+        bands: motion.bands,
+        motion,
       });
 
       ctx.clearRect(0, 0, width, height);
@@ -156,13 +159,13 @@ export function BrailleHorizonCanvas({
     let timerId = 0;
     const loop = (now: number) => {
       const active = stateRef.current.isActive;
-      const interval = active ? 34 : 64;
+      const interval = active ? 28 : 50;
       if (now - lastDraw >= interval) {
         drawFrame(now);
       }
       timerId = window.setTimeout(() => {
         rafId = window.requestAnimationFrame(loop);
-      }, active ? 26 : 56);
+      }, active ? 20 : 40);
     };
 
     rafId = window.requestAnimationFrame(loop);
