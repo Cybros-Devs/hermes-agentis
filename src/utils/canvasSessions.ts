@@ -67,16 +67,20 @@ export function slugifySessionName(raw: string, existingIds: Iterable<string>): 
       .trim()
       .replace(/[^a-z0-9-_]+/g, '-')
       .replace(/^-+|-+$/g, '')
-      .slice(0, 24) || 'session';
+      .slice(0, 24)
+      .replace(/-+$/g, '') || 'session';
 
   const taken = new Set(Array.from(existingIds, (id) => id.toLowerCase()));
   if (!taken.has(base)) return base;
 
   let n = 2;
-  while (taken.has(`${base}-${n}`)) {
+  while (true) {
+    const suffix = `-${n}`;
+    const trimmedBase = base.slice(0, Math.max(1, 24 - suffix.length)).replace(/-+$/g, '') || 's';
+    const candidate = `${trimmedBase}${suffix}`;
+    if (!taken.has(candidate)) return candidate;
     n++;
   }
-  return `${base}-${n}`;
 }
 
 export function findOpenCanvasSpot(existing: Pick<CanvasSession, 'xPct' | 'yPct'>[]): {

@@ -256,6 +256,8 @@ export function useDuet(opts: UseDuetOptions) {
   const channelAliasRef = useRef<Map<string, string>>(new Map());
   /** Item ids whose completion already triggered speech; replays stay silent. */
   const spokenItemIdsRef = useRef<Set<string>>(new Set());
+  /** Tracks channel slugs whose full page has been loaded on demand. */
+  const loadedChannelsRef = useRef<Set<string>>(new Set());
 
   /** Track live per-channel state from a Duet item (linked-mode dot status). */
   const noteItemStats = useCallback((item: DuetItem) => {
@@ -509,8 +511,10 @@ export function useDuet(opts: UseDuetOptions) {
           data.upstream_channel_id.replace(/^chan-/i, '').toLowerCase(),
           data.resolvedChannelId
         );
+        loadedChannelsRef.current.add(data.resolvedChannelId);
       }
       if (data.channel) {
+        recordChannelAliases(channelAliasRef.current, data.channel);
         const mapped = mapChannel(data.channel);
         setChannels((prev) => {
           const next = prev.filter((c) => c.id !== mapped.id);
@@ -521,6 +525,38 @@ export function useDuet(opts: UseDuetOptions) {
       return data;
     },
     []
+  );
+
+  const loadChannelHistory = useCallback(
+    async (channelId: string, force = false) => {
+      const cleanId = normalizeDuetChannelId(channelId, channelAliasRef.current);
+      if (!cleanId) return;
+      if (!force && loadedChannelsRef.current.has(cleanId)) {
+        void fetch(`/api/duet/channels/${encodeURIComponent(cleanId)}/seen`, {
+          method: 'POST',
+        }).catch(() => {});
+        return;
+      }
+      try {
+        const res = await fetch(`/api/duet/channels/${encodeURIComponent(cleanId)}/items`);
+        if (!res.ok) return;
+        const page = (await res.json()) as { items?: DuetItem[] };
+        loadedChannelsRef.current.add(cleanId);
+        const pageItems = [...(page.items ?? [])].sort((a, b) => a.created_at - b.created_at);
+        for (const item of pageItems) {
+          if (item.kind === 'assistant' && item.id) {
+            spokenItemIdsRef.current.add(item.id);
+          }
+          applyItem(item, false);
+        }
+        void fetch(`/api/duet/channels/${encodeURIComponent(cleanId)}/seen`, {
+          method: 'POST',
+        }).catch(() => {});
+      } catch {
+        // Non-fatal: standalone or transient drop
+      }
+    },
+    [applyItem]
   );
 
   const resetHermesSession = useCallback(async (channelId: string) => {
@@ -590,6 +626,7 @@ export function useDuet(opts: UseDuetOptions) {
       brief,
       sendMessage,
       createHermesSession,
+      loadChannelHistory,
       resetHermesSession,
       deleteHermesSession,
       actOnCard,
@@ -605,6 +642,7 @@ export function useDuet(opts: UseDuetOptions) {
       brief,
       sendMessage,
       createHermesSession,
+      loadChannelHistory,
       resetHermesSession,
       deleteHermesSession,
       actOnCard,

@@ -73,8 +73,10 @@ export function deriveSessionFromPrompt(
 
   const meaningful = words.filter((w) => !FILLER_WORDS.has(w) && w.length > 1);
   const chosen = (meaningful.length > 0 ? meaningful : words).slice(0, 3);
-  const candidateBase = chosen.join('-') || 'session';
-  const slug = slugifySessionName(candidateBase, existingChannelIds);
+  const rawBase = chosen.join('-') || 'session';
+  const candidateBase = rawBase === 'general' ? 'general-session' : rawBase;
+  const takenWithGeneral = new Set<string>([...existingChannelIds, 'general']);
+  const slug = slugifySessionName(candidateBase, takenWithGeneral);
 
   return {
     slug,

@@ -7,6 +7,7 @@ import {
   Volume2,
   VolumeX,
   ArrowUp,
+  ArrowDown,
   Brain,
   Check,
   X,
@@ -38,6 +39,7 @@ import type { BrailleShapeKind, BrailleShapeTint } from '../utils/brailleShapesE
 import { getShapeMeta, type CanvasSession } from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
 import { groupThreadTimeline } from '../utils/threadTrace';
+import { computeThreadScrollPin } from '../utils/threadScroll';
 import { DEFAULT_UI_CONFIG, type UiCustomizationConfig } from '../utils/uiCustomization';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
@@ -98,6 +100,7 @@ interface VoiceWorkspacePaneProps {
   onResetSession: (channelId: string) => void;
   onRemoveCanvasSession: (id: string) => void;
   onOpenSessionThread: (session: CanvasSession) => void;
+  threadVisitNonce?: number;
   homeSessionDraft?: boolean;
   onStartNewSession?: () => void;
   uiConfig?: UiCustomizationConfig;
@@ -144,6 +147,7 @@ export function VoiceWorkspacePane({
   onResetSession,
   onRemoveCanvasSession,
   onOpenSessionThread,
+  threadVisitNonce = 0,
   homeSessionDraft = false,
   onStartNewSession,
   uiConfig = DEFAULT_UI_CONFIG,
@@ -154,8 +158,14 @@ export function VoiceWorkspacePane({
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [workingSeconds, setWorkingSeconds] = useState(0);
   const [portraitStatus, setPortraitStatus] = useState<PortraitAssetStatus>('loading');
+  const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const threadListRef = useRef<HTMLDivElement | null>(null);
+  const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
   const isPinnedToBottomRef = useRef(true);
+  const programmaticTargetTopRef = useRef<number | null>(null);
+  const lastUserScrollAtRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
   const lastScrollVisitRef = useRef('');
   const portraitWrapRef = useRef<HTMLDivElement | null>(null);
   const lookTargetRef = useRef<LookTarget | null>(null);
@@ -201,13 +211,28 @@ export function VoiceWorkspacePane({
   );
   const lastScopedTextLen = scopedEntries[scopedEntries.length - 1]?.text.length ?? 0;
 
+  const snapThreadToBottom = (behavior: ScrollBehavior = 'auto') => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (behavior === 'smooth') {
+      programmaticTargetTopRef.current = maxTop;
+      el.scrollTo({ top: maxTop, behavior: 'smooth' });
+    } else {
+      el.scrollTop = el.scrollHeight;
+      programmaticTargetTopRef.current = el.scrollTop;
+      lastScrollTopRef.current = el.scrollTop;
+    }
+  };
+
   useLayoutEffect(() => {
-    const visitKey = `${panelView}:${activeChannel}`;
+    const visitKey = `${panelView}:${activeChannel}:${threadVisitNonce}`;
     const isNewVisit = lastScrollVisitRef.current !== visitKey;
     lastScrollVisitRef.current = visitKey;
 
     if (panelView !== 'voice') {
       isPinnedToBottomRef.current = true;
+      setIsAwayFromBottom(false);
       return;
     }
 
@@ -216,18 +241,18 @@ export function VoiceWorkspacePane({
 
     if (isNewVisit) {
       isPinnedToBottomRef.current = true;
+      setIsAwayFromBottom(false);
+      lastScrollTopRef.current = el.scrollHeight;
     }
     if (!isPinnedToBottomRef.current) return;
 
-    const snapToBottom = () => {
-      if (scrollRef.current && isPinnedToBottomRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      }
-    };
-
-    snapToBottom();
-    const rafId = requestAnimationFrame(snapToBottom);
-    const timerId = window.setTimeout(snapToBottom, 60);
+    snapThreadToBottom('auto');
+    const rafId = requestAnimationFrame(() => {
+      if (isPinnedToBottomRef.current) snapThreadToBottom('auto');
+    });
+    const timerId = window.setTimeout(() => {
+      if (isPinnedToBottomRef.current) snapThreadToBottom('auto');
+    }, 60);
     return () => {
       cancelAnimationFrame(rafId);
       window.clearTimeout(timerId);
@@ -235,11 +260,59 @@ export function VoiceWorkspacePane({
   }, [
     panelView,
     activeChannel,
+    threadVisitNonce,
     scopedEntries.length,
     lastScopedTextLen,
     voiceState.interimTranscript,
     activeIsThinking,
   ]);
+
+  useEffect(() => {
+    if (panelView !== 'voice') return;
+    const container = scrollRef.current;
+    const list = threadListRef.current;
+    const anchor = bottomAnchorRef.current;
+    if (!container) return;
+
+    let rafId = 0;
+    const snapIfPinned = () => {
+      if (!isPinnedToBottomRef.current) return;
+      if (performance.now() - lastUserScrollAtRef.current < 200) return;
+      snapThreadToBottom('auto');
+    };
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        snapIfPinned();
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          snapIfPinned();
+        });
+      });
+      if (list) resizeObserver.observe(list);
+      if (anchor) resizeObserver.observe(anchor);
+      resizeObserver.observe(container);
+    }
+
+    let mutationObserver: MutationObserver | null = null;
+    if (list && typeof MutationObserver !== 'undefined') {
+      mutationObserver = new MutationObserver(() => {
+        snapIfPinned();
+      });
+      mutationObserver.observe(list, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    }
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+    };
+  }, [panelView, activeChannel, threadVisitNonce]);
 
   const effectiveMood: ExpressionMood = activeIsThinking
     ? 'thinking'
@@ -827,123 +900,182 @@ export function VoiceWorkspacePane({
               />
             </div>
           ) : (
-            <div
-              key={`view-voice-${activeChannel}`}
-              ref={scrollRef}
-              onScroll={() => {
-                const el = scrollRef.current;
-                if (!el) return;
-                isPinnedToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
-              }}
-              data-testid="voice-transcript-stream"
-              className="ui-view-enter transcript-fade-mask flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-14 lg:px-20 py-3 sm:py-4 space-y-4 sm:space-y-5"
-            >
-              {timelineBlocks.map((block, idx) => {
-                if (block.kind === 'trace') {
-                  return (
-                    <ThreadTraceTree
-                      key={block.id}
-                      sessionId={activeHermesSessionId}
-                      items={block.items}
-                      isLive={block.isLive}
-                    />
-                  );
-                }
+            <div className="relative flex-1 min-h-0 flex flex-col">
+              <div
+                key={`view-voice-${activeChannel}`}
+                ref={scrollRef}
+                onWheel={() => {
+                  lastUserScrollAtRef.current = performance.now();
+                }}
+                onTouchMove={() => {
+                  lastUserScrollAtRef.current = performance.now();
+                }}
+                onPointerDown={() => {
+                  lastUserScrollAtRef.current = performance.now();
+                }}
+                onScroll={() => {
+                  const el = scrollRef.current;
+                  if (!el) return;
+                  const nextTop = el.scrollTop;
+                  const target = programmaticTargetTopRef.current;
+                  const isNearTarget =
+                    target !== null && Math.abs(nextTop - target) <= 8;
+                  const isNearEnd =
+                    el.scrollHeight - nextTop - el.clientHeight <= 24;
+                  const isProgrammatic =
+                    target !== null && (isNearTarget || isNearEnd);
+                  if (!isProgrammatic || isNearTarget) {
+                    programmaticTargetTopRef.current = null;
+                  }
+                  const hasUserScrollIntent =
+                    performance.now() - lastUserScrollAtRef.current < 450;
+                  const result = computeThreadScrollPin({
+                    prevScrollTop: lastScrollTopRef.current,
+                    nextScrollTop: nextTop,
+                    scrollHeight: el.scrollHeight,
+                    clientHeight: el.clientHeight,
+                    isNewVisit: false,
+                    isProgrammatic,
+                    prevPinned: isPinnedToBottomRef.current,
+                    hasUserScrollIntent,
+                  });
+                  lastScrollTopRef.current = nextTop;
+                  isPinnedToBottomRef.current = result.pinned;
+                  setIsAwayFromBottom(result.away);
+                }}
+                data-testid="voice-transcript-stream"
+                data-pinned={String(!isAwayFromBottom)}
+                style={{ overflowAnchor: 'none' }}
+                className="ui-view-enter transcript-fade-mask flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-14 lg:px-20 py-3 sm:py-4"
+              >
+                <div ref={threadListRef} className="space-y-4 sm:space-y-5">
+                  {timelineBlocks.map((block, idx) => {
+                    if (block.kind === 'trace') {
+                      return (
+                        <ThreadTraceTree
+                          key={block.id}
+                          sessionId={activeHermesSessionId}
+                          items={block.items}
+                          isLive={block.isLive}
+                        />
+                      );
+                    }
 
-                const entry = block.entry;
-                const isUser = entry.role === 'user' || entry.role === 'command';
-                if (isUser) {
-                  return (
-                    <div
-                      key={entry.id}
-                      className="ui-msg-enter ml-auto max-w-[85%] sm:max-w-[66%] rounded-2xl bg-white/[0.07] border border-white/10 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50/90"
-                    >
-                      <p className="whitespace-pre-wrap break-words">{entry.text}</p>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={entry.id} className="ui-msg-enter max-w-[68ch] space-y-2">
-                    <p className="text-[14.5px] sm:text-[16px] leading-[1.6] font-normal text-white/95 whitespace-pre-wrap break-words">
-                      <DecodedText
-                        text={entry.text}
-                        animate={!entry.id.startsWith('init-')}
-                      />
-                    </p>
-                    {idx > 0 && (
-                      <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/45 tabular-nums">
-                        <span>{entry.timestamp}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>#{entry.channelId}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{activeHermesSessionId}</span>
+                    const entry = block.entry;
+                    const isUser = entry.role === 'user' || entry.role === 'command';
+                    if (isUser) {
+                      return (
+                        <div
+                          key={entry.id}
+                          className="ui-msg-enter ml-auto max-w-[85%] sm:max-w-[66%] rounded-2xl bg-white/[0.07] border border-white/10 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50/90"
+                        >
+                          <p className="whitespace-pre-wrap break-words">{entry.text}</p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={entry.id} className="ui-msg-enter max-w-[68ch] space-y-2">
+                        <p className="text-[14.5px] sm:text-[16px] leading-[1.6] font-normal text-white/95 whitespace-pre-wrap break-words">
+                          <DecodedText
+                            text={entry.text}
+                            animate={!entry.id.startsWith('init-')}
+                          />
+                        </p>
+                        {idx > 0 && (
+                          <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/45 tabular-nums">
+                            <span>{entry.timestamp}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>#{entry.channelId}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{activeHermesSessionId}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  })}
 
-              {voiceState.interimTranscript && (
-                <div className="ml-auto max-w-[85%] sm:max-w-[66%] rounded-2xl bg-[#34D399]/12 border border-[#34D399]/40 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50">
-                  <p className="whitespace-pre-wrap break-words">{voiceState.interimTranscript}</p>
-                </div>
-              )}
-
-              {/* Reference-style inline pending status pill + approval action */}
-              {channelPendingApprovals.length > 0 && !activeIsThinking && (
-                <div
-                  data-testid={`approval-card-${channelPendingApprovals[0].id}`}
-                  className="max-w-[68ch] space-y-2.5"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onChangePanelView('queue')}
-                    className="w-full rounded-2xl bg-white/[0.05] border border-white/12 px-3.5 py-2.5 flex items-center justify-between gap-2.5 text-left hover:border-[#34D399]/40 transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <RefreshCw className="w-4 h-4 text-[#6EE7B7] shrink-0" aria-hidden="true" />
-                      <span className="text-xs sm:text-[13px] font-medium text-white truncate">
-                        Approval waiting: {channelPendingApprovals[0].title}
-                      </span>
+                  {voiceState.interimTranscript && (
+                    <div className="ml-auto max-w-[85%] sm:max-w-[66%] rounded-2xl bg-[#34D399]/12 border border-[#34D399]/40 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50">
+                      <p className="whitespace-pre-wrap break-words">{voiceState.interimTranscript}</p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-emerald-100/50 shrink-0" aria-hidden="true" />
-                  </button>
+                  )}
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onApproveCard(channelPendingApprovals[0].id)}
-                      className="min-h-[42px] px-4 rounded-xl bg-[#34D399] text-[#05140E] font-semibold text-xs flex items-center gap-1.5 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
+                  {/* Reference-style inline pending status pill + approval action */}
+                  {channelPendingApprovals.length > 0 && !activeIsThinking && (
+                    <div
+                      data-testid={`approval-card-${channelPendingApprovals[0].id}`}
+                      className="max-w-[68ch] space-y-2.5"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Approve</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRejectCard(channelPendingApprovals[0].id)}
-                      className="min-h-[42px] px-3.5 rounded-xl bg-white/[0.06] border border-white/12 text-emerald-50/85 hover:text-white text-xs flex items-center gap-1 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>Not now</span>
-                    </button>
-                  </div>
-                </div>
-              )}
+                      <button
+                        type="button"
+                        onClick={() => onChangePanelView('queue')}
+                        className="w-full rounded-2xl bg-white/[0.05] border border-white/12 px-3.5 py-2.5 flex items-center justify-between gap-2.5 text-left hover:border-[#34D399]/40 transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <RefreshCw className="w-4 h-4 text-[#6EE7B7] shrink-0" aria-hidden="true" />
+                          <span className="text-xs sm:text-[13px] font-medium text-white truncate">
+                            Approval waiting: {channelPendingApprovals[0].title}
+                          </span>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-emerald-100/50 shrink-0" aria-hidden="true" />
+                      </button>
 
-              {(activeIsThinking || activeIsSpeaking) && (
-                <div className="flex items-center justify-between gap-3 pt-1 max-w-[68ch]">
-                  <span className="font-mono text-[11px] text-emerald-100/55 tabular-nums">
-                    {workingSeconds > 0 ? `${workingSeconds}s elapsed` : 'Live turn'} · #{activeChannel}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={onStopSpeaking}
-                    className="inline-flex items-center gap-2 min-h-[38px] px-3.5 py-1.5 rounded-xl bg-white/[0.07] border border-white/15 text-xs font-medium text-emerald-50 hover:bg-white/12 transition-colors cursor-pointer"
-                  >
-                    <Square className="w-3 h-3 fill-current" />
-                    <span>Stop</span>
-                  </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onApproveCard(channelPendingApprovals[0].id)}
+                          className="min-h-[42px] px-4 rounded-xl bg-[#34D399] text-[#05140E] font-semibold text-xs flex items-center gap-1.5 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Approve</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRejectCard(channelPendingApprovals[0].id)}
+                          className="min-h-[42px] px-3.5 rounded-xl bg-white/[0.06] border border-white/12 text-emerald-50/85 hover:text-white text-xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Not now</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {(activeIsThinking || activeIsSpeaking) && (
+                    <div className="flex items-center justify-between gap-3 pt-1 max-w-[68ch]">
+                      <span className="font-mono text-[11px] text-emerald-100/55 tabular-nums">
+                        {workingSeconds > 0 ? `${workingSeconds}s elapsed` : 'Live turn'} · #{activeChannel}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={onStopSpeaking}
+                        className="inline-flex items-center gap-2 min-h-[38px] px-3.5 py-1.5 rounded-xl bg-white/[0.07] border border-white/15 text-xs font-medium text-emerald-50 hover:bg-white/12 transition-colors cursor-pointer"
+                      >
+                        <Square className="w-3 h-3 fill-current" />
+                        <span>Stop</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <div ref={bottomAnchorRef} aria-hidden="true" className="h-px shrink-0" />
                 </div>
+              </div>
+
+              {isAwayFromBottom && (
+                <button
+                  type="button"
+                  data-testid="jump-to-latest-btn"
+                  onClick={() => {
+                    isPinnedToBottomRef.current = true;
+                    setIsAwayFromBottom(false);
+                    snapThreadToBottom('auto');
+                  }}
+                  aria-label="Jump to latest message"
+                  className="absolute bottom-3 right-4 sm:right-10 z-20 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#071510]/90 backdrop-blur-md border border-[#34D399]/40 text-xs font-medium text-[#6EE7B7] hover:text-white hover:border-[#6EE7B7]/70 shadow-lg transition-colors cursor-pointer"
+                >
+                  <ArrowDown className="w-3.5 h-3.5" />
+                  <span>Jump to latest</span>
+                </button>
               )}
             </div>
           )}

@@ -137,6 +137,7 @@ export default function App() {
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [threadVisitNonce, setThreadVisitNonce] = useState(0);
   const [animateSpeechLine, setAnimateSpeechLine] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<HermesGatewayStatus | null>(null);
 
@@ -399,10 +400,17 @@ export default function App() {
     linked: duetLinked,
     sendMessage: duetSendMessage,
     createHermesSession,
+    loadChannelHistory,
     resetHermesSession,
     deleteHermesSession,
     actOnCard: duetActOnCard,
   } = duet;
+
+  useEffect(() => {
+    if (!duetConnected || !activeChannel) return;
+    if (homeSessionDraft && panelView === 'home') return;
+    void loadChannelHistory(activeChannel);
+  }, [duetConnected, activeChannel, homeSessionDraft, panelView, loadChannelHistory]);
 
   // Persist Braille Canvas sessions locally
   useEffect(() => {
@@ -1126,6 +1134,10 @@ export default function App() {
       setActiveChannel(id);
       if (opts?.openThread) {
         setPanelView((prev) => (prev === 'cli' ? 'cli' : 'voice'));
+        setThreadVisitNonce((n) => n + 1);
+      }
+      if (duetConnected) {
+        void loadChannelHistory(id);
       }
       const label = `Tuned active Hermes lane to #${id}.`;
       const scoped = stateRef.current.entries.filter((e) => e.channelId === id);
@@ -1138,7 +1150,7 @@ export default function App() {
         });
       }
     },
-    [appendEntry]
+    [appendEntry, duetConnected, loadChannelHistory]
   );
 
   const handleResetCanvasSession = useCallback(
@@ -1316,9 +1328,13 @@ export default function App() {
       setActiveChannel(session.channelId);
       setMood(session.mood);
       setPanelView('voice');
+      setThreadVisitNonce((n) => n + 1);
       setMobileSidebarOpen(false);
+      if (duetConnected) {
+        void loadChannelHistory(session.channelId);
+      }
     },
-    []
+    [duetConnected, loadChannelHistory]
   );
 
   const rootDensityPadding =
@@ -1356,6 +1372,12 @@ export default function App() {
                 handleSelectChannel(id, { openThread: true });
                 setMobileSidebarOpen(false);
               }}
+              canvasSessions={canvasSessions}
+              thinkingByChannel={thinkingByChannel}
+              onSelectSession={(session) => {
+                setSelectedItemId(session.id);
+                handleOpenSessionThread(session);
+              }}
               approvals={approvals}
               brief={brief}
               tasks={tasks}
@@ -1370,7 +1392,11 @@ export default function App() {
                 setHomeSessionDraft(false);
                 setActiveChannel(task.channelId);
                 setPanelView('voice');
+                setThreadVisitNonce((n) => n + 1);
                 setMobileSidebarOpen(false);
+                if (duetConnected) {
+                  void loadChannelHistory(task.channelId);
+                }
               }}
               onSelectApproval={(card) => {
                 setSelectedItemId(card.id);
@@ -1381,7 +1407,9 @@ export default function App() {
               }}
               onSelectBrief={(item) => {
                 setSelectedItemId(item.id);
+                setHomeSessionDraft(false);
                 setPanelView('voice');
+                setThreadVisitNonce((n) => n + 1);
                 setMobileSidebarOpen(false);
                 handleRunBriefCommand(item.suggestedCommand, item.id);
               }}
@@ -1414,9 +1442,20 @@ export default function App() {
             onCycleMood={handleCycleMood}
             panelView={panelView}
             onChangePanelView={(view) => {
+              if (view === 'home') {
+                setSelectedItemId(null);
+                setHomeSessionDraft(true);
+                setLastSpokenLineState(
+                  'New Hermes Agent session ready — type or speak a prompt to begin.'
+                );
+              } else if (view === 'voice') {
+                setHomeSessionDraft(false);
+                setThreadVisitNonce((n) => n + 1);
+              }
               setPanelView(view);
               setMobileSidebarOpen(false);
             }}
+            threadVisitNonce={threadVisitNonce}
             onOpenMobileSidebar={
               uiConfig.sidebarVisible ? () => setMobileSidebarOpen(true) : undefined
             }
