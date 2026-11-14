@@ -220,6 +220,7 @@ export default function App() {
   });
   const {
     connected: duetConnected,
+    linked: duetLinked,
     sendMessage: duetSendMessage,
     createHermesSession,
     resetHermesSession,
@@ -236,11 +237,14 @@ export default function App() {
     }
   }, [canvasSessions]);
 
-  // Sync any local custom canvas sessions to the server hermes-agent registry on link
+  // Sync any local custom canvas sessions to the server hermes-agent registry on link.
+  // Seeded core dots are skipped while linked: they become real Duet lanes lazily
+  // on first message instead of mass-creating channels at link time.
   const syncedSessionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!duetConnected) return;
     for (const cs of canvasSessions) {
+      if (duetLinked && cs.isCore !== false) continue;
       if (syncedSessionsRef.current.has(cs.channelId)) continue;
       syncedSessionsRef.current.add(cs.channelId);
       if (!duet.sessions.some((s) => s.channelId === cs.channelId)) {
@@ -253,7 +257,7 @@ export default function App() {
         }).catch(() => {});
       }
     }
-  }, [duetConnected, canvasSessions, duet.sessions, createHermesSession]);
+  }, [duetConnected, duetLinked, canvasSessions, duet.sessions, createHermesSession]);
 
   // Mirror Duet state locally + merge custom canvas sessions so new Braille sessions act as real lanes.
   useEffect(() => {

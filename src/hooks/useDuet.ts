@@ -51,8 +51,11 @@ interface DuetTask {
 interface DuetChannel {
   id: string;
   name: string;
+  slug?: string;
   session_id: string;
   topic?: string | null;
+  /** Real Duet channels keep the agent persona here (standing instructions). */
+  instructions?: string | null;
   persona?: string | null;
   archived?: boolean;
   last_at?: number | null;
@@ -107,7 +110,7 @@ function itemToEntry(item: DuetItem): TerminalEntry | null {
   if (item.kind === 'activity') {
     return {
       id: item.id,
-      channelId: item.channel_id || 'general',
+      channelId: localChannelId(item.channel_id),
       role: 'activity',
       source: 'ui',
       text: activityText(item),
@@ -119,7 +122,7 @@ function itemToEntry(item: DuetItem): TerminalEntry | null {
     item.kind === 'assistant' ? 'hermes' : item.kind === 'user' ? 'user' : 'system';
   return {
     id: item.id,
-    channelId: item.channel_id || 'general',
+    channelId: localChannelId(item.channel_id),
     role,
     source: 'ui',
     text: item.text ?? '',
@@ -135,7 +138,7 @@ function pendingToApproval(item: DuetItem): ApprovalCard | null {
   if (!c || (c.type !== 'approval' && c.type !== 'payment')) return null;
   return {
     id: item.id,
-    channelId: item.channel_id || 'general',
+    channelId: localChannelId(item.channel_id),
     title: c.title || 'Untitled request',
     actionType: c.type === 'payment' || c.action === 'pay' ? 'payment' : 'send_message',
     mcpTool:
@@ -184,7 +187,7 @@ function mapTask(t: DuetTask): BackgroundTask {
   const lastStep = lastDone?.text ?? (t.steps ?? []).slice(-1)[0]?.text ?? (t.result ?? '').slice(0, 80) ?? t.status;
   return {
     id: t.id,
-    channelId: t.channel_id ?? 'general',
+    channelId: localChannelId(t.channel_id),
     title: t.title,
     status,
     progress: taskProgress(t),
@@ -194,20 +197,42 @@ function mapTask(t: DuetTask): BackgroundTask {
 }
 
 function mapChannel(ch: DuetChannel): Channel {
+  const id = localChannelId(ch.slug || ch.id);
   return {
-    id: ch.id,
+    id,
     name: ch.name,
     sessionId: ch.session_id,
     description: ch.topic ?? '',
-    persona: ch.persona ?? undefined,
+    persona: ch.persona ?? ch.instructions ?? undefined,
     unreadCount: 0,
   };
 }
 
+/**
+ * Real Duet channels use ids like "chan-general"; the canvas dots and standalone
+ * lanes key channels by slug ("general"). Normalize every channel id on ingest so
+ * dots, transcript entries, and the active channel always agree. The server
+ * resolves the slug back to the real channel id when proxying.
+ */
+function localChannelId(id?: string | null): string {
+  const raw = (id ?? '').replace(/^chan-/, '').trim().toLowerCase();
+  return raw || 'general';
+}
+
 export function useDuet(opts: UseDuetOptions) {
   const [connected, setConnected] = useState(false);
+  const [linked, setLinked] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [sessions, setSessions] = useState<HermesAgentSession[]>([]);
+  /**
+   * Live per-channel stats derived from real Duet items. In linked mode the
+   * upstream snapshot has no `sessions` array, so canvas dots read their
+   * thinking/speaking/turn state from here.
+   */
+  const channelStatsRef = useRef<
+    Map<string, { lastIsUser: boolean; streaming: boolean; userCount: number; lastAssistant?: string; updatedAtMs: number }>
+  >(new Map());
+  const [statsTick, setStatsTick] = useState(0);
   const [approvals, setApprovals] = useState<ApprovalCard[]>([]);
   const [tasks, setTasks] = useState<BackgroundTask[]>([]);
   const [brief, setBrief] = useState<BriefDecision[]>([]);
@@ -215,6 +240,24 @@ export function useDuet(opts: UseDuetOptions) {
   optsRef.current = opts;
   /** Item ids whose completion already triggered speech; replays stay silent. */
   const spokenItemIdsRef = useRef<Set<string>>(new Set());
+
+  /** Track live per-channel state from a Duet item (linked-mode dot status). */
+  const noteItemStats = useCallback((item: DuetItem) => {
+    if (item.kind !== 'user' && item.kind !== 'assistant') return;
+    const ch = localChannelId(item.channel_id);
+    const st = channelStatsRef.current.get(ch) ?? { lastIsUser: false, streaming: false, userCount: 0, updatedAtMs: 0 };
+    if (item.kind === 'user') {
+      st.userCount += 1;
+      st.lastIsUser = true;
+      st.streaming = false;
+    } else {
+      st.lastIsUser = false;
+      st.streaming = Boolean(item.streaming);
+      if (!item.streaming && item.text) st.lastAssistant = item.text.trim().slice(0, 140);
+    }
+    st.updatedAtMs = item.updated_at ?? item.created_at;
+    channelStatsRef.current.set(ch, st);
+  }, []);
 
   const applyItem = useCallback((item: DuetItem, triggerSpeech = true) => {
     if (item.kind === 'card') {
@@ -241,6 +284,8 @@ export function useDuet(opts: UseDuetOptions) {
     }
     const entry = itemToEntry(item);
     if (entry) {
+      noteItemStats(item);
+      setStatsTick((t) => t + 1);
       optsRef.current.upsertEntry(entry);
       if (
         triggerSpeech &&
@@ -275,6 +320,9 @@ export function useDuet(opts: UseDuetOptions) {
         if (Array.isArray(snap.sessions)) {
           setSessions(snap.sessions);
         }
+        // Real Duet snapshots carry no `sessions` array — we are linked to the
+        // live server; standalone mode does. Dots read derived sessions instead.
+        setLinked(!Array.isArray(snap.sessions));
         setApprovals(
           (snap.pending ?? [])
             .map(pendingToApproval)
@@ -291,10 +339,12 @@ export function useDuet(opts: UseDuetOptions) {
             if (item.kind === 'assistant' && item.id) {
               spokenItemIdsRef.current.add(item.id);
             }
+            noteItemStats(item);
             return itemToEntry(item);
           })
           .filter((e): e is TerminalEntry => e !== null)
           .sort((a, b) => (a.createdAtMs ?? 0) - (b.createdAtMs ?? 0));
+        setStatsTick((t) => t + 1);
         for (const e of entries) optsRef.current.upsertEntry(e);
         setConnected(true);
       } catch {
@@ -439,11 +489,37 @@ export function useDuet(opts: UseDuetOptions) {
     return res.json();
   }, []);
 
+  // Linked mode: derive live dot state from real channels + item stats.
+  // Standalone mode keeps the server-tracked sessions untouched.
+  const sessionsOut = useMemo<HermesAgentSession[]>(() => {
+    if (sessions.length > 0) return sessions;
+    return channels.map((ch) => {
+      const st = channelStatsRef.current.get(ch.id);
+      const status: HermesAgentSession['status'] = st?.streaming
+        ? 'speaking'
+        : st?.lastIsUser
+        ? 'thinking'
+        : 'idle';
+      return {
+        sessionId: ch.sessionId,
+        channelId: ch.id,
+        name: ch.name,
+        persona: ch.persona ?? '',
+        topic: ch.description,
+        status,
+        turnCount: st?.userCount ?? 0,
+        ...(st?.lastAssistant ? { lastMessage: st.lastAssistant } : {}),
+        updatedAtMs: st?.updatedAtMs ?? 0,
+      };
+    });
+  }, [sessions, channels, statsTick]);
+
   return useMemo(
     () => ({
       connected,
+      linked,
       channels,
-      sessions,
+      sessions: sessionsOut,
       approvals,
       tasks,
       brief,
@@ -455,8 +531,9 @@ export function useDuet(opts: UseDuetOptions) {
     }),
     [
       connected,
+      linked,
       channels,
-      sessions,
+      sessionsOut,
       approvals,
       tasks,
       brief,

@@ -128,6 +128,86 @@ async function duetFetch(pathname: string, init: RequestInit = {}, retried = fal
 }
 
 // ---------------------------------------------------------------------------
+// Channel identity bridge: the canvas dots and standalone lanes key channels by
+// slug ("ops"), while the real Duet server uses "chan-<slug>" ids. Resolve the
+// slug before proxying, and create the real lane on first use so every canvas
+// shape behaves as a genuine isolated hermes-agent lane (persona becomes the
+// channel's standing instructions).
+const duetChannelCache = new Map<string, string>(); // slug -> real channel id
+let duetChannelCacheAt = 0;
+
+async function refreshDuetChannelCache(): Promise<boolean> {
+  if (duetChannelCache.size > 0 && Date.now() - duetChannelCacheAt < 15_000) return true;
+  try {
+    const r = await duetFetch("/api/state");
+    if (!r.ok) return false;
+    const snap = (await r.json().catch(() => null)) as {
+      channels?: Array<{ id: string; slug?: string; name?: string }>;
+    } | null;
+    if (!snap?.channels) return false;
+    duetChannelCache.clear();
+    for (const ch of snap.channels) {
+      const slug = String(ch.slug || ch.name || ch.id).replace(/^chan-/, "").toLowerCase();
+      duetChannelCache.set(slug, ch.id);
+    }
+    duetChannelCacheAt = Date.now();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve a local (slug) channel id to the real Duet channel id, creating the
+ * upstream lane when it does not exist yet (persona/topic pulled from the
+ * standalone registry). Returns the real id, or null when Duet is unreachable.
+ */
+async function ensureDuetChannel(
+  localId: string,
+  meta?: { name?: string; topic?: string; persona?: string }
+): Promise<string | null> {
+  const slug = String(localId ?? "").replace(/^chan-/, "").toLowerCase() || "general";
+  try {
+    await refreshDuetChannelCache();
+    const hit = duetChannelCache.get(slug);
+    if (hit) return hit;
+    const standalone = standaloneChannels.find((c) => c.id === slug);
+    const name = meta?.name || standalone?.name || slug;
+    const topic = meta?.topic ?? standalone?.topic;
+    const persona = meta?.persona ?? standalone?.persona;
+    const createRes = await duetFetch("/api/channels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        ...(topic ? { topic } : {}),
+        ...(persona ? { instructions: persona } : {}),
+      }),
+    });
+    if (createRes.ok) {
+      const created = (await createRes.json().catch(() => null)) as {
+        channel?: { id?: string };
+      } | null;
+      if (created?.channel?.id) {
+        duetChannelCache.set(slug, created.channel.id);
+        duetChannelCacheAt = Date.now();
+        return created.channel.id;
+      }
+    } else {
+      // Creation refused (duplicate name, "already a general channel"): the lane
+      // exists upstream; refresh the cache and match once more before giving up.
+      duetChannelCacheAt = 0;
+      if (await refreshDuetChannelCache()) {
+        return duetChannelCache.get(slug) ?? null;
+      }
+    }
+  } catch {
+    // Duet unreachable: caller falls back to standalone handling.
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Standalone in-memory Duet fallback when no external hermes-duet daemon is
 // reachable (e.g. AI Studio container). Keeps real Duet protocol shapes intact.
 interface StandaloneDuetCard {
@@ -752,7 +832,7 @@ async function createServer() {
     res.status(200).json({ sessions: buildAllSessionSnapshots() });
   });
 
-  app.post("/api/hermes/sessions", (req, res) => {
+  app.post("/api/hermes/sessions", async (req, res) => {
     const { channelId, name, sessionId, topic, persona } = (req.body ?? {}) as {
       channelId?: string;
       name?: string;
@@ -776,6 +856,15 @@ async function createServer() {
     );
     const channel = ensureStandaloneChannel({ channelId: rawKey, name, sessionId, topic, persona });
 
+    // Linked mode: make this lane real upstream too — a canvas shape becomes a
+    // genuine Duet channel with its persona as standing instructions.
+    let upstreamChannelId: string | null = null;
+    try {
+      upstreamChannelId = await ensureDuetChannel(channel.id);
+    } catch {
+      upstreamChannelId = null;
+    }
+
     let welcomeItem: StandaloneDuetItem | null = null;
     const hasItems = standaloneItems.some((it) => (it.channel_id || "general") === channel.id);
     if (!hasItems) {
@@ -797,7 +886,7 @@ async function createServer() {
       broadcastStandaloneEvent({ type: "item", item: welcomeItem });
     }
     broadcastStandaloneEvent({ type: "session", session: snapshot });
-    res.status(200).json({ session: snapshot, channel, item: welcomeItem });
+    res.status(200).json({ session: snapshot, channel, item: welcomeItem, upstream_channel_id: upstreamChannelId });
   });
 
   app.post("/api/hermes/sessions/:channelId/reset", (req, res) => {
@@ -1032,11 +1121,29 @@ async function createServer() {
     }
 
     try {
-      const r = await duetFetch("/api/messages", {
+      // Resolve the local slug ("ops") to the real Duet channel id, creating the
+      // lane upstream on first use so canvas shapes run as real agent lanes.
+      // The dot's persona rides along and becomes the channel's instructions.
+      const upstreamChannelId =
+        (await ensureDuetChannel(channel_id, persona ? { persona } : undefined)) ?? channel_id;
+      const sendBody = JSON.stringify({ text, channel_id: upstreamChannelId });
+      let r = await duetFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, channel_id }),
+        body: sendBody,
       });
+      if (r.status === 404 && upstreamChannelId === channel_id) {
+        // Pre-resolution failed (Duet busy or cache cold): force one resolution
+        // pass and retry before falling back to the standalone run.
+        const forced = await ensureDuetChannel(channel_id);
+        if (forced && forced !== channel_id) {
+          r = await duetFetch("/api/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, channel_id: forced }),
+          });
+        }
+      }
       if (r.ok) {
         res.status(200).json(await r.json());
         return;
