@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BRAILLE_SHAPE_CATALOG,
+  createBrailleShapeAnimator,
   evaluateShapeSdf,
   renderBrailleShape,
 } from './brailleShapesEngine';
@@ -109,4 +110,53 @@ test('evaluateShapeSdf keeps all 9 anime shapes bounded within [-1, 1] viewport 
   assert.ok(evaluateShapeSdf('triangle', -0.56, -0.38) < 0, 'mecha left fin should be inside');
   assert.ok(evaluateShapeSdf('triangle', 0.56, -0.38) < 0, 'mecha right fin should be inside');
   assert.ok(evaluateShapeSdf('triangle', 0.85, 0.78) > 0, 'mecha lower-right corner should be outside');
+});
+
+test('createBrailleShapeAnimator produces smooth blink curves, drag tilt, drop bounce settle, and secondary hair lag', () => {
+  const anim = createBrailleShapeAnimator();
+  const states = [];
+  for (let i = 0; i < 140; i++) {
+    const t = i / 30;
+    const isDragging = i >= 15 && i < 35;
+    states.push(
+      anim.step(
+        {
+          time: t,
+          mood: i >= 45 ? 'speaking' : 'happy',
+          eyeStyle: 'open',
+          viseme: i >= 45 ? 'wide' : 'closed',
+          energy: i >= 45 ? 0.85 : 0.08,
+          isSpeaking: i >= 45,
+          isThinking: false,
+          isDragging,
+          dragVelX: isDragging ? 1.2 : 0,
+        },
+        1 / 30
+      )
+    );
+  }
+
+  const halfBlinks = states.filter((s) => s.blink > 0.15 && s.blink < 0.85).length;
+  assert.ok(halfBlinks >= 2, `Expected smooth intermediate blink frames, got ${halfBlinks}`);
+  assert.ok(states[25].dragTilt < -0.05, 'Positive dragVelX should tilt head smoothly');
+  assert.ok(Math.abs(states[25].hairLag) > 0.005, 'Drag acceleration should excite secondary hairLag');
+  assert.ok(states[35].dragLift > states[42].dragLift, 'Drag lift should settle smoothly after release');
+
+  const reduced = createBrailleShapeAnimator().step(
+    {
+      time: 0.2,
+      mood: 'speaking',
+      eyeStyle: 'open',
+      viseme: 'wide',
+      energy: 0.9,
+      isSpeaking: true,
+      isThinking: false,
+      isDragging: true,
+      dragVelX: 1.5,
+    },
+    1 / 30,
+    true
+  );
+  assert.equal(reduced.dragTilt, 0);
+  assert.equal(reduced.hairLag, 0);
 });

@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 import type { ExpressionMood, MouthViseme } from '../types/hermes';
 import {
   BRAILLE_TINT_PALETTE,
+  createBrailleShapeAnimator,
   renderBrailleShape,
   type BrailleShapeKind,
   type BrailleShapeTint,
@@ -106,9 +107,13 @@ export function BrailleShapeCanvas({
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     const startTime = performance.now();
+    const animator = createBrailleShapeAnimator();
     let lastDraw = startTime;
-    let smoothGazeX = 0;
-    let smoothGazeY = 0;
+    let prevRectX: number | null = null;
+    let prevRectY: number | null = null;
+    let prevDragActive = false;
+    let settleUntilMs = 0;
+    let smoothEnergy = stateRef.current.energy;
     let rafId = 0;
     let timerId = 0;
 
@@ -118,40 +123,56 @@ export function BrailleShapeCanvas({
       lastDraw = now;
 
       const elapsed = reducedMotion ? 0.5 : (now - startTime) / 1000;
+      smoothEnergy += (s.energy - smoothEnergy) * (1 - Math.exp(-16 * dt));
 
-      let targetGazeX = 0;
-      let targetGazeY = 0;
+      let targetGazeX: number | undefined;
+      let targetGazeY: number | undefined;
+      let dragVelX = 0;
+      let dragVelY = 0;
+
       const ptr = s.gazeRef?.current;
-      if (ptr && !isPreview) {
+      if ((ptr || s.isDragging) && !isPreview) {
         const rect = canvas.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
-          const cx = rect.left + rect.width * 0.5;
-          const cy = rect.top + rect.height * 0.5;
-          targetGazeX = Math.max(-1, Math.min(1, (ptr.clientX - cx) / 220));
-          targetGazeY = Math.max(-1, Math.min(1, (ptr.clientY - cy) / 220));
+          if (ptr) {
+            const cx = rect.left + rect.width * 0.5;
+            const cy = rect.top + rect.height * 0.5;
+            targetGazeX = Math.max(-1, Math.min(1, (ptr.clientX - cx) / 220));
+            targetGazeY = Math.max(-1, Math.min(1, (ptr.clientY - cy) / 220));
+          }
+          if (s.isDragging && prevRectX !== null && prevRectY !== null) {
+            dragVelX = (rect.left - prevRectX) / Math.max(0.016, dt) / 360;
+            dragVelY = (rect.top - prevRectY) / Math.max(0.016, dt) / 360;
+          }
+          prevRectX = rect.left;
+          prevRectY = rect.top;
         }
-      } else if (s.isThinking) {
-        targetGazeX = Math.sin(elapsed * 2.4) * 0.55;
-        targetGazeY = -0.35;
+      } else {
+        prevRectX = null;
+        prevRectY = null;
       }
 
-      const gazeFactor = 1 - Math.exp(-10 * dt);
-      smoothGazeX += (targetGazeX - smoothGazeX) * gazeFactor;
-      smoothGazeY += (targetGazeY - smoothGazeY) * gazeFactor;
-
-      // Natural periodic blink staggered per creature
-      const blinkCycle = (elapsed + s.blinkPhaseOffset) % 4.4;
-      const isBlinking = !isPreview && !reducedMotion && blinkCycle > 4.22;
-
-      const resolvedEye = isBlinking
-        ? 'blink'
-        : s.mood === 'alert'
-        ? 'wide'
-        : s.mood === 'happy' && s.eyeStyle === 'open' && s.isSpeaking
-        ? 'open'
-        : s.mood === 'focused'
-        ? 'sleepy'
-        : s.eyeStyle;
+      const motion = isPreview
+        ? null
+        : animator.step(
+            {
+              time: elapsed,
+              mood: s.mood,
+              eyeStyle: s.eyeStyle,
+              viseme: s.viseme,
+              energy: smoothEnergy,
+              isSpeaking: s.isSpeaking,
+              isThinking: s.isThinking,
+              isDragging: s.isDragging,
+              dragVelX,
+              dragVelY,
+              gazeX: targetGazeX,
+              gazeY: targetGazeY,
+              blinkPhaseOffset: s.blinkPhaseOffset,
+            },
+            dt,
+            reducedMotion
+          );
 
       const frame = renderBrailleShape({
         shape: s.shape,
@@ -159,13 +180,14 @@ export function BrailleShapeCanvas({
         rows,
         time: elapsed + s.blinkPhaseOffset * 0.7,
         mood: s.mood,
-        eyeState: resolvedEye,
+        eyeState: s.eyeStyle,
         viseme: s.viseme,
-        energy: s.energy,
+        energy: smoothEnergy,
         isSpeaking: s.isSpeaking,
         isDragging: s.isDragging,
-        gazeX: smoothGazeX,
-        gazeY: smoothGazeY,
+        gazeX: motion ? motion.gazeX : 0,
+        gazeY: motion ? motion.gazeY : 0,
+        motion,
       });
 
       ctx.clearRect(0, 0, width, height);
@@ -220,16 +242,26 @@ export function BrailleShapeCanvas({
 
     const loop = (now: number) => {
       const s = stateRef.current;
+      if (prevDragActive && !s.isDragging) {
+        settleUntilMs = now + 850;
+      }
+      prevDragActive = s.isDragging;
+
       const elapsed = (now - startTime) / 1000;
-      const blinkCycle = (elapsed + s.blinkPhaseOffset) % 4.4;
-      const activeMotion = s.isSpeaking || s.isThinking || s.isDragging || blinkCycle > 4.15;
-      const minInterval = activeMotion ? 36 : 95;
+      const cyclePos = ((elapsed + s.blinkPhaseOffset) / 4.2) % 1;
+      const activeMotion =
+        s.isSpeaking ||
+        s.isThinking ||
+        s.isDragging ||
+        now < settleUntilMs ||
+        cyclePos > 0.80;
+      const minInterval = activeMotion ? 32 : 52;
       if (now - lastDraw >= minInterval) {
         drawFrame(now);
       }
       timerId = window.setTimeout(() => {
         rafId = window.requestAnimationFrame(loop);
-      }, activeMotion ? 28 : 88);
+      }, activeMotion ? 22 : 44);
     };
 
     rafId = window.requestAnimationFrame(loop);

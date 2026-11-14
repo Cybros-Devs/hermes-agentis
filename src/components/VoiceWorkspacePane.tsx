@@ -149,7 +149,7 @@ export function VoiceWorkspacePane({
     voiceState.isSpeaking && (speakingChannel ?? activeChannel) === activeChannel;
 
   useEffect(() => {
-    const intervalMs = activeIsSpeaking ? 65 : 220;
+    const intervalMs = activeIsSpeaking ? 42 : 120;
     const id = window.setInterval(() => {
       setTick((t) => (t + 1) % 10000);
     }, intervalMs);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderBrailleHorizon } from './brailleFieldEngine';
+import { createHorizonAnimator, renderBrailleHorizon } from './brailleFieldEngine';
 
 test('renderBrailleHorizon renders exact dimensions with soft top fade and Braille wave geometry', () => {
   const frame = renderBrailleHorizon({
@@ -54,4 +54,13 @@ test('renderBrailleHorizon responds to cursor pointerX and voice energy', () => 
     active.lines.join('\n'),
     'Expected Braille horizon waves to react to cursor position and audio energy'
   );
+});
+
+test('createHorizonAnimator smoothly damps step transients across energy, pointer, and bands', () => {
+  const anim = createHorizonAnimator();
+  const s0 = anim.step({ energy: 0.05, pointerX: 0, pointerY: 0, bands: new Array(12).fill(0.05) }, 1 / 30);
+  const s1 = anim.step({ energy: 0.95, pointerX: 0.9, pointerY: -0.5, bands: new Array(12).fill(0.95) }, 1 / 30);
+  assert.ok(s1.energy > s0.energy && s1.energy < 0.45, `Expected damped energy ramp, got ${s1.energy}`);
+  assert.ok(s1.pointerX > 0 && s1.pointerX < 0.5, `Expected damped pointer shift, got ${s1.pointerX}`);
+  assert.ok(s1.bands[0] > 0.05 && s1.bands[0] < 0.6, `Expected damped band attack, got ${s1.bands[0]}`);
 });

@@ -185,6 +185,36 @@ export const BRAILLE_TINT_PALETTE: Record<
   },
 };
 
+export interface BrailleShapeMotionState {
+  blink: number;      // 0 (open) .. 1 (closed)
+  squint: number;     // 0 .. 1 sleepy / happy lid narrowing
+  wide: number;       // 0 .. 1 alert eye dilation
+  mouthOpen: number;  // 0 .. 1 smoothly damped aperture
+  smile: number;      // 0 .. 1 smile weight
+  gazeX: number;      // -1 .. 1 eye gaze X
+  gazeY: number;      // -1 .. 1 eye gaze Y
+  dragLift: number;   // 0 .. 1 lift & drop-settle squash/rebound
+  dragTilt: number;   // radians rotational tilt (-0.22 .. +0.22)
+  hairLag: number;    // secondary inertia sway on ears, twintails, ahoge & halo
+  bounceY: number;    // vertical breath/speak/drop offset in UV space
+}
+
+export interface BrailleShapeAnimatorInput {
+  time: number;
+  mood: ExpressionMood;
+  eyeStyle: 'open' | 'sleepy';
+  viseme: MouthViseme;
+  energy: number;
+  isSpeaking: boolean;
+  isThinking: boolean;
+  isDragging: boolean;
+  dragVelX?: number;
+  dragVelY?: number;
+  gazeX?: number;
+  gazeY?: number;
+  blinkPhaseOffset?: number;
+}
+
 export interface BrailleShapeRenderParams {
   shape: BrailleShapeKind;
   cols: number;
@@ -198,6 +228,7 @@ export interface BrailleShapeRenderParams {
   isDragging?: boolean;
   gazeX?: number;
   gazeY?: number;
+  motion?: BrailleShapeMotionState | null;
 }
 
 export interface BrailleShapeFrame {
@@ -216,23 +247,212 @@ const BAYER_4X4 = [
   15.0 / 16, 7.0 / 16, 13.0 / 16, 5.0 / 16,
 ];
 
+const BAYER_THRESH = BAYER_4X4.map((v) => 0.13 + v * 0.72);
+
 function clamp(v: number, min: number, max: number): number {
   return v < min ? min : v > max ? max : v;
 }
 
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = clamp01((x - edge0) / (edge1 - edge0 || 1));
+  return t * t * (3 - 2 * t);
+}
+
+function expApproach(current: number, target: number, rate: number, dt: number): number {
+  const factor = 1 - Math.exp(-rate * Math.max(0.001, dt));
+  return current + (target - current) * factor;
+}
+
 function smin(a: number, b: number, k: number): number {
+  if (a + k <= b) return a;
+  if (b + k <= a) return b;
   const h = clamp(0.5 + (0.5 * (b - a)) / k, 0, 1);
   return b * (1 - h) + a * h - k * h * (1 - h);
 }
 
+function targetMouthOpenForViseme(viseme: MouthViseme, energy: number, isSpeaking: boolean): number {
+  if (!isSpeaking && viseme === 'closed') return 0;
+  switch (viseme) {
+    case 'wide':
+      return clamp01(0.88 + energy * 0.12);
+    case 'round':
+      return clamp01(0.68 + energy * 0.18);
+    case 'mid':
+      return clamp01(0.54 + energy * 0.16);
+    case 'lth':
+      return clamp01(0.48 + energy * 0.14);
+    case 'ee':
+      return clamp01(0.46 + energy * 0.16);
+    case 'small':
+      return clamp01(0.32 + energy * 0.14);
+    case 'fv':
+      return clamp01(0.24 + energy * 0.10);
+    case 'rest':
+      return 0.12;
+    case 'mbp':
+    case 'smile':
+    case 'closed':
+    default:
+      return isSpeaking ? clamp01(energy * 0.72) : 0;
+  }
+}
+
+/**
+ * Stateful spring-damper animator for anime Braille canvas companions.
+ * Drives smooth asymmetric blinking, velocity-coupled drag tilt & drop bounce settle,
+ * damped lip-sync mouth aperture, and secondary ear/twintail/ahoge inertia lag.
+ */
+export function createBrailleShapeAnimator() {
+  const state: BrailleShapeMotionState = {
+    blink: 0,
+    squint: 0,
+    wide: 0,
+    mouthOpen: 0,
+    smile: 0.4,
+    gazeX: 0,
+    gazeY: 0,
+    dragLift: 0,
+    dragTilt: 0,
+    hairLag: 0,
+    bounceY: 0,
+  };
+
+  let mouthVel = 0;
+  let liftVel = 0;
+  let tiltVel = 0;
+  let hairVel = 0;
+  let bounceVel = 0;
+  let prevDragging = false;
+  let dropImpulse = 0;
+
+  return {
+    step(input: BrailleShapeAnimatorInput, dt: number, reducedMotion = false): BrailleShapeMotionState {
+      const clampedDt = clamp(dt, 0.004, 0.06);
+      const offsetTime = input.time + (input.blinkPhaseOffset ?? 0);
+
+      // Smooth asymmetric natural blink (~4.2s cadence with occasional double-blink)
+      const cyclePos = (offsetTime / 4.2) % 1;
+      let targetBlink = 0;
+      if (cyclePos > 0.915) {
+        targetBlink = Math.sin(((cyclePos - 0.915) / 0.085) * Math.PI);
+      } else if (cyclePos > 0.815 && cyclePos < 0.875 && Math.floor(offsetTime / 4.2) % 3 === 1) {
+        targetBlink = Math.sin(((cyclePos - 0.815) / 0.06) * Math.PI) * 0.9;
+      }
+
+      const targetSquint =
+        input.mood === 'focused' || input.eyeStyle === 'sleepy'
+          ? 0.65
+          : input.mood === 'happy' && !input.isSpeaking
+          ? 0.08
+          : 0;
+      const targetWide = input.mood === 'alert' ? 0.92 : input.isDragging ? 0.38 : 0;
+
+      // Asymmetric fast lid close (rate 34) / graceful lid lift (rate 15)
+      const blinkRate = targetBlink > state.blink ? 34 : 15;
+      state.blink = expApproach(state.blink, targetBlink, blinkRate, clampedDt);
+      state.squint = expApproach(state.squint, targetSquint, 10, clampedDt);
+      state.wide = expApproach(state.wide, targetWide, 12, clampedDt);
+
+      // Critically-damped 2nd-order filter for lip-sync mouth aperture (zero teleport jumps)
+      const targetMouth = targetMouthOpenForViseme(input.viseme, input.energy, input.isSpeaking);
+      const mouthStiffness = targetMouth > state.mouthOpen ? 148 : 118;
+      const mouthDamping = 24.5;
+      mouthVel += ((targetMouth - state.mouthOpen) * mouthStiffness - mouthVel * mouthDamping) * clampedDt;
+      state.mouthOpen = clamp01(state.mouthOpen + mouthVel * clampedDt);
+
+      const targetSmile = input.mood === 'happy' ? 1 : input.isSpeaking ? 0.25 : 0.35;
+      state.smile = expApproach(state.smile, targetSmile, 8, clampedDt);
+
+      // Saccade + curious thinking scan + pointer gaze
+      let tGazeX = input.gazeX ?? 0;
+      let tGazeY = input.gazeY ?? 0;
+      if (input.gazeX === undefined && input.gazeY === undefined) {
+        if (input.isThinking) {
+          const stepPhase = Math.floor(offsetTime * 1.15);
+          tGazeX = Math.sin(stepPhase * 1.9) * 0.52;
+          tGazeY = -0.34 + Math.cos(stepPhase * 1.3) * 0.08;
+        } else {
+          // Gentle fixation dwell with periodic glances
+          const idleFix = Math.floor(offsetTime * 0.55);
+          tGazeX = ((idleFix * 7) % 3 === 0 ? Math.sin(idleFix * 2.1) * 0.22 : 0);
+          tGazeY = ((idleFix * 5) % 4 === 0 ? -0.10 : 0.02);
+        }
+      }
+      state.gazeX = expApproach(state.gazeX, clamp(tGazeX, -1, 1), 13, clampedDt);
+      state.gazeY = expApproach(state.gazeY, clamp(tGazeY, -1, 1), 13, clampedDt);
+
+      if (reducedMotion) {
+        state.dragLift = expApproach(state.dragLift, input.isDragging ? 0.35 : 0, 8, clampedDt);
+        state.dragTilt = 0;
+        state.hairLag = 0;
+        state.bounceY = 0;
+        prevDragging = input.isDragging;
+        return { ...state };
+      }
+
+      // Drop settle bounce impulse when user releases drag
+      if (prevDragging && !input.isDragging) {
+        dropImpulse = -0.055;
+        liftVel -= 1.4;
+      } else if (!prevDragging && input.isDragging) {
+        // Subtle anticipation dip before hover lift
+        liftVel += 1.6;
+      }
+      prevDragging = input.isDragging;
+      dropImpulse *= Math.exp(-12 * clampedDt);
+
+      // Underdamped spring for playful pickup lift & cushioned settle on drop
+      const targetLift = input.isDragging ? 1 : 0;
+      liftVel += ((targetLift - state.dragLift) * 140 - liftVel * 14.5) * clampedDt;
+      state.dragLift = clamp(state.dragLift + liftVel * clampedDt, -0.18, 1.25);
+
+      // Velocity-coupled pendulum tilt during drag + playful thinking/speaking head tilt
+      const dragVx = clamp(input.dragVelX ?? 0, -2.5, 2.5);
+      const moodTilt = input.isThinking
+        ? Math.sin(offsetTime * 1.6) * 0.075 - 0.04
+        : input.isSpeaking
+        ? Math.sin(offsetTime * 3.9) * (0.045 + input.energy * 0.055)
+        : Math.sin(offsetTime * 1.35) * 0.028;
+      const targetTilt = clamp(moodTilt - dragVx * 0.11, -0.22, 0.22);
+      tiltVel += ((targetTilt - state.dragTilt) * 125 - tiltVel * 13.5) * clampedDt;
+      state.dragTilt = clamp(state.dragTilt + tiltVel * clampedDt, -0.24, 0.24);
+
+      // Breathing + speaking syllable bounce + drop rebound
+      const breathBob = Math.sin(offsetTime * 2.3) * 0.022;
+      const speakBob = input.isSpeaking ? Math.abs(Math.sin(offsetTime * 7.2)) * (0.015 + input.energy * 0.028) : 0;
+      const dragHoverY = state.dragLift * 0.032;
+      const targetBounceY = breathBob - speakBob - dragHoverY + dropImpulse;
+      bounceVel += ((targetBounceY - state.bounceY) * 150 - bounceVel * 15) * clampedDt;
+      state.bounceY = clamp(state.bounceY + bounceVel * clampedDt, -0.09, 0.09);
+
+      // Secondary hair / ear / twintail / halo follow-through inertia
+      const desiredHairLag = clamp(-tiltVel * 0.055 + Math.sin(offsetTime * 2.3 - 0.75) * 0.025, -0.14, 0.14);
+      hairVel += ((desiredHairLag - state.hairLag) * 85 - hairVel * 9.5) * clampedDt;
+      state.hairLag = clamp(state.hairLag + hairVel * clampedDt, -0.16, 0.16);
+
+      return { ...state };
+    },
+  };
+}
+
 function sdCircle(x: number, y: number, cx: number, cy: number, r: number): number {
-  return Math.hypot(x - cx, y - cy) - r;
+  const dx = x - cx;
+  const dy = y - cy;
+  return Math.sqrt(dx * dx + dy * dy) - r;
 }
 
 function sdEllipse(x: number, y: number, cx: number, cy: number, rx: number, ry: number): number {
   const dx = (x - cx) / rx;
   const dy = (y - cy) / ry;
-  return (Math.hypot(dx, dy) - 1) * Math.min(rx, ry);
+  return (Math.sqrt(dx * dx + dy * dy) - 1) * (rx < ry ? rx : ry);
 }
 
 function sdCapsule(
@@ -248,8 +468,11 @@ function sdCapsule(
   const pay = py - ay;
   const bax = bx - ax;
   const bay = by - ay;
-  const h = clamp((pax * bax + pay * bay) / (bax * bax + bay * bay || 1), 0, 1);
-  return Math.hypot(pax - bax * h, pay - bay * h) - r;
+  const denom = bax * bax + bay * bay || 1;
+  const h = clamp((pax * bax + pay * bay) / denom, 0, 1);
+  const dx = pax - bax * h;
+  const dy = pay - bay * h;
+  return Math.sqrt(dx * dx + dy * dy) - r;
 }
 
 function sdTriangle(
@@ -323,155 +546,156 @@ interface AnimeFaceProfile {
   hasHeadband?: boolean;
   hasHalo?: boolean;
   hasWhiskers?: boolean;
-  innerEarDist?: number;
+  hasInnerEar?: boolean;
 }
 
-function evaluateFaceProfile(shape: BrailleShapeKind, x: number, y: number): AnimeFaceProfile {
-  switch (shape) {
-    case 'clover':
-      return {
-        faceCx: 0,
-        faceCy: 0.10,
-        faceRx: 0.42,
-        faceRy: 0.43,
-        eyeY: 0.14,
-        eyeSep: 0.19,
-        eyeRx: 0.085,
-        eyeRy: 0.105,
-        mouthY: 0.34,
-        bangHeight: 0.02,
-        partType: 'straight',
-        hasHeadband: true,
-      };
-    case 'star':
-      return {
-        faceCx: 0,
-        faceCy: 0.12,
-        faceRx: 0.40,
-        faceRy: 0.40,
-        eyeY: 0.16,
-        eyeSep: 0.18,
-        eyeRx: 0.085,
-        eyeRy: 0.105,
-        mouthY: 0.35,
-        bangHeight: 0.04,
-        partType: 'center',
-      };
-    case 'ghost':
-      return {
-        faceCx: 0,
-        faceCy: 0.16,
-        faceRx: 0.42,
-        faceRy: 0.40,
-        eyeY: 0.18,
-        eyeSep: 0.19,
-        eyeRx: 0.09,
-        eyeRy: 0.11,
-        mouthY: 0.37,
-        bangHeight: 0.06,
-        partType: 'wispy',
-        hasWhiskers: true,
-        innerEarDist: Math.min(
-          sdTriangle(x, y, -0.45, -0.30, -0.50, -0.66, -0.22, -0.44),
-          sdTriangle(x, y, 0.45, -0.30, 0.22, -0.44, 0.50, -0.66)
-        ),
-      };
-    case 'heart':
-      return {
-        faceCx: 0,
-        faceCy: 0.18,
-        faceRx: 0.40,
-        faceRy: 0.38,
-        eyeY: 0.20,
-        eyeSep: 0.18,
-        eyeRx: 0.085,
-        eyeRy: 0.10,
-        mouthY: 0.38,
-        bangHeight: 0.08,
-        partType: 'side',
-        innerEarDist: Math.min(
-          sdTriangle(x, y, -0.43, -0.22, -0.52, -0.68, -0.18, -0.36),
-          sdTriangle(x, y, 0.43, -0.22, 0.18, -0.36, 0.52, -0.68)
-        ),
-      };
-    case 'cloud':
-      return {
-        faceCx: 0,
-        faceCy: 0.20,
-        faceRx: 0.40,
-        faceRy: 0.37,
-        eyeY: 0.22,
-        eyeSep: 0.18,
-        eyeRx: 0.085,
-        eyeRy: 0.10,
-        mouthY: 0.39,
-        bangHeight: 0.10,
-        partType: 'straight',
-        innerEarDist: Math.min(
-          sdCapsule(x, y, -0.25, -0.36, -0.30, -0.68, 0.055),
-          sdCapsule(x, y, 0.26, -0.35, 0.40, -0.62, 0.05)
-        ),
-      };
-    case 'triangle':
-      return {
-        faceCx: 0,
-        faceCy: 0.16,
-        faceRx: 0.40,
-        faceRy: 0.39,
-        eyeY: 0.20,
-        eyeSep: 0.18,
-        eyeRx: 0.085,
-        eyeRy: 0.10,
-        mouthY: 0.37,
-        bangHeight: 0.06,
-        partType: 'center',
-        hasHeadband: true,
-      };
-    case 'pebble':
-      return {
-        faceCx: 0,
-        faceCy: 0.12,
-        faceRx: 0.44,
-        faceRy: 0.40,
-        eyeY: 0.16,
-        eyeSep: 0.20,
-        eyeRx: 0.09,
-        eyeRy: 0.10,
-        mouthY: 0.34,
-        bangHeight: 0.04,
-        partType: 'wispy',
-      };
-    case 'trapezoid':
-      return {
-        faceCx: 0,
-        faceCy: 0.18,
-        faceRx: 0.39,
-        faceRy: 0.38,
-        eyeY: 0.22,
-        eyeSep: 0.18,
-        eyeRx: 0.082,
-        eyeRy: 0.098,
-        mouthY: 0.38,
-        bangHeight: 0.08,
-        partType: 'straight',
-        hasHalo: true,
-      };
-    case 'blob':
-    default:
-      return {
-        faceCx: 0,
-        faceCy: 0.16,
-        faceRx: 0.44,
-        faceRy: 0.40,
-        eyeY: 0.18,
-        eyeSep: 0.20,
-        eyeRx: 0.09,
-        eyeRy: 0.105,
-        mouthY: 0.36,
-        bangHeight: 0.05,
-        partType: 'center',
-      };
+const STATIC_FACE_PROFILES: Record<BrailleShapeKind, AnimeFaceProfile> = {
+  clover: {
+    faceCx: 0,
+    faceCy: 0.10,
+    faceRx: 0.42,
+    faceRy: 0.43,
+    eyeY: 0.14,
+    eyeSep: 0.19,
+    eyeRx: 0.085,
+    eyeRy: 0.105,
+    mouthY: 0.34,
+    bangHeight: 0.02,
+    partType: 'straight',
+    hasHeadband: true,
+  },
+  star: {
+    faceCx: 0,
+    faceCy: 0.12,
+    faceRx: 0.40,
+    faceRy: 0.40,
+    eyeY: 0.16,
+    eyeSep: 0.18,
+    eyeRx: 0.085,
+    eyeRy: 0.105,
+    mouthY: 0.35,
+    bangHeight: 0.04,
+    partType: 'center',
+  },
+  ghost: {
+    faceCx: 0,
+    faceCy: 0.16,
+    faceRx: 0.42,
+    faceRy: 0.40,
+    eyeY: 0.18,
+    eyeSep: 0.19,
+    eyeRx: 0.09,
+    eyeRy: 0.11,
+    mouthY: 0.37,
+    bangHeight: 0.06,
+    partType: 'wispy',
+    hasWhiskers: true,
+    hasInnerEar: true,
+  },
+  heart: {
+    faceCx: 0,
+    faceCy: 0.18,
+    faceRx: 0.40,
+    faceRy: 0.38,
+    eyeY: 0.20,
+    eyeSep: 0.18,
+    eyeRx: 0.085,
+    eyeRy: 0.10,
+    mouthY: 0.38,
+    bangHeight: 0.08,
+    partType: 'side',
+    hasInnerEar: true,
+  },
+  cloud: {
+    faceCx: 0,
+    faceCy: 0.20,
+    faceRx: 0.40,
+    faceRy: 0.37,
+    eyeY: 0.22,
+    eyeSep: 0.18,
+    eyeRx: 0.085,
+    eyeRy: 0.10,
+    mouthY: 0.39,
+    bangHeight: 0.10,
+    partType: 'straight',
+    hasInnerEar: true,
+  },
+  triangle: {
+    faceCx: 0,
+    faceCy: 0.16,
+    faceRx: 0.40,
+    faceRy: 0.39,
+    eyeY: 0.20,
+    eyeSep: 0.18,
+    eyeRx: 0.085,
+    eyeRy: 0.10,
+    mouthY: 0.37,
+    bangHeight: 0.06,
+    partType: 'center',
+    hasHeadband: true,
+  },
+  pebble: {
+    faceCx: 0,
+    faceCy: 0.12,
+    faceRx: 0.44,
+    faceRy: 0.40,
+    eyeY: 0.16,
+    eyeSep: 0.20,
+    eyeRx: 0.09,
+    eyeRy: 0.10,
+    mouthY: 0.34,
+    bangHeight: 0.04,
+    partType: 'wispy',
+  },
+  trapezoid: {
+    faceCx: 0,
+    faceCy: 0.18,
+    faceRx: 0.39,
+    faceRy: 0.38,
+    eyeY: 0.22,
+    eyeSep: 0.18,
+    eyeRx: 0.082,
+    eyeRy: 0.098,
+    mouthY: 0.38,
+    bangHeight: 0.08,
+    partType: 'straight',
+    hasHalo: true,
+  },
+  blob: {
+    faceCx: 0,
+    faceCy: 0.16,
+    faceRx: 0.44,
+    faceRy: 0.40,
+    eyeY: 0.18,
+    eyeSep: 0.20,
+    eyeRx: 0.09,
+    eyeRy: 0.105,
+    mouthY: 0.36,
+    bangHeight: 0.05,
+    partType: 'center',
+  },
+};
+
+function evaluateInnerEarDist(shape: BrailleShapeKind, x: number, y: number): number {
+  if (shape === 'ghost') {
+    return Math.min(
+      sdTriangle(x, y, -0.45, -0.30, -0.50, -0.66, -0.22, -0.44),
+      sdTriangle(x, y, 0.45, -0.30, 0.22, -0.44, 0.50, -0.66)
+    );
   }
+  if (shape === 'heart') {
+    return Math.min(
+      sdTriangle(x, y, -0.43, -0.22, -0.52, -0.68, -0.18, -0.36),
+      sdTriangle(x, y, 0.43, -0.22, 0.18, -0.36, 0.52, -0.68)
+    );
+  }
+  if (shape === 'cloud') {
+    return Math.min(
+      sdCapsule(x, y, -0.25, -0.36, -0.30, -0.68, 0.055),
+      sdCapsule(x, y, 0.26, -0.35, 0.40, -0.62, 0.05)
+    );
+  }
+  return 1;
 }
 
 /**
@@ -518,42 +742,53 @@ export function evaluateShapeSdf(shape: BrailleShapeKind, x: number, y: number):
     case 'ghost': {
       // Cyber Catgirl (Neko): pointed cat ears + fluffy anime hair locks
       const head = sdEllipse(x, y, 0, 0.08, 0.53, 0.50);
-      const earL = sdTriangle(x, y, -0.52, -0.18, -0.55, -0.74, -0.14, -0.38) - 0.04;
-      const earR = sdTriangle(x, y, 0.52, -0.18, 0.14, -0.38, 0.55, -0.74) - 0.04;
       const cheekL = sdCapsule(x, y, -0.44, 0.12, -0.52, 0.54, 0.14);
       const cheekR = sdCapsule(x, y, 0.44, 0.12, 0.52, 0.54, 0.14);
-      return smin(head, smin(smin(earL, earR, 0.05), smin(cheekL, cheekR, 0.08), 0.08), 0.06);
+      const cheeks = smin(cheekL, cheekR, 0.08);
+      if (y > 0.06) {
+        return smin(head, cheeks, 0.06);
+      }
+      const earL = sdTriangle(x, y, -0.52, -0.18, -0.55, -0.74, -0.14, -0.38) - 0.04;
+      const earR = sdTriangle(x, y, 0.52, -0.18, 0.14, -0.38, 0.55, -0.74) - 0.04;
+      return smin(head, smin(smin(earL, earR, 0.05), cheeks, 0.08), 0.06);
     }
     case 'heart': {
       // Kitsune Shrine Fox: tall angled fox ears + swept cheek locks
       const head = sdEllipse(x, y, 0, 0.12, 0.50, 0.47);
-      const earL = sdTriangle(x, y, -0.50, -0.12, -0.60, -0.78, -0.12, -0.32) - 0.035;
-      const earR = sdTriangle(x, y, 0.50, -0.12, 0.12, -0.32, 0.60, -0.78) - 0.035;
       const ruffL = sdCapsule(x, y, -0.42, 0.18, -0.62, 0.52, 0.13);
       const ruffR = sdCapsule(x, y, 0.42, 0.18, 0.62, 0.52, 0.13);
-      return smin(head, smin(smin(earL, earR, 0.05), smin(ruffL, ruffR, 0.08), 0.08), 0.06);
+      const ruffs = smin(ruffL, ruffR, 0.08);
+      if (y > 0.10) {
+        return smin(head, ruffs, 0.06);
+      }
+      const earL = sdTriangle(x, y, -0.50, -0.12, -0.60, -0.78, -0.12, -0.32) - 0.035;
+      const earR = sdTriangle(x, y, 0.50, -0.12, 0.12, -0.32, 0.60, -0.78) - 0.035;
+      return smin(head, smin(smin(earL, earR, 0.05), ruffs, 0.08), 0.06);
     }
     case 'cloud': {
       // Usagi Bunny: tall perky bunny ears (one playfully tilted) + soft bob
       const head = sdEllipse(x, y, 0, 0.16, 0.50, 0.44);
+      const lockL = sdCircle(x, y, -0.45, 0.34, 0.16);
+      const lockR = sdCircle(x, y, 0.45, 0.34, 0.16);
+      const headLocks = smin(head, smin(lockL, lockR, 0.10), 0.08);
+      if (y > 0.06) {
+        return headLocks;
+      }
       const earL = sdCapsule(x, y, -0.22, -0.22, -0.32, -0.76, 0.13);
       const earR = sdCapsule(x, y, 0.22, -0.22, 0.44, -0.68, 0.125);
       const earTipR = sdCapsule(x, y, 0.44, -0.68, 0.60, -0.56, 0.10);
-      const lockL = sdCircle(x, y, -0.45, 0.34, 0.16);
-      const lockR = sdCircle(x, y, 0.45, 0.34, 0.16);
-      return smin(
-        smin(head, smin(lockL, lockR, 0.10), 0.08),
-        smin(earL, smin(earR, earTipR, 0.06), 0.05),
-        0.06
-      );
+      return smin(headLocks, smin(earL, smin(earR, earTipR, 0.06), 0.05), 0.06);
     }
     case 'triangle': {
       // Mecha Fin Headset: upward cyber-ear fins + sharp anime hair silhouette
       const head = sdEllipse(x, y, 0, 0.10, 0.50, 0.47);
-      const finL = sdTriangle(x, y, -0.52, 0.04, -0.66, -0.62, -0.34, -0.24) - 0.03;
-      const finR = sdTriangle(x, y, 0.52, 0.04, 0.34, -0.24, 0.66, -0.62) - 0.03;
       const cupL = sdCapsule(x, y, -0.52, 0.02, -0.52, 0.24, 0.12);
       const cupR = sdCapsule(x, y, 0.52, 0.02, 0.52, 0.24, 0.12);
+      if (y > 0.26) {
+        return smin(head, smin(cupL, cupR, 0.05), 0.05);
+      }
+      const finL = sdTriangle(x, y, -0.52, 0.04, -0.66, -0.62, -0.34, -0.24) - 0.03;
+      const finR = sdTriangle(x, y, 0.52, 0.04, 0.34, -0.24, 0.66, -0.62) - 0.03;
       const topSpike = sdTriangle(x, y, -0.10, -0.34, 0.0, -0.64, 0.10, -0.34) - 0.03;
       return smin(
         smin(head, topSpike, 0.05),
@@ -594,6 +829,17 @@ export function evaluateShapeSdf(shape: BrailleShapeKind, x: number, y: number):
   }
 }
 
+let shapeBufCap = 0;
+let shapeSubLum = new Float32Array(0);
+
+function ensureShapeSubBuffer(len: number): Float32Array {
+  if (len > shapeBufCap) {
+    shapeBufCap = len;
+    shapeSubLum = new Float32Array(len);
+  }
+  return shapeSubLum;
+}
+
 /**
  * Renders an anime-chibi companion styled like the main halftone character in 2x4 Unicode Braille.
  */
@@ -611,51 +857,101 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
     isDragging = false,
     gazeX = 0,
     gazeY = 0,
+    motion,
   } = params;
 
   const subW = cols * 2;
   const subH = rows * 4;
-  const subLum = new Float32Array(subW * subH);
+  const subLum = ensureShapeSubBuffer(subW * subH);
   const lines: string[] = new Array(rows);
   const cells = new Uint8Array(cols * rows);
 
-  // Subtle alive breathing + drag/speak squash & stretch
-  const breath = Math.sin(time * 2.2) * 0.025;
-  const speakBounce = isSpeaking ? Math.sin(time * 13.5) * energy * 0.04 : 0;
-  const dragLift = isDragging ? 0.04 : 0;
-  const scaleX = 1 + breath * 0.5 - speakBounce * 0.45 + dragLift;
-  const scaleY = 1 - breath * 0.7 + speakBounce * 0.85 - dragLift * 0.45;
+  // Use stateful damped kinematics when supplied, or smooth fallback curve
+  const blinkAmt = motion
+    ? clamp01(motion.blink)
+    : eyeState === 'blink'
+    ? 1
+    : 0;
+  const squintAmt = motion
+    ? clamp01(motion.squint)
+    : eyeState === 'sleepy'
+    ? 0.65
+    : eyeState === 'happy' && !isSpeaking
+    ? 0.72
+    : 0;
+  const wideAmt = motion
+    ? clamp01(motion.wide)
+    : eyeState === 'wide'
+    ? 0.9
+    : 0;
+  const dragLiftAmt = motion ? motion.dragLift : isDragging ? 1 : 0;
+  const tilt = motion ? motion.dragTilt : 0;
+  const hairLag = motion ? motion.hairLag : 0;
+  const bounceY = motion ? motion.bounceY : Math.sin(time * 2.2) * 0.018;
 
-  const gx = clamp(gazeX, -1, 1) * 0.032;
-  const gy = clamp(gazeY, -1, 1) * 0.024;
+  const breath = Math.sin(time * 2.2) * 0.02;
+  const speakBounce = isSpeaking ? Math.sin(time * 13.5) * energy * 0.028 : 0;
 
-  const mouthOpen =
-    isSpeaking || viseme === 'wide' || viseme === 'round' || viseme === 'mid' || viseme === 'small'
-      ? clamp(
-          viseme === 'wide'
-            ? 0.95
-            : viseme === 'round'
-            ? 0.72
-            : viseme === 'mid'
-            ? 0.56
-            : viseme === 'small'
-            ? 0.38
-            : energy * 0.85,
-          0,
-          1
-        )
-      : 0;
+  // Safe 0.90 framing factor guarantees zero edge clipping across all 9 shapes during drag tilt & settle
+  const safeBase = 0.90;
+  const scaleX = safeBase * (1 + breath * 0.45 - speakBounce * 0.35 + dragLiftAmt * 0.032);
+  const scaleY = safeBase * (1 - breath * 0.55 + speakBounce * 0.65 - dragLiftAmt * 0.022);
+
+  const cosT = Math.cos(tilt);
+  const sinT = Math.sin(tilt);
+
+  const effGazeX = motion ? motion.gazeX : gazeX;
+  const effGazeY = motion ? motion.gazeY : gazeY;
+  const gx = clamp(effGazeX, -1, 1) * 0.032;
+  const gy = clamp(effGazeY, -1, 1) * 0.024;
+
+  const mouthOpen = motion
+    ? clamp01(motion.mouthOpen)
+    : targetMouthOpenForViseme(viseme, energy, isSpeaking);
+  const smileAmt = motion ? clamp01(motion.smile) : mood === 'happy' ? 1 : 0.25;
 
   const eps = 0.022;
+  const pivotY = 0.08;
+  const profile = STATIC_FACE_PROFILES[shape];
+  const {
+    faceCx,
+    faceCy,
+    faceRx,
+    faceRy,
+    bangHeight,
+    partType,
+    hasHeadband,
+    hasHalo,
+    hasInnerEar,
+  } = profile;
 
   for (let sy = 0; sy < subH; sy++) {
     const nyRaw = ((sy + 0.5) / subH) * 2 - 1;
-    const ny = nyRaw / scaleY;
+    const nyScaled = (nyRaw - bounceY) / scaleY;
     const rowOff = sy * subW;
 
     for (let sx = 0; sx < subW; sx++) {
       const nxRaw = ((sx + 0.5) / subW) * 2 - 1;
-      const nx = nxRaw / scaleX;
+      const nxScaled = nxRaw / scaleX;
+
+      // Rigid tilt around neck/chin pivot + smooth secondary hair/ear lag
+      const dxp = nxScaled;
+      const dyp = nyScaled - pivotY;
+      let nx = dxp * cosT - dyp * sinT;
+      const ny = dxp * sinT + dyp * cosT + pivotY;
+
+      if (hairLag !== 0) {
+        // Upper ears/halo/ahoge sway cleanly opposite lower twintails/bob tips
+        const upperZone = ny < -0.16 ? (-0.16 - ny) * 0.65 : 0;
+        const lowerZone = ny > 0.16 ? (ny - 0.16) * 0.55 : 0;
+        nx += hairLag * (upperZone - lowerZone);
+      }
+
+      // Fast outer bounding reject skips empty margin subpixels without running full SDF
+      if (nx > 0.94 || nx < -0.94 || ny < -0.86 || ny > 0.72) {
+        subLum[rowOff + sx] = 0;
+        continue;
+      }
 
       const d = evaluateShapeSdf(shape, nx, ny);
       if (d > 0.032) {
@@ -665,156 +961,154 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
 
       const edgeCov = clamp(1 - (d + 0.004) / 0.036, 0, 1);
 
-      const dxGrad = evaluateShapeSdf(shape, nx + eps, ny) - evaluateShapeSdf(shape, nx - eps, ny);
-      const dyGrad = evaluateShapeSdf(shape, nx, ny + eps) - evaluateShapeSdf(shape, nx, ny - eps);
-      const gradLen = Math.hypot(dxGrad, dyGrad) || 1;
-      const edgeWeight = clamp(1 + d * 2.2, 0, 1);
-      const snx = (dxGrad / gradLen) * edgeWeight;
-      const sny = (dyGrad / gradLen) * edgeWeight;
-      const snz = Math.sqrt(Math.max(0.1, 1 - snx * snx - sny * sny));
-
-      const keyDot = clamp(-0.38 * snx - 0.56 * sny + 0.72 * snz, 0, 1);
-      const rim = Math.pow(1 - snz, 1.7) * 0.38;
-
-      const profile = evaluateFaceProfile(shape, nx, ny);
-
-      // Anime face oval & hair bangs partition (high-contrast like image_9fdb5ec4.png)
-      const dFace = sdEllipse(
-        nx - gx * 0.35,
-        ny - gy * 0.25,
-        profile.faceCx,
-        profile.faceCy,
-        profile.faceRx,
-        profile.faceRy
-      );
-
-      let bangBottom = profile.bangHeight;
-      if (profile.partType === 'center') {
-        bangBottom += -0.05 * Math.exp(-Math.abs(nx) * 8) + 0.025 * Math.cos(nx * 14);
-      } else if (profile.partType === 'side') {
-        bangBottom += -0.04 * clamp(nx + 0.15, -0.4, 0.4) + 0.02 * Math.sin(nx * 13);
-      } else if (profile.partType === 'wispy') {
-        bangBottom += 0.03 * Math.cos(nx * 16) - 0.015;
-      } else {
-        // Straight notched bangs inspired by the main character
-        bangBottom += 0.022 * Math.sin(nx * 18) + (Math.abs(nx) < 0.09 ? -0.035 : 0);
+      // Performance optimization: 2-probe SDF gradient near silhouette rim
+      let snx = 0;
+      let sny = 0;
+      let snz = 1;
+      if (d > -0.20) {
+        const dxGrad = evaluateShapeSdf(shape, nx + eps, ny) - d;
+        const dyGrad = evaluateShapeSdf(shape, nx, ny + eps) - d;
+        const gradLen = Math.sqrt(dxGrad * dxGrad + dyGrad * dyGrad) || 1;
+        const edgeWeight = clamp(1 + d * 4.5, 0, 1);
+        snx = (dxGrad / gradLen) * edgeWeight;
+        sny = (dyGrad / gradLen) * edgeWeight;
+        snz = Math.sqrt(Math.max(0.1, 1 - snx * snx - sny * sny));
       }
 
-      const inFace = dFace < 0 && ny > bangBottom;
+      const keyDot = clamp(-0.38 * snx - 0.56 * sny + 0.72 * snz, 0, 1);
+      const rim = (1 - snz) * (1 - snz) * 0.34;
+
+      // Bounding check skips sdEllipse + bang trig/exp math for outer hair/ears/halo pixels
+      let dFace = 1;
+      let bangBottom = bangHeight;
+      let inFace = false;
+      if (nx > -0.52 && nx < 0.52 && ny > -0.35 && ny < 0.66) {
+        dFace = sdEllipse(
+          nx - gx * 0.35,
+          ny - gy * 0.25,
+          faceCx,
+          faceCy,
+          faceRx,
+          faceRy
+        );
+
+        if (partType === 'center') {
+          bangBottom += -0.05 * Math.exp(-Math.abs(nx) * 8) + 0.025 * Math.cos(nx * 14);
+        } else if (partType === 'side') {
+          bangBottom += -0.04 * clamp(nx + 0.15, -0.4, 0.4) + 0.02 * Math.sin(nx * 13);
+        } else if (partType === 'wispy') {
+          bangBottom += 0.03 * Math.cos(nx * 16) - 0.015;
+        } else {
+          bangBottom += 0.022 * Math.sin(nx * 18) + (Math.abs(nx) < 0.09 ? -0.035 : 0);
+        }
+
+        inFace = dFace < 0 && ny > bangBottom;
+      }
 
       let lum: number;
       if (inFace) {
-        // Bright anime porcelain face contrast against hair silhouette
         const faceShade = clamp(0.84 + keyDot * 0.14 - Math.max(0, dFace + 0.12) * 0.25, 0.62, 0.98);
         lum = faceShade * edgeCov;
 
-        // Subtle shadow directly beneath bangs
         const underBang = ny - bangBottom;
         if (underBang >= 0 && underBang < 0.045) {
           lum *= 0.68 + (underBang / 0.045) * 0.32;
         }
       } else {
-        // Rich dark anime hair with iconic zigzag hair sheen & rim highlight
         lum = (0.34 + keyDot * 0.26 + rim) * edgeCov;
 
-        // Bright anime zigzag sheen band across bangs & crown (homage to main character portrait)
-        const sheenWave = -0.18 + 0.035 * Math.sin(nx * 17 + 0.4);
-        const sheenDist = Math.abs(ny - sheenWave);
-        if (sheenDist < 0.048 && Math.abs(nx) < 0.46) {
-          lum = Math.max(lum, (0.88 - (sheenDist / 0.048) * 0.35) * edgeCov);
+        if (ny > -0.24 && ny < -0.12 && Math.abs(nx) < 0.46) {
+          const sheenWave = -0.18 + 0.035 * Math.sin(nx * 17 + 0.4);
+          const sheenDist = Math.abs(ny - sheenWave);
+          if (sheenDist < 0.048) {
+            lum = Math.max(lum, (0.88 - (sheenDist / 0.048) * 0.35) * edgeCov);
+          }
         }
 
-        // Main-character style curved cyber headband or mecha visor band
-        if (profile.hasHeadband) {
-          const bandCurve = -0.30 + (nx * nx) * 0.34;
+        if (hasHeadband && Math.abs(nx) < 0.48) {
+          const bandCurve = -0.30 + nx * nx * 0.34;
           const bandDist = Math.abs(ny - bandCurve);
-          if (bandDist < 0.055 && Math.abs(nx) < 0.48) {
+          if (bandDist < 0.055) {
             lum = 0.96 * edgeCov;
           }
         }
 
-        // Floating golden/bright halo ring highlight
-        if (profile.hasHalo && ny < -0.40) {
+        if (hasHalo && ny < -0.40) {
           lum = Math.max(lum, 0.94 * edgeCov);
         }
 
-        // Inner cat/fox/bunny ear shading cutout so ears read immediately
-        if (profile.innerEarDist !== undefined && profile.innerEarDist < 0) {
+        if (hasInnerEar && ny < -0.15 && evaluateInnerEarDist(shape, nx, ny) < 0) {
           lum *= 0.24;
         }
       }
 
-      // Expressive anime eyes inside the face
+      // Expressive anime eyes inside the face with smooth progressive analog blink & squint
       if (dFace < 0.04) {
         const eyeY = profile.eyeY + gy * 0.45;
-        const leftEyeX = -profile.eyeSep + gx * 0.7;
-        const rightEyeX = profile.eyeSep + gx * 0.7;
-        const dxL = nx - leftEyeX;
-        const dxR = nx - rightEyeX;
-        const nearestDx = Math.abs(dxL) < Math.abs(dxR) ? dxL : dxR;
-        const nearestEyeX = Math.abs(dxL) < Math.abs(dxR) ? leftEyeX : rightEyeX;
-        const dyEye = ny - eyeY;
+        const rx = profile.eyeRx * (1 + wideAmt * 0.12);
+        const ry = profile.eyeRy * (1 + wideAmt * 0.12);
 
-        if (eyeState === 'blink') {
-          const archY = eyeY + 0.02 - (nearestDx * nearestDx) * 1.8;
-          if (Math.abs(nearestDx) < profile.eyeRx * 1.15 && Math.abs(ny - archY) < 0.024) {
-            lum = 0.04;
-          }
-        } else if (eyeState === 'sleepy') {
-          // Serene half-lidded anime eyes: dark curved lash + hint of lower iris
-          const lidY = eyeY - 0.005 + (nearestDx * nearestDx) * 1.3;
-          if (Math.abs(nearestDx) < profile.eyeRx * 1.2 && Math.abs(ny - lidY) < 0.026) {
-            lum = 0.04;
-          } else if (
-            ny > lidY &&
-            Math.hypot(nearestDx / (profile.eyeRx * 0.85), (ny - (eyeY + 0.03)) / (profile.eyeRy * 0.6)) < 1
-          ) {
-            lum = 0.12;
-          }
-        } else if (eyeState === 'happy' && !isSpeaking) {
-          // Cheerful anime ^ ^ arc eyes
-          const happyY = eyeY + 0.02 + (nearestDx * nearestDx) * 3.0;
-          if (Math.abs(nearestDx) < profile.eyeRx * 1.1 && Math.abs(ny - happyY) < 0.025) {
-            lum = 0.04;
-          }
-        } else {
-          const rx = eyeState === 'wide' ? profile.eyeRx * 1.12 : profile.eyeRx;
-          const ry = eyeState === 'wide' ? profile.eyeRy * 1.12 : profile.eyeRy;
-          const irisNorm = Math.hypot(nearestDx / rx, dyEye / ry);
+        if (ny > eyeY - ry * 1.45 && ny < eyeY + ry * 1.45) {
+          const leftEyeX = -profile.eyeSep + gx * 0.7;
+          const rightEyeX = profile.eyeSep + gx * 0.7;
+          const dxL = nx - leftEyeX;
+          const dxR = nx - rightEyeX;
+          const nearestDx = Math.abs(dxL) < Math.abs(dxR) ? dxL : dxR;
+          const nearestEyeX = Math.abs(dxL) < Math.abs(dxR) ? leftEyeX : rightEyeX;
+          const dyEye = ny - eyeY;
 
-          // Bold curved anime upper eyelash arch
-          const lashCurve = eyeY - ry * 0.78 + (nearestDx * nearestDx) * 2.2;
-          if (Math.abs(nearestDx) < rx * 1.32 && Math.abs(ny - lashCurve) < 0.025) {
-            lum = 0.03;
-          } else if (irisNorm < 1.0) {
-            // Dual anime highlight catchlights (upper-left key sparkle + lower-right bounce sparkle)
-            const glint1 = Math.hypot(
-              nx - (nearestEyeX - rx * 0.28 + gx * 0.45),
-              ny - (eyeY - ry * 0.28 + gy * 0.45)
-            );
-            const glint2 = Math.hypot(
-              nx - (nearestEyeX + rx * 0.26 + gx * 0.3),
-              ny - (eyeY + ry * 0.30 + gy * 0.3)
-            );
-            if (glint1 < rx * 0.34 || glint2 < rx * 0.19) {
-              lum = 1.0;
-            } else {
+          if (blinkAmt > 0.86) {
+            // Fully closed bowed anime eyelash arch
+            const archY = eyeY + 0.022 - nearestDx * nearestDx * 1.8;
+            if (Math.abs(nearestDx) < rx * 1.15 && Math.abs(ny - archY) < 0.024) {
               lum = 0.04;
+            }
+          } else if (eyeState === 'happy' && !isSpeaking && blinkAmt < 0.15) {
+            const happyY = eyeY + 0.02 + nearestDx * nearestDx * 3.0;
+            if (Math.abs(nearestDx) < rx * 1.1 && Math.abs(ny - happyY) < 0.025) {
+              lum = 0.04;
+            }
+          } else {
+            // Continuous lid closure combines blink progression + sleepy/focused squint
+            const effectiveClose = Math.max(blinkAmt, squintAmt * 0.56);
+            const lidY =
+              lerp(eyeY - ry * 0.80, eyeY + 0.018, effectiveClose) +
+              nearestDx * nearestDx * lerp(2.2, 0.9, effectiveClose);
+
+            if (Math.abs(nearestDx) < rx * 1.28 && Math.abs(ny - lidY) < 0.025) {
+              lum = 0.03;
+            } else if (ny > lidY) {
+              const ix = nearestDx / rx;
+              const iy = dyEye / ry;
+              if (ix * ix + iy * iy < 1.0) {
+                const g1x = nx - (nearestEyeX - rx * 0.28 + gx * 0.45);
+                const g1y = ny - (eyeY - ry * 0.28 + gy * 0.45);
+                const g2x = nx - (nearestEyeX + rx * 0.26 + gx * 0.3);
+                const g2y = ny - (eyeY + ry * 0.30 + gy * 0.3);
+                const r1 = rx * 0.34;
+                const r2 = rx * 0.19;
+                if (g1x * g1x + g1y * g1y < r1 * r1 || g2x * g2x + g2y * g2y < r2 * r2) {
+                  lum = 1.0;
+                } else {
+                  lum = 0.04;
+                }
+              }
             }
           }
         }
 
         // Soft anime cheek blush under eyes
-        if (mood === 'happy' || isSpeaking) {
-          const blushL = Math.hypot((nx - (-profile.eyeSep - 0.06)) / 0.075, (ny - (eyeY + 0.13)) / 0.038);
-          const blushR = Math.hypot((nx - (profile.eyeSep + 0.06)) / 0.075, (ny - (eyeY + 0.13)) / 0.038);
-          if (Math.min(blushL, blushR) < 1.0) {
+        if ((mood === 'happy' || isSpeaking || smileAmt > 0.65) && ny > eyeY + 0.08 && ny < eyeY + 0.19) {
+          const blx = (nx - (-profile.eyeSep - 0.06)) / 0.075;
+          const bly = (ny - (eyeY + 0.13)) / 0.038;
+          const brx = (nx - (profile.eyeSep + 0.06)) / 0.075;
+          if (blx * blx + bly * bly < 1.0 || brx * brx + bly * bly < 1.0) {
             lum *= 0.72;
           }
         }
 
         // Cute anime whiskers for Neko
-        if (profile.hasWhiskers && Math.abs(nx) > 0.29 && Math.abs(nx) < 0.44) {
+        if (profile.hasWhiskers && ny > eyeY + 0.07 && ny < eyeY + 0.19 && Math.abs(nx) > 0.29 && Math.abs(nx) < 0.44) {
           const wy1 = Math.abs(ny - (eyeY + 0.10));
           const wy2 = Math.abs(ny - (eyeY + 0.16));
           if (wy1 < 0.015 || wy2 < 0.015) {
@@ -822,23 +1116,24 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
           }
         }
 
-        // Anime mouth (dynamic open mouth on speech, cute smile or calm line otherwise)
+        // Smoothly damped anime mouth
         const mouthY = profile.mouthY + gy * 0.35;
-        const mouthX = nx - gx * 0.3;
-        if (mouthOpen > 0.12) {
-          const mw = 0.055 + mouthOpen * 0.045;
-          const mh = 0.025 + mouthOpen * 0.048;
-          const md = Math.hypot(mouthX / mw, (ny - mouthY) / mh);
-          if (md < 1.0) {
-            lum = 0.05;
-          }
-        } else if (mood === 'happy') {
-          const smileY = mouthY - (mouthX * mouthX) * 4.2;
-          if (Math.abs(mouthX) < 0.065 && Math.abs(ny - smileY) < 0.017) {
-            lum = 0.08;
-          }
-        } else {
-          if (Math.abs(mouthX) < 0.048 && Math.abs(ny - mouthY) < 0.015) {
+        if (ny > mouthY - 0.10 && ny < mouthY + 0.10) {
+          const mouthX = nx - gx * 0.3;
+          if (mouthOpen > 0.10) {
+            const mw = 0.048 + mouthOpen * 0.048;
+            const mh = 0.020 + mouthOpen * 0.052;
+            const mxn = mouthX / mw;
+            const myn = (ny - mouthY) / mh;
+            if (mxn * mxn + myn * myn < 1.0) {
+              lum = 0.05;
+            }
+          } else if (smileAmt > 0.48) {
+            const smileY = mouthY - mouthX * mouthX * (3.2 + smileAmt * 1.4);
+            if (Math.abs(mouthX) < 0.062 && Math.abs(ny - smileY) < 0.017) {
+              lum = 0.08;
+            }
+          } else if (Math.abs(mouthX) < 0.048 && Math.abs(ny - mouthY) < 0.015) {
             lum = 0.10;
           }
         }
@@ -850,25 +1145,42 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
 
   for (let r = 0; r < rows; r++) {
     let line = '';
+    const r0 = r * 4 * subW;
+    const r1 = r0 + subW;
+    const r2 = r1 + subW;
+    const r3 = r2 + subW;
+    const cellRowOff = r * cols;
+
     for (let c = 0; c < cols; c++) {
-      let bits = 0;
-      let lumSum = 0;
-      for (let py = 0; py < 4; py++) {
-        const sy = r * 4 + py;
-        const rowOff = sy * subW;
-        const bitBase = py * 2;
-        const bayerRow = (sy & 3) * 4;
-        for (let px = 0; px < 2; px++) {
-          const sx = c * 2 + px;
-          const lum = subLum[rowOff + sx];
-          lumSum += lum;
-          const thresh = 0.13 + BAYER_4X4[bayerRow + (sx & 3)] * 0.72;
-          if (lum > thresh) {
-            bits |= BRAILLE_BITMASK[bitBase + px];
-          }
-        }
+      const c2 = c * 2;
+      const bCol = (c & 1) * 2;
+      const l00 = subLum[r0 + c2];
+      const l01 = subLum[r0 + c2 + 1];
+      const l10 = subLum[r1 + c2];
+      const l11 = subLum[r1 + c2 + 1];
+      const l20 = subLum[r2 + c2];
+      const l21 = subLum[r2 + c2 + 1];
+      const l30 = subLum[r3 + c2];
+      const l31 = subLum[r3 + c2 + 1];
+
+      const lumSum = l00 + l01 + l10 + l11 + l20 + l21 + l30 + l31;
+      if (lumSum <= 0.12) {
+        cells[cellRowOff + c] = 0;
+        line += ' ';
+        continue;
       }
-      cells[r * cols + c] = Math.round((lumSum * 0.125) * 255);
+
+      let bits = 0;
+      if (l00 > BAYER_THRESH[bCol]) bits |= 0x01;
+      if (l01 > BAYER_THRESH[bCol + 1]) bits |= 0x08;
+      if (l10 > BAYER_THRESH[4 + bCol]) bits |= 0x02;
+      if (l11 > BAYER_THRESH[5 + bCol]) bits |= 0x10;
+      if (l20 > BAYER_THRESH[8 + bCol]) bits |= 0x04;
+      if (l21 > BAYER_THRESH[9 + bCol]) bits |= 0x20;
+      if (l30 > BAYER_THRESH[12 + bCol]) bits |= 0x40;
+      if (l31 > BAYER_THRESH[13 + bCol]) bits |= 0x80;
+
+      cells[cellRowOff + c] = Math.round(lumSum * 31.875);
       line += bits === 0 ? ' ' : String.fromCharCode(0x2800 + bits);
     }
     lines[r] = line;

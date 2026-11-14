@@ -107,7 +107,7 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 function sdEllipse(x: number, y: number, cx: number, cy: number, rx: number, ry: number): number {
   const dx = (x - cx) / rx;
   const dy = (y - cy) / ry;
-  return (Math.hypot(dx, dy) - 1) * Math.min(rx, ry);
+  return (Math.sqrt(dx * dx + dy * dy) - 1) * (rx < ry ? rx : ry);
 }
 
 function sdCapsule2(
@@ -125,7 +125,9 @@ function sdCapsule2(
   const bay = by - ay;
   const denom = bax * bax + bay * bay || 1;
   const h = clamp01((pax * bax + pay * bay) / denom);
-  return Math.hypot(pax - bax * h, pay - bay * h) - r;
+  const dx = pax - bax * h;
+  const dy = pay - bay * h;
+  return Math.sqrt(dx * dx + dy * dy) - r;
 }
 
 function getMouthShape(viseme: MouthViseme, energy: number): { rx: number; ry: number; open: number } {
@@ -354,21 +356,27 @@ function getTargetMotionFromParams(
       break;
   }
 
-  // Natural micro-saccades for gaze (blended with pointer lookTarget when active)
+  // Natural micro-saccades with realistic fixation holds & crisp glance shifts
+  const fixWindow = Math.floor(time * 0.68);
+  const fixDriftX = Math.sin(time * 0.9) * 0.025;
+  const fixDriftY = Math.cos(time * 0.8) * 0.015;
+  const saccadeX = ((fixWindow * 7) % 5 === 0 ? 0.24 : (fixWindow * 3) % 4 === 1 ? -0.22 : 0.04) * Math.sin(fixWindow * 2.1 + 0.5);
+  const saccadeY = ((fixWindow * 5) % 4 === 0 ? -0.12 : 0.02);
+
   let gazeX =
     mood === 'thinking'
-      ? -0.42 + Math.sin(time * 1.9) * 0.34
+      ? -0.40 + Math.sin(Math.floor(time * 1.15) * 1.7) * 0.32 + fixDriftX
       : eyeState === 'side'
       ? 0.72
       : mood === 'listening'
-      ? Math.sin(time * 1.2) * 0.22
-      : Math.sin(time * 0.75) * 0.18;
+      ? Math.sin(Math.floor(time * 0.85) * 1.9) * 0.22 + fixDriftX
+      : saccadeX + fixDriftX;
   let gazeY =
     mood === 'thinking'
-      ? -0.48 + Math.cos(time * 1.3) * 0.15
+      ? -0.46 + Math.cos(Math.floor(time * 1.15) * 1.3) * 0.14 + fixDriftY
       : mood === 'alert'
-      ? -0.1
-      : Math.cos(time * 0.65) * 0.08;
+      ? -0.10
+      : saccadeY + fixDriftY;
 
   if (lookTarget) {
     gazeX = lerp(gazeX, clamp(lookTarget.x * 1.15, -1, 1), 0.75);
@@ -454,6 +462,9 @@ export function createPortraitAnimator() {
   };
   let hairVelX = 0;
   let hairVelY = 0;
+  let mouthVel = 0;
+  let jawVel = 0;
+  let browVel = 0;
   let prevHeadTilt = 0;
   let prevHeadYaw = 0;
   let prevHeadNodY = 0;
@@ -468,32 +479,39 @@ export function createPortraitAnimator() {
       const clampedDt = Math.min(0.06, Math.max(0.004, dt));
       const target = getTargetMotionFromParams(params as PortraitParams, lookTarget);
 
-      // Asymmetric crisp blink: fast close (rate 38), graceful open (rate 19)
-      const blinkRate = target.blink > state.blink ? 38 : 19;
+      // Asymmetric crisp blink: fast close (rate 38), graceful open (rate 18)
+      const blinkRate = target.blink > state.blink ? 38 : 18;
       state.blink = expApproach(state.blink, target.blink, blinkRate, clampedDt);
       state.squint = expApproach(state.squint, target.squint, 10, clampedDt);
       state.wide = expApproach(state.wide, target.wide, 14, clampedDt);
-      state.browLift = expApproach(state.browLift, target.browLift, 13, clampedDt);
 
-      // Lip-sync: snappy vocal attack (rate 30), natural vowel release (rate 18)
-      const mouthRate = target.mouthOpen > state.mouthOpen ? 30 : 18;
-      state.mouthOpen = expApproach(state.mouthOpen, target.mouthOpen, mouthRate, clampedDt);
-      state.mouthWidth = expApproach(state.mouthWidth, target.mouthWidth, 24, clampedDt);
-      state.mouthRound = expApproach(state.mouthRound, target.mouthRound, 24, clampedDt);
+      // Slightly underdamped brow micro-expression spring for expressive emphasis
+      browVel += ((target.browLift - state.browLift) * 135 - browVel * 19) * clampedDt;
+      state.browLift = clamp(state.browLift + browVel * clampedDt, -0.48, 1.0);
+
+      // Critically-damped 2nd-order filter for lip-sync mouth & jaw (zero 1-frame teleport pops)
+      const mouthStiffness = target.mouthOpen > state.mouthOpen ? 128 : 102;
+      mouthVel += ((target.mouthOpen - state.mouthOpen) * mouthStiffness - mouthVel * 23) * clampedDt;
+      state.mouthOpen = clamp01(state.mouthOpen + mouthVel * clampedDt);
+
+      jawVel += ((target.jawDrop - state.jawDrop) * 132 - jawVel * 23) * clampedDt;
+      state.jawDrop = clamp01(state.jawDrop + jawVel * clampedDt);
+
+      state.mouthWidth = expApproach(state.mouthWidth, target.mouthWidth, 16, clampedDt);
+      state.mouthRound = expApproach(state.mouthRound, target.mouthRound, 16, clampedDt);
       state.smile = expApproach(state.smile, target.smile, 12, clampedDt);
-      state.jawDrop = expApproach(state.jawDrop, target.jawDrop, 22, clampedDt);
-      state.teethTop = expApproach(state.teethTop, target.teethTop, 28, clampedDt);
-      state.teethBottom = expApproach(state.teethBottom, target.teethBottom, 26, clampedDt);
-      state.tongueShow = expApproach(state.tongueShow, target.tongueShow, 24, clampedDt);
-      state.tongueLift = expApproach(state.tongueLift, target.tongueLift, 24, clampedDt);
-      state.lipPress = expApproach(state.lipPress, target.lipPress, 28, clampedDt);
-      state.lipBite = expApproach(state.lipBite, target.lipBite, 28, clampedDt);
-      state.puckerRing = expApproach(state.puckerRing, target.puckerRing, 24, clampedDt);
-      state.restPart = expApproach(state.restPart, target.restPart, 22, clampedDt);
+      state.teethTop = expApproach(state.teethTop, target.teethTop, 20, clampedDt);
+      state.teethBottom = expApproach(state.teethBottom, target.teethBottom, 19, clampedDt);
+      state.tongueShow = expApproach(state.tongueShow, target.tongueShow, 19, clampedDt);
+      state.tongueLift = expApproach(state.tongueLift, target.tongueLift, 19, clampedDt);
+      state.lipPress = expApproach(state.lipPress, target.lipPress, 20, clampedDt);
+      state.lipBite = expApproach(state.lipBite, target.lipBite, 20, clampedDt);
+      state.puckerRing = expApproach(state.puckerRing, target.puckerRing, 19, clampedDt);
+      state.restPart = expApproach(state.restPart, target.restPart, 18, clampedDt);
 
-      // Eye saccades snap cleanly with organic smoothing
-      state.gazeX = expApproach(state.gazeX, target.gazeX, 16, clampedDt);
-      state.gazeY = expApproach(state.gazeY, target.gazeY, 16, clampedDt);
+      // Crisp eye saccades between fixation points
+      state.gazeX = expApproach(state.gazeX, target.gazeX, 18, clampedDt);
+      state.gazeY = expApproach(state.gazeY, target.gazeY, 18, clampedDt);
 
       if (reducedMotion) {
         state.headYaw = expApproach(state.headYaw, target.headYaw * 0.2, 5, clampedDt);
@@ -648,46 +666,6 @@ export function buildPortraitSourceFromRgba(
   return { width, height, baseLum, inkMask };
 }
 
-function sampleSourceBilinear(
-  source: PortraitSourceField,
-  ux: number,
-  uy: number
-): { lum: number; ink: number } {
-  const maxX = source.width - 1;
-  const maxY = source.height - 1;
-  const fx = clamp01(ux) * maxX;
-  const fy = clamp01(uy) * maxY;
-  const x0 = Math.floor(fx);
-  const y0 = Math.floor(fy);
-  const x1 = Math.min(maxX, x0 + 1);
-  const y1 = Math.min(maxY, y0 + 1);
-  const tx = fx - x0;
-  const ty = fy - y0;
-
-  const i00 = y0 * source.width + x0;
-  const i10 = y0 * source.width + x1;
-  const i01 = y1 * source.width + x0;
-  const i11 = y1 * source.width + x1;
-
-  const w00 = (1 - tx) * (1 - ty);
-  const w10 = tx * (1 - ty);
-  const w01 = (1 - tx) * ty;
-  const w11 = tx * ty;
-
-  return {
-    lum:
-      source.baseLum[i00] * w00 +
-      source.baseLum[i10] * w10 +
-      source.baseLum[i01] * w01 +
-      source.baseLum[i11] * w11,
-    ink:
-      source.inkMask[i00] * w00 +
-      source.inkMask[i10] * w10 +
-      source.inkMask[i01] * w01 +
-      source.inkMask[i11] * w11,
-  };
-}
-
 interface PrecomputedReferenceFrame {
   time: number;
   energy: number;
@@ -741,30 +719,39 @@ function sampleReferenceWithExpression(
   fc: PrecomputedReferenceFrame,
   source: PortraitSourceField
 ): number {
-  const { motion, ct, st, energy, isSpeaking } = fc;
+  const { motion, ct, st, energy } = fc;
 
   // 1. Safe viewport framing inset so crown arc, turned cheeks & bob curls never clip edges
   const framedX = (ux - 0.50) * 1.105 + 0.49;
   const framedY = (uy - 0.56) * 1.11 + 0.51;
 
-  // 2. Head/collar separation & Live2D-style 2.5D depth parallax (nose & front face lead the turn)
+  // 2. Head/collar separation & Live2D-style 2.5D depth parallax (skip expensive exp() outside head bounds)
   const headMask = 1 - smoothstep(0.68, 0.88, framedY);
   const hx = framedX - 0.43;
   const hy = framedY - 0.46;
 
-  const faceDome = Math.exp(-(((hx + 0.13) / 0.25) ** 2 + ((hy - 0.02) / 0.29) ** 2));
-  // Nose bridge & mouth protrusion: sticks out furthest toward viewer so it leads 2.5D yaw/pitch turns
-  const noseDome = Math.exp(-(((framedX - 0.23) / 0.085) ** 2 + ((framedY - 0.54) / 0.14) ** 2));
-  const crownDome = Math.exp(-(((framedX - 0.36) / 0.22) ** 2 + ((framedY - 0.22) / 0.16) ** 2));
-  const backHairDepth = smoothstep(0.06, 0.40, hx) * (1 - smoothstep(0.64, 0.90, framedY));
-  const zDepth = (faceDome * 1.05 + noseDome * 0.48 + crownDome * 0.38 - backHairDepth * 0.78) * headMask;
+  let zDepth = 0;
+  let faceZone = 0;
+  if (headMask > 0.004 && framedX > 0.05 && framedX < 0.90 && framedY > 0.02) {
+    const faceDome = Math.exp(-(((hx + 0.13) / 0.25) ** 2 + ((hy - 0.02) / 0.29) ** 2));
+    const noseDome =
+      framedX < 0.45 && framedY > 0.25
+        ? Math.exp(-(((framedX - 0.23) / 0.085) ** 2 + ((framedY - 0.54) / 0.14) ** 2))
+        : 0;
+    const crownDome =
+      framedY < 0.55
+        ? Math.exp(-(((framedX - 0.36) / 0.22) ** 2 + ((framedY - 0.22) / 0.16) ** 2))
+        : 0;
+    const backHairDepth = smoothstep(0.06, 0.40, hx) * (1 - smoothstep(0.64, 0.90, framedY));
+    zDepth = (faceDome * 1.05 + noseDome * 0.48 + crownDome * 0.38 - backHairDepth * 0.78) * headMask;
+    faceZone = faceDome * headMask;
+  }
 
   // Inverse parallax warp: turning right (headYaw > 0) swings nose/face right & tucks far hair left
   const yawParallaxX = -motion.headYaw * (0.105 * zDepth + 0.016 * headMask);
   const pitchParallaxY = -motion.headPitch * (0.092 * zDepth + 0.014 * headMask);
 
   // Subtle horizontal cylindrical foreshortening across the turning cheek/face plane
-  const faceZone = faceDome * headMask;
   const foreshortenX =
     -hx * motion.headYaw * 0.15 * faceZone +
     (motion.headYaw > 0 ? -0.016 * motion.headYaw * faceZone : 0);
@@ -787,7 +774,7 @@ function sampleReferenceWithExpression(
   const dx = framedX + yawParallaxX + foreshortenX - pivotX - localSwayX;
   const dy = framedY + pitchParallaxY - pivotY - localNodY;
 
-  let ax = pivotX + dx * ct - dy * st;
+  const ax = pivotX + dx * ct - dy * st;
   let ay = pivotY + dx * st + dy * ct;
 
   // 4. Coupled downward jaw & chin articulation when mouth opens wide
@@ -802,17 +789,47 @@ function sampleReferenceWithExpression(
     return 0;
   }
 
-  const sampled = sampleSourceBilinear(source, ax, ay);
-  let lum = sampled.lum;
+  // Zero-alloc inline bilinear source sample
+  const maxX = source.width - 1;
+  const maxY = source.height - 1;
+  const fx = clamp01(ax) * maxX;
+  const fy = clamp01(ay) * maxY;
+  const x0 = fx | 0;
+  const y0 = fy | 0;
+  const x1 = x0 < maxX ? x0 + 1 : maxX;
+  const y1 = y0 < maxY ? y0 + 1 : maxY;
+  const tx = fx - x0;
+  const ty = fy - y0;
+
+  const i00 = y0 * source.width + x0;
+  const i10 = y0 * source.width + x1;
+  const i01 = y1 * source.width + x0;
+  const i11 = y1 * source.width + x1;
+
+  const w00 = (1 - tx) * (1 - ty);
+  const w10 = tx * (1 - ty);
+  const w01 = (1 - tx) * ty;
+  const w11 = tx * ty;
+
+  let lum =
+    source.baseLum[i00] * w00 +
+    source.baseLum[i10] * w10 +
+    source.baseLum[i01] * w01 +
+    source.baseLum[i11] * w11;
+  const ink =
+    source.inkMask[i00] * w00 +
+    source.inkMask[i10] * w10 +
+    source.inkMask[i01] * w01 +
+    source.inkMask[i11] * w11;
 
   // 2.5D key-light cheek & nose shading shift as head turns toward/away from studio key light
-  if (sampled.ink < 0.35 && faceZone > 0.1 && Math.abs(motion.headYaw) > 0.02) {
+  if (ink < 0.35 && faceZone > 0.1 && Math.abs(motion.headYaw) > 0.02 && ay > 0.36 && ay < 0.76 && ax > 0.17 && ax < 0.48) {
     const cheekArea = smoothstep(0.18, 0.46, ax) * smoothstep(0.38, 0.65, ay) * (1 - smoothstep(0.65, 0.76, ay));
     lum = clamp01(lum + motion.headYaw * 0.20 * cheekArea);
   }
 
-  // 5. Dynamic Eyebrow Micro-Expressions (lift on emphasis/alert/thinking, narrow on focus)
-  if (Math.abs(motion.browLift) > 0.08 && sampled.ink < 0.55) {
+  // 5. Dynamic Eyebrow Micro-Expressions (bounded cleanly to brow band)
+  if (Math.abs(motion.browLift) > 0.08 && ink < 0.55 && ay > 0.35 && ay < 0.42 && ax > 0.18 && ax < 0.44) {
     const bOffset = -motion.browLift * 0.014;
     const dBrowL = sdCapsule2(ax, ay, 0.195, 0.392 + bOffset, 0.240, 0.386 + bOffset * 0.85, 0.0042);
     const dBrowR = sdCapsule2(ax, ay, 0.330, 0.376 + bOffset * 0.9, 0.415, 0.372 + bOffset * 0.75, 0.0048);
@@ -823,10 +840,10 @@ function sampleReferenceWithExpression(
     }
   }
 
-  // 6. Template-Calibrated Blinking Sequence:
-  // Natural Open -> Half-Closed (skin lid + heavy rim + visible lower iris + crease) -> Closed (clean skin + bowed lash + outer tick + fold crease)
+  // 6. Template-Calibrated Blinking Sequence (bounded to eye band)
   const blink = motion.blink;
-  if (blink > 0.05) {
+  if (ax >= 0.16 && ax <= 0.47 && ay >= 0.37 && ay <= 0.51) {
+    if (blink > 0.05) {
     // Progressive upper lid closure + slight lower lid rise at full closure
     const upperDropL = lerp(0.414, 0.453, blink);
     const upperDropR = lerp(0.402, 0.445, blink);
@@ -925,15 +942,16 @@ function sampleReferenceWithExpression(
     const dCatchR = sdEllipse(ax, ay, 0.360 + gx, 0.422 + gy, catchR, catchR);
     const dSubCatchR = sdEllipse(ax, ay, 0.396 + gx * 0.65, 0.440 + gy * 0.65, catchR * 0.52, catchR * 0.52);
     const dCatch = Math.min(dCatchL, Math.min(dCatchR, dSubCatchR));
-    if (dCatch < 0.004) {
-      const cMask = 1 - smoothstep(-0.002, 0.003, dCatch);
-      lum = Math.max(lum, cMask * 0.98);
+      if (dCatch < 0.004) {
+        const cMask = 1 - smoothstep(-0.002, 0.003, dCatch);
+        lum = Math.max(lum, cMask * 0.98);
+      }
     }
   }
 
-  // 7. Reference-Calibrated 10-Shape Talking Articulation at Resting Lip Center (mx = 0.274, my = 0.614):
-  // Closed, Natural/Rest, M/B/P, F/V, Slightly Open (Ah/Uh), Wide Open (A/Ha), Rounded (O/Oo), Wide (Ee), L/Th
-  const mxBase = 0.274;
+  // 7. Reference-Calibrated 10-Shape Talking Articulation at Resting Lip Center (mx = 0.274, my = 0.614)
+  if (ax >= 0.222 && ax <= 0.355 && ay >= 0.575 && ay <= 0.675) {
+    const mxBase = 0.274;
   const my = 0.614;
   const openAmt = motion.mouthOpen;
   const smileAmt = motion.smile;
@@ -1192,10 +1210,11 @@ function sampleReferenceWithExpression(
       }
     }
   }
+  }
 
   // 8. Traveling specular glint along headband & bangs during listening/speaking
   const aura = motion.listenPulse;
-  if (aura > 0.06 && sampled.ink < 0.35 && ay < 0.28 && lum > 0.4) {
+  if (aura > 0.06 && ink < 0.35 && ay < 0.28 && lum > 0.4) {
     const wave = Math.exp(-(((ax - fc.glintSweep) * 7.5) ** 2));
     lum = clamp01(lum + wave * aura * (0.15 + energy * 0.16));
   }

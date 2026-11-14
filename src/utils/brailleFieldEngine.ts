@@ -1,3 +1,17 @@
+export interface HorizonMotionState {
+  energy: number;
+  pointerX: number;
+  pointerY: number;
+  bands: number[];
+}
+
+export interface HorizonAnimatorInput {
+  energy: number;
+  pointerX: number;
+  pointerY: number;
+  bands?: number[];
+}
+
 export interface BrailleHorizonParams {
   cols: number;
   rows: number;
@@ -6,6 +20,7 @@ export interface BrailleHorizonParams {
   pointerX: number; // -1..1
   pointerY: number; // -1..1
   bands?: number[];
+  motion?: HorizonMotionState | null;
 }
 
 export interface BrailleHorizonFrame {
@@ -29,9 +44,82 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
+function clamp(v: number, min: number, max: number): number {
+  return v < min ? min : v > max ? max : v;
+}
+
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = clamp01((x - edge0) / (edge1 - edge0 || 1));
   return t * t * (3 - 2 * t);
+}
+
+/**
+ * Stateful spring-damped filter for acoustic Braille horizon energy, 12-band FFT levels,
+ * and pointer interaction, preventing jarring single-frame wave pops on speech transients.
+ */
+export function createHorizonAnimator() {
+  const bands = new Array<number>(12).fill(0);
+  const state: HorizonMotionState = {
+    energy: 0.08,
+    pointerX: 0,
+    pointerY: 0,
+    bands,
+  };
+  let energyVel = 0;
+
+  return {
+    step(input: HorizonAnimatorInput, dt: number, reducedMotion = false): HorizonMotionState {
+      const clampedDt = clamp(dt, 0.004, 0.06);
+      if (reducedMotion) {
+        state.energy = clamp01(input.energy * 0.4);
+        state.pointerX = clamp(input.pointerX, -1, 1);
+        state.pointerY = clamp(input.pointerY, -1, 1);
+        for (let i = 0; i < 12; i++) {
+          bands[i] = clamp01((input.bands?.[i] ?? 0) * 0.5);
+        }
+        return state;
+      }
+
+      // Critically-damped 2nd-order filter on energy: smooth fluid takeoff & release
+      const targetEnergy = clamp01(input.energy);
+      const eStiffness = targetEnergy > state.energy ? 110 : 52;
+      const eDamping = targetEnergy > state.energy ? 21 : 15;
+      energyVel += ((targetEnergy - state.energy) * eStiffness - energyVel * eDamping) * clampedDt;
+      state.energy = clamp01(state.energy + energyVel * clampedDt);
+
+      // Exponential pointer smoothing
+      const ptrFactor = 1 - Math.exp(-10.5 * clampedDt);
+      state.pointerX += (clamp(input.pointerX, -1, 1) - state.pointerX) * ptrFactor;
+      state.pointerY += (clamp(input.pointerY, -1, 1) - state.pointerY) * ptrFactor;
+
+      // Fast-attack / graceful-release band filtering
+      const attackFactor = 1 - Math.exp(-12 * clampedDt);
+      const releaseFactor = 1 - Math.exp(-6.5 * clampedDt);
+      for (let i = 0; i < 12; i++) {
+        const target = clamp01(input.bands?.[i] ?? 0);
+        const f = target > bands[i] ? attackFactor : releaseFactor;
+        bands[i] += (target - bands[i]) * f;
+      }
+
+      return {
+        energy: state.energy,
+        pointerX: state.pointerX,
+        pointerY: state.pointerY,
+        bands: bands.slice(),
+      };
+    },
+  };
+}
+
+let horizonBufCap = 0;
+let horizonSubLum = new Float32Array(0);
+
+function ensureHorizonSubBuffer(len: number): Float32Array {
+  if (len > horizonBufCap) {
+    horizonBufCap = len;
+    horizonSubLum = new Float32Array(len);
+  }
+  return horizonSubLum;
 }
 
 /**
@@ -39,13 +127,18 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
  * designed to flow cleanly across the bottom horizon of the Hermes homepage.
  */
 export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHorizonFrame {
-  const { cols, rows, time, energy, pointerX, pointerY, bands } = params;
+  const { cols, rows, time, motion } = params;
+  const energy = motion ? motion.energy : params.energy;
+  const pointerX = motion ? motion.pointerX : params.pointerX;
+  const pointerY = motion ? motion.pointerY : params.pointerY;
+  const bands = motion ? motion.bands : params.bands;
+
   const subW = cols * 2;
   const subH = rows * 4;
   const lines: string[] = new Array(rows);
   const cells = new Uint8Array(cols * rows);
 
-  const subLum = new Float32Array(subW * subH);
+  const subLum = ensureHorizonSubBuffer(subW * subH);
   const pxTarget = (pointerX + 1) * 0.5;
   const pyBoost = (1 - clamp01((pointerY + 1) * 0.5)) * 0.08;
   const voiceAmp = 0.08 + energy * 0.22;
