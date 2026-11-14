@@ -13,7 +13,7 @@ export type EyeState = 'open' | 'blink' | 'half' | 'wide' | 'happy' | 'side';
 
 export type PhosphorTheme = 'gold' | 'cyan' | 'mono';
 
-export type ChannelId = 'general' | 'ops' | 'launch' | 'research';
+export type ChannelId = string;
 
 export interface Channel {
   id: ChannelId;
@@ -98,6 +98,8 @@ export interface TerminalEntry {
   timestamp: string;
   mood?: ExpressionMood;
   commandUsed?: string;
+  /** Epoch ms from the Duet server; used to keep real items chronologically ordered. */
+  createdAtMs?: number;
 }
 
 export interface VoiceState {

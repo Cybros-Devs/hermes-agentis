@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import path from "node:path";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 
@@ -27,6 +29,103 @@ function getGeminiClient(): GoogleGenAI {
 const HERMES_API_URL = (process.env.HERMES_API_URL || "http://127.0.0.1:8642").replace(/\/+$/, "");
 const HERMES_API_KEY = process.env.HERMES_API_KEY || "";
 const HERMES_PROFILE = process.env.HERMES_PROFILE || "default";
+
+// ---------------------------------------------------------------------------
+// Hermes Duet adapter: this UI stays, but all state/runs/approvals come from
+// the real Hermes Duet server. We pair as a device (same flow as the Duet web
+// client): internal pair-code -> /api/pair -> duet_device cookie, stored locally.
+const DUET_BASE_URL = (process.env.DUET_BASE_URL || "http://127.0.0.1:7456").replace(/\/+$/, "");
+const DUET_INTERNAL_URL = (process.env.DUET_INTERNAL_URL || "http://127.0.0.1:7457").replace(/\/+$/, "");
+const DUET_DEVICE_NAME = process.env.DUET_DEVICE_NAME || "hermes-agentis";
+const DUET_DEVICE_FILE = path.join(__dirname, ".duet-device");
+const DUET_INTERNAL_TOKEN =
+  process.env.DUET_INTERNAL_TOKEN ||
+  (() => {
+    const candidates = [
+      process.env.DUET_TOKEN_FILE,
+      path.join(__dirname, "..", "hermes-duet", "data", "internal.token"),
+    ].filter(Boolean) as string[];
+    for (const file of candidates) {
+      try {
+        const t = readFileSync(file, "utf8").trim();
+        if (t) return t;
+      } catch {
+        // try next candidate
+      }
+    }
+    return "";
+  })();
+
+let duetDeviceToken: string | null = null;
+
+async function loadDuetDeviceToken(): Promise<string | null> {
+  if (duetDeviceToken) return duetDeviceToken;
+  try {
+    duetDeviceToken = readFileSync(DUET_DEVICE_FILE, "utf8").trim() || null;
+  } catch {
+    duetDeviceToken = null;
+  }
+  return duetDeviceToken;
+}
+
+async function pairWithDuet(): Promise<string | null> {
+  if (!DUET_INTERNAL_TOKEN) return null;
+  try {
+    const pairRes = await fetch(`${DUET_INTERNAL_URL}/internal/pair`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${DUET_INTERNAL_TOKEN}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!pairRes.ok) return null;
+    const pairData = (await pairRes.json()) as { code?: string };
+    if (!pairData.code) return null;
+
+    const redeemRes = await fetch(`${DUET_BASE_URL}/api/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: pairData.code, device_name: DUET_DEVICE_NAME }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!redeemRes.ok) return null;
+    const setCookie = redeemRes.headers.get("set-cookie") || "";
+    const cookiePair = setCookie.split(";")[0];
+    if (!cookiePair.startsWith("duet_device=")) return null;
+    duetDeviceToken = cookiePair.slice("duet_device=".length);
+    try {
+      writeFileSync(DUET_DEVICE_FILE, duetDeviceToken, { encoding: "utf8", mode: 0o600 });
+    } catch {
+      // non-fatal: next start re-pairs
+    }
+    console.log(`[duet] paired as device "${DUET_DEVICE_NAME}"`);
+    return duetDeviceToken;
+  } catch {
+    return null;
+  }
+}
+
+/** Authenticated call into the Duet server; re-pairs once on 401. */
+async function duetFetch(pathname: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  let token = await loadDuetDeviceToken();
+  if (!token) {
+    token = await pairWithDuet();
+    if (!token) throw new Error("duet-not-paired");
+  }
+  const res = await fetch(`${DUET_BASE_URL}${pathname}`, {
+    ...init,
+    headers: { ...(init.headers as Record<string, string> | undefined), cookie: `duet_device=${token}` },
+  });
+  if (res.status === 401 && !retried) {
+    duetDeviceToken = null;
+    try {
+      rmSync(DUET_DEVICE_FILE);
+    } catch {
+      // ignore
+    }
+    return duetFetch(pathname, init, true);
+  }
+  return res;
+}
+
 
 async function fetchHermesGateway(pathname: string, init?: RequestInit, timeoutMs = 1500) {
   const controller = new AbortController();
@@ -461,6 +560,85 @@ async function createServer() {
         fallback: "speechSynthesis",
         provider: "browser",
       });
+    }
+  });
+
+  // ----- Duet adapter routes: real state, runs, approvals, live events -----
+  app.get("/api/duet/status", async (_req, res) => {
+    try {
+      const r = await duetFetch("/api/state");
+      res.json({ ok: r.ok, paired: r.ok, baseUrl: DUET_BASE_URL, device: DUET_DEVICE_NAME });
+    } catch (err) {
+      res.json({ ok: false, paired: false, baseUrl: DUET_BASE_URL, error: String(err).slice(0, 120) });
+    }
+  });
+
+  app.get("/api/duet/state", async (_req, res) => {
+    try {
+      const r = await duetFetch("/api/state");
+      if (!r.ok) {
+        res.status(r.status).json({ error: `duet responded ${r.status}` });
+        return;
+      }
+      res.status(200).json(await r.json());
+    } catch {
+      res.status(502).json({ error: "duet-unreachable" });
+    }
+  });
+
+  app.post("/api/duet/messages", async (req, res) => {
+    try {
+      const { text, channel_id } = (req.body ?? {}) as { text?: string; channel_id?: string };
+      if (!text || typeof text !== "string") {
+        res.status(400).json({ error: "text is required" });
+        return;
+      }
+      const r = await duetFetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, channel_id }),
+      });
+      res.status(r.ok ? 200 : r.status).json(await r.json());
+    } catch {
+      res.status(502).json({ error: "duet-unreachable" });
+    }
+  });
+
+  app.post("/api/duet/cards/:cardId/act", async (req, res) => {
+    try {
+      const { action, value } = (req.body ?? {}) as { action?: string; value?: string };
+      const r = await duetFetch(`/api/cards/${encodeURIComponent(req.params.cardId)}/act`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, value }),
+      });
+      res.status(r.ok ? 200 : r.status).json(await r.json());
+    } catch {
+      res.status(502).json({ error: "duet-unreachable" });
+    }
+  });
+
+  // SSE passthrough: live items/tasks/channels from the Duet server.
+  app.get("/api/duet/events", async (req, res) => {
+    try {
+      const upstream = await duetFetch("/api/events", { headers: { accept: "text/event-stream" } });
+      if (!upstream.ok || !upstream.body) {
+        res.status(502).json({ error: "duet-events-unavailable" });
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      const nodeStream = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]);
+      nodeStream.pipe(res);
+      req.on("close", () => {
+        nodeStream.destroy();
+      });
+    } catch {
+      res.status(502).json({ error: "duet-unreachable" });
     }
   });
 

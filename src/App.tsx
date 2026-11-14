@@ -1,24 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles, Layers, ListTodo, Terminal as TerminalIcon } from 'lucide-react';
 import { SidebarWorkspace } from './components/SidebarWorkspace';
 import { VoiceWorkspacePane, type WorkspacePanelView } from './components/VoiceWorkspacePane';
+import { useDuet } from './hooks/useDuet';
 import { useVoiceAgent } from './hooks/useVoiceAgent';
 import type {
   ApprovalCard,
   BackgroundTask,
   BriefDecision,
+  Channel,
   ChannelId,
   ExpressionMood,
   HermesGatewayStatus,
   TerminalEntry,
 } from './types/hermes';
-import {
-  INITIAL_APPROVALS,
-  INITIAL_BRIEF_DECISIONS,
-  INITIAL_CHANNELS,
-  INITIAL_TASKS,
-  executeCliInput,
-} from './utils/cliEngine';
+import { executeCliInput } from './utils/cliEngine';
 
 const MOOD_CYCLE: ExpressionMood[] = ['neutral', 'happy', 'focused', 'thinking', 'alert'];
 
@@ -73,9 +69,10 @@ type MobileTab = 'home' | 'voice' | 'tasks' | 'queue' | 'cli';
 
 export default function App() {
   const [activeChannel, setActiveChannel] = useState<ChannelId>('general');
-  const [approvals, setApprovals] = useState<ApprovalCard[]>(INITIAL_APPROVALS);
-  const [brief, setBrief] = useState<BriefDecision[]>(INITIAL_BRIEF_DECISIONS);
-  const [tasks, setTasks] = useState<BackgroundTask[]>(INITIAL_TASKS);
+  const [approvals, setApprovals] = useState<ApprovalCard[]>([]);
+  const [brief, setBrief] = useState<BriefDecision[]>([]);
+  const [tasks, setTasks] = useState<BackgroundTask[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [mood, setMood] = useState<ExpressionMood>('happy');
   const [panelView, setPanelView] = useState<WorkspacePanelView>(() =>
     typeof window !== 'undefined' && window.location.search.includes('autostart=1')
@@ -88,70 +85,10 @@ export default function App() {
   const [gatewayStatus, setGatewayStatus] = useState<HermesGatewayStatus | null>(null);
 
   const [lastSpokenLine, setLastSpokenLineState] = useState<string>(
-    'Hermes Agent session duet-general active. Two mcp__duet gates await sign-off and save_page is at 72%.'
+    'Linking to Hermes Duet…'
   );
 
-  useEffect(() => {
-    let active = true;
-    fetch('/api/hermes/gateway')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: HermesGatewayStatus | null) => {
-        if (active && data) setGatewayStatus(data);
-      })
-      .catch(() => {
-        // Standalone fallback remains active cleanly
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const updateSpokenLine = useCallback((line: string) => {
-    setAnimateSpeechLine(true);
-    setLastSpokenLineState(line);
-  }, []);
-
-  const [entries, setEntries] = useState<TerminalEntry[]>([
-    {
-      id: 'init-1',
-      channelId: 'general',
-      role: 'system',
-      source: 'cli',
-      timestamp: '08:00',
-      text: 'HERMES AGENT + DUET // SESSION duet-general READY. Run /skills, /gateway, /brief, or tap Mic.',
-    },
-    {
-      id: 'init-2',
-      channelId: 'general',
-      role: 'user',
-      source: 'voice',
-      timestamp: '08:04',
-      text: 'Sync my Hermes Agent lanes and check which mcp__duet gates need sign-off.',
-    },
-    {
-      id: 'init-3',
-      channelId: 'general',
-      role: 'hermes',
-      source: 'voice',
-      timestamp: '08:05',
-      mood: 'happy',
-      text: 'Two mcp__duet approval gates are waiting—your Mail MCP v2.4 dispatch and single-use inference quota cap—and your standing morning-brief.html run is at 72%.',
-    },
-  ]);
-
-  const appendEntry = useCallback(
-    (entry: Omit<TerminalEntry, 'id' | 'timestamp'>) => {
-      setEntries((prev) => [
-        ...prev,
-        {
-          ...entry,
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          timestamp: nowTime(),
-        },
-      ]);
-    },
-    []
-  );
+  const [entries, setEntries] = useState<TerminalEntry[]>([]);
 
   const stateRef = useRef({
     activeChannel,
@@ -172,15 +109,112 @@ export default function App() {
     stopSpeaking: () => void;
   } | null>(null);
 
+  const updateSpokenLine = useCallback((line: string) => {
+    setAnimateSpeechLine(true);
+    setLastSpokenLineState(line);
+  }, []);
+
+  const upsertEntry = useCallback((entry: TerminalEntry) => {
+    setEntries((prev) => {
+      const idx = prev.findIndex((e) => e.id === entry.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = entry;
+        return next;
+      }
+      if (entry.createdAtMs !== undefined) {
+        const next = [...prev, entry];
+        next.sort((a, b) => (a.createdAtMs ?? Infinity) - (b.createdAtMs ?? Infinity));
+        return next;
+      }
+      return [...prev, entry];
+    });
+  }, []);
+
+  const patchEntryText = useCallback((id: string, text: string) => {
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, text } : e)));
+  }, []);
+
+  const appendEntry = useCallback(
+    (entry: Omit<TerminalEntry, 'id' | 'timestamp'>) => {
+      setEntries((prev) => [
+        ...prev,
+        {
+          ...entry,
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          timestamp: nowTime(),
+        },
+      ]);
+    },
+    []
+  );
+
+  // The real engine: live Duet state, runs, approvals, and SSE updates.
+  const duet = useDuet({
+    upsertEntry,
+    patchEntryText,
+    onAssistantComplete: (text) => {
+      setMood('happy');
+      updateSpokenLine(text);
+      voiceRef.current?.setThinking(false);
+      void voiceRef.current?.speakText(text, 'happy');
+    },
+  });
+  const { connected: duetConnected, sendMessage: duetSendMessage, actOnCard: duetActOnCard } = duet;
+
+  // Mirror Duet state locally; optimistic edits reconcile on the next SSE event.
+  useEffect(() => {
+    setChannels(duet.channels);
+    if (duet.channels.length > 0) {
+      // UI channel ids must be real Duet channel ids for the message API.
+      setActiveChannel((prev) =>
+        duet.channels.some((c) => c.id === prev) ? prev : duet.channels[0].id
+      );
+    }
+  }, [duet.channels]);
+  useEffect(() => setApprovals(duet.approvals), [duet.approvals]);
+  useEffect(() => setTasks(duet.tasks), [duet.tasks]);
+  useEffect(() => setBrief(duet.brief), [duet.brief]);
+
+  useEffect(() => {
+    if (!duetConnected) return;
+    upsertEntry({
+      id: 'duet-link',
+      channelId: 'general',
+      role: 'system',
+      source: 'ui',
+      text: 'HERMES DUET LINK ACTIVE // live state, runs, and approval gates wired.',
+      timestamp: nowTime(),
+    });
+    const lastHermes = [...entries]
+      .reverse()
+      .find((e) => e.role === 'hermes' && e.text.trim().length > 0);
+    if (lastHermes) setLastSpokenLineState(lastHermes.text.slice(0, 140));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duetConnected]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/hermes/gateway')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: HermesGatewayStatus | null) => {
+        if (active && data) setGatewayStatus(data);
+      })
+      .catch(() => {
+        // Standalone fallback remains active cleanly
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const handleApproveCard = useCallback(
     (id: string, editedDraft?: string) => {
       let approvedTitle = '';
-      let approvedRunId: string | undefined;
       setApprovals((prev) =>
         prev.map((c) => {
           if (c.id === id) {
             approvedTitle = c.title;
-            approvedRunId = c.runId;
             return {
               ...c,
               status: 'approved',
@@ -196,15 +230,7 @@ export default function App() {
         )
       );
       if (approvedTitle) {
-        void fetch('/api/hermes/runs/approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            runId: approvedRunId,
-            decision: 'approve',
-            draft: editedDraft,
-          }),
-        }).catch(() => {});
+        void duetActOnCard(id, 'approve', editedDraft).catch(() => {});
 
         const msg = `Approved ${approvedTitle}. Resuming Hermes run with updated payload.`;
         setMood('happy');
@@ -219,32 +245,23 @@ export default function App() {
         voiceRef.current?.speakText(msg, 'happy');
       }
     },
-    [appendEntry, updateSpokenLine]
+    [appendEntry, updateSpokenLine, duetActOnCard]
   );
 
   const handleRejectCard = useCallback(
     (id: string) => {
       let rejectedTitle = '';
-      let rejectedRunId: string | undefined;
       setApprovals((prev) =>
         prev.map((c) => {
           if (c.id === id) {
             rejectedTitle = c.title;
-            rejectedRunId = c.runId;
             return { ...c, status: 'rejected' };
           }
           return c;
         })
       );
       if (rejectedTitle) {
-        void fetch('/api/hermes/runs/approve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            runId: rejectedRunId,
-            decision: 'reject',
-          }),
-        }).catch(() => {});
+        void duetActOnCard(id, 'decline').catch(() => {});
 
         const msg = `Held ${rejectedTitle}. No outbound MCP action was sent.`;
         setMood('neutral');
@@ -259,7 +276,7 @@ export default function App() {
         voiceRef.current?.speakText(msg, 'neutral');
       }
     },
-    [appendEntry, updateSpokenLine]
+    [appendEntry, updateSpokenLine, duetActOnCard]
   );
 
   const processUserInput = useCallback(
@@ -336,7 +353,22 @@ export default function App() {
         return;
       }
 
-      // Natural language prompt -> call server-side Gemini endpoint with 6s timeout guard
+      // Natural language prompt -> real Hermes Duet run when linked.
+      // The assistant reply streams back over SSE -> onAssistantComplete handles
+      // the spoken line, mood, and TTS. No timeout race: long agent turns land.
+      voiceRef.current?.setThinking(true);
+      setMood('thinking');
+
+      if (duetConnected) {
+        try {
+          await duetSendMessage(result.prompt, ch);
+          return;
+        } catch {
+          // Duet bridge hiccup: fall through to the offline chat path below.
+        }
+      }
+
+      // Offline fallback: direct gateway chat with a 6s timeout guard.
       chatAbortRef.current?.abort();
       const controller = new AbortController();
       chatAbortRef.current = controller;
@@ -417,7 +449,7 @@ export default function App() {
         }
       }
     },
-    [appendEntry, handleApproveCard, handleRejectCard, updateSpokenLine]
+    [appendEntry, handleApproveCard, handleRejectCard, updateSpokenLine, duetConnected, duetSendMessage]
   );
 
   const handleVoiceTranscript = useCallback(
@@ -529,7 +561,7 @@ export default function App() {
           } lg:flex flex-col min-h-0 h-full`}
         >
           <SidebarWorkspace
-            channels={INITIAL_CHANNELS}
+            channels={channels}
             activeChannel={activeChannel}
             onSelectChannel={handleSelectChannel}
             approvals={approvals}
@@ -574,7 +606,7 @@ export default function App() {
           } lg:flex flex-col min-h-0 h-full`}
         >
           <VoiceWorkspacePane
-            channels={INITIAL_CHANNELS}
+            channels={channels}
             activeChannel={activeChannel}
             onSelectChannel={handleSelectChannel}
             mood={mood}

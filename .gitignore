@@ -6,4 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+.duet-device
 blueprint-out/

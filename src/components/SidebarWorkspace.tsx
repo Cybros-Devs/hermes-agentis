@@ -224,7 +224,7 @@ export function SidebarWorkspace({
                     active ? 'text-[#4ADE80] font-semibold' : 'text-emerald-100/45 hover:text-white'
                   }`}
                 >
-                  #{ch.id}
+                  #{ch.name}
                 </button>
               );
             })}

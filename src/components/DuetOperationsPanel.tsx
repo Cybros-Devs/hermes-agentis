@@ -72,7 +72,7 @@ export function DuetOperationsPanel({
                 }`}
               >
                 <Hash className="w-3 h-3" />
-                <span>{ch.id}</span>
+                <span>{ch.name}</span>
               </button>
             );
           })}
