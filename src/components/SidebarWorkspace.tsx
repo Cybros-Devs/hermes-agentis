@@ -212,19 +212,20 @@ export function SidebarWorkspace({
       {/* Bottom Lane Switcher & Brand Footer matching reference */}
       <div className="px-4 pt-2.5 pb-3.5 border-t border-white/8 space-y-2.5">
         <div className="flex items-center justify-between gap-2 font-mono text-[11px]">
-          <div className="flex items-center gap-2.5 overflow-x-auto">
+          <div className="flex items-center gap-2 overflow-x-auto cyber-scroll min-w-0">
             {channels.map((ch) => {
               const active = ch.id === activeChannel;
+              const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
               return (
                 <button
                   key={ch.id}
                   type="button"
                   onClick={() => onSelectChannel(ch.id)}
-                  className={`transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                     active ? 'text-[#4ADE80] font-semibold' : 'text-emerald-100/45 hover:text-white'
                   }`}
                 >
-                  #{ch.name}
+                  {label}
                 </button>
               );
             })}

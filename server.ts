@@ -112,6 +112,7 @@ async function duetFetch(pathname: string, init: RequestInit = {}, retried = fal
   }
   const res = await fetch(`${DUET_BASE_URL}${pathname}`, {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(2500),
     headers: { ...(init.headers as Record<string, string> | undefined), cookie: `duet_device=${token}` },
   });
   if (res.status === 401 && !retried) {
@@ -124,6 +125,165 @@ async function duetFetch(pathname: string, init: RequestInit = {}, retried = fal
     return duetFetch(pathname, init, true);
   }
   return res;
+}
+
+// ---------------------------------------------------------------------------
+// Standalone in-memory Duet fallback when no external hermes-duet daemon is
+// reachable (e.g. AI Studio container). Keeps real Duet protocol shapes intact.
+interface StandaloneDuetCard {
+  type: "approval" | "payment" | "brief";
+  title?: string;
+  body?: string;
+  status: "pending" | "approved" | "declined";
+  draft?: string;
+  action?: string;
+  destination?: string;
+  entries?: { title?: string; summary?: string }[];
+}
+
+interface StandaloneDuetItem {
+  id: string;
+  kind: "user" | "assistant" | "card" | "activity" | "system";
+  created_at: number;
+  updated_at?: number;
+  channel_id?: string;
+  text?: string;
+  streaming?: boolean;
+  run_id?: string | null;
+  card?: StandaloneDuetCard;
+}
+
+interface StandaloneDuetTask {
+  id: string;
+  title: string;
+  status: string;
+  progress?: string;
+  steps?: { text: string; done?: boolean }[];
+  result?: string;
+  channel_id?: string;
+  created_at: number;
+}
+
+interface StandaloneDuetChannel {
+  id: string;
+  name: string;
+  session_id: string;
+  topic?: string | null;
+  archived?: boolean;
+  last_at?: number | null;
+}
+
+const standaloneBootTime = Date.now();
+
+const standaloneChannels: StandaloneDuetChannel[] = [
+  { id: "general", name: "general", session_id: "duet-general", topic: "Primary Hermes Agent voice thread, daily check-ins, and morning brief" },
+  { id: "ops", name: "ops", session_id: "duet-ops", topic: "hermes gateway (:8642), cronjob_manage schedules, and payment gates" },
+  { id: "launch", name: "launch", session_id: "duet-launch", topic: "~/.hermes/skills/ workflows, save_page rebuilds, and QA checks" },
+  { id: "research", name: "research", session_id: "duet-research", topic: "Isolated background runs and persistent MEMORY.md synthesis" },
+];
+
+const standalonePending: StandaloneDuetItem[] = [
+  {
+    id: "card-1",
+    kind: "card",
+    created_at: standaloneBootTime - 300_000,
+    channel_id: "general",
+    run_id: "run-duet-781",
+    card: {
+      type: "approval",
+      title: "Send Release Dispatch via Mail MCP",
+      body: "Dispatches the v2.4 Hermes Agent voice link & Duet MCP changelog to 184 recipients.",
+      status: "pending",
+      destination: "mail://beta-cohort (184 recipients)",
+      draft: "Hermes Duet v2.4 is live: direct Hermes Gateway (/v1/runs) voice link, mcp__duet approval gating, and live Braille decoding are now active.",
+    },
+  },
+  {
+    id: "card-2",
+    kind: "card",
+    created_at: standaloneBootTime - 180_000,
+    channel_id: "ops",
+    run_id: "run-duet-784",
+    card: {
+      type: "payment",
+      action: "pay",
+      title: "Authorize Inference Burst Virtual Cap",
+      body: "Itemized receipt: $45.00 overflow ceiling (under $500.00 DUET_MAX_TRANSACTION_LIMIT).",
+      status: "pending",
+      destination: "nous://inference-gateway (Single-use cap)",
+      draft: "Authorize $45.00 single-use virtual card for local Hermes inference overflow.",
+    },
+  },
+  {
+    id: "brief-1",
+    kind: "card",
+    created_at: standaloneBootTime - 120_000,
+    channel_id: "general",
+    card: {
+      type: "brief",
+      title: "Morning Brief Decisions",
+      status: "pending",
+      entries: [
+        {
+          title: "Approve Mail MCP release dispatch via mcp__duet__request_approval",
+          summary: "Hermes Agent prepared the v2.4 Duet release note for 184 subscribers in lane duet-general.",
+        },
+      ],
+    },
+  },
+];
+
+const standaloneTasks: StandaloneDuetTask[] = [
+  {
+    id: "task-101",
+    title: "Rebuild standing morning-brief.html (save_page)",
+    status: "running",
+    progress: "72",
+    channel_id: "launch",
+    created_at: standaloneBootTime - 240_000,
+    steps: [{ text: "Streaming update_task delta across Playwright parity lane", done: false }],
+  },
+  {
+    id: "task-102",
+    title: "Index ~/.hermes/skills/ & MCP connectors",
+    status: "done",
+    progress: "100",
+    channel_id: "research",
+    created_at: standaloneBootTime - 600_000,
+    steps: [{ text: "Synced 4 skills and mcp_servers.duet capabilities to #research", done: true }],
+  },
+  {
+    id: "task-103",
+    title: "Audit ~/Downloads watcher rule (cronjob_manage)",
+    status: "waiting",
+    progress: "40",
+    channel_id: "ops",
+    created_at: standaloneBootTime - 420_000,
+    steps: [{ text: "Waiting on confirmation to route invoice PDFs into #ops", done: false }],
+  },
+];
+
+const standaloneItems: StandaloneDuetItem[] = [
+  {
+    id: "init-welcome",
+    kind: "assistant",
+    created_at: standaloneBootTime - 60_000,
+    channel_id: "general",
+    text: "Hermes Duet online. Two mcp__duet approval gates are waiting—tap Voice or type /help to begin.",
+  },
+];
+
+const sseClients = new Set<express.Response>();
+
+function broadcastStandaloneEvent(event: Record<string, unknown>) {
+  const payload = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(payload);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
 }
 
 
@@ -234,24 +394,27 @@ async function createServer() {
     res.json({ ok: true, forwardedToGateway, runId: runId ?? null, decision });
   });
 
-  app.post("/api/hermes/chat", async (req, res) => {
+  async function generateHermesReply(params: {
+    message: string;
+    channelId?: string;
+    sessionId?: string;
+    history?: Array<{ role?: string; text?: string }>;
+    pendingApprovals?: Array<{ id?: string; title?: string }>;
+    tasks?: Array<{ status?: string }>;
+  }) {
+    const {
+      message,
+      channelId = "general",
+      sessionId,
+      history = [],
+      pendingApprovals = [],
+      tasks = [],
+    } = params;
+
+    const resolvedSessionId =
+      typeof sessionId === "string" && sessionId ? sessionId : `duet-${channelId || "general"}`;
+
     try {
-      const {
-        message,
-        channelId,
-        sessionId,
-        history = [],
-        pendingApprovals = [],
-        tasks = [],
-      } = req.body ?? {};
-      if (!message || typeof message !== "string") {
-        res.status(400).json({ error: "Message is required." });
-        return;
-      }
-
-      const resolvedSessionId =
-        typeof sessionId === "string" && sessionId ? sessionId : `duet-${channelId || "general"}`;
-
       // 1. Prefer live local/Tailscale Hermes Agent Gateway (/v1/chat/completions) when reachable
       if (process.env.HERMES_API_URL || process.env.HERMES_API_KEY) {
         try {
@@ -261,7 +424,7 @@ async function createServer() {
               content: `You are Hermes Agent inside Hermes Duet (session ${resolvedSessionId}, lane #${channelId || "general"}). Respond in 1-3 crisp spoken sentences.`,
             },
             ...(Array.isArray(history)
-              ? history.slice(-6).map((h: { role?: string; text?: string }) => ({
+              ? history.slice(-6).map((h) => ({
                   role: h.role === "user" ? "user" : "assistant",
                   content: h.text ?? "",
                 }))
@@ -286,14 +449,13 @@ async function createServer() {
             };
             const content = data.choices?.[0]?.message?.content?.trim();
             if (content) {
-              res.json({
+              return {
                 reply: content,
                 mood: "happy",
                 suggestedCommand: "",
                 sourceMode: "hermes-gateway",
                 sessionId: resolvedSessionId,
-              });
-              return;
+              };
             }
           }
         } catch {
@@ -302,8 +464,7 @@ async function createServer() {
       }
 
       if (!process.env.GEMINI_API_KEY) {
-        res.status(503).json({ error: "GEMINI_API_KEY is not configured." });
-        return;
+        throw new Error("GEMINI_API_KEY is not configured.");
       }
 
       const ai = getGeminiClient();
@@ -322,7 +483,7 @@ async function createServer() {
       const transcriptContext = Array.isArray(history)
         ? history
             .slice(-6)
-            .map((h: { role?: string; text?: string }) => `${h.role === "user" ? "User" : "Hermes"}: ${h.text ?? ""}`)
+            .map((h) => `${h.role === "user" ? "User" : "Hermes"}: ${h.text ?? ""}`)
             .join("\n")
         : "";
 
@@ -372,17 +533,16 @@ async function createServer() {
       }
 
       const allowedMoods = new Set(["neutral", "happy", "focused", "alert", "thinking", "speaking"]);
-      const mood = allowedMoods.has(String(parsed.mood)) ? parsed.mood : "speaking";
+      const mood = allowedMoods.has(String(parsed.mood)) ? String(parsed.mood) : "speaking";
 
-      res.json({
+      return {
         reply: parsed.reply || "Signal received and logged to your Hermes lane.",
         mood,
         suggestedCommand: parsed.suggestedCommand || "",
         sourceMode: "gemini-bridge",
         sessionId: resolvedSessionId,
-      });
+      };
     } catch {
-      const { message = "", channelId = "general", pendingApprovals = [], tasks = [] } = req.body ?? {};
       const lower = String(message).toLowerCase();
       const pendingList = Array.isArray(pendingApprovals) ? pendingApprovals : [];
       const taskList = Array.isArray(tasks) ? tasks : [];
@@ -403,7 +563,7 @@ async function createServer() {
         mood = "focused";
         suggestedCommand = "/gateway";
       } else if (lower.includes("task") || lower.includes("status")) {
-        const running = taskList.filter((t: { status?: string }) => t.status === "running").length;
+        const running = taskList.filter((t) => t.status === "running").length;
         reply = `Tracking ${taskList.length} isolated Hermes runs, with ${running} executing cleanly.`;
         mood = "focused";
         suggestedCommand = "/tasks";
@@ -415,15 +575,40 @@ async function createServer() {
         suggestedCommand = pendingList[0]?.id ? `/approve ${pendingList[0].id}` : "";
       }
 
-      res.status(200).json({
+      return {
         reply,
         mood,
         suggestedCommand,
         sourceMode: "local-duet",
-        sessionId: `duet-${channelId}`,
+        sessionId: resolvedSessionId,
         fallback: true,
-      });
+      };
     }
+  }
+
+  app.post("/api/hermes/chat", async (req, res) => {
+    const {
+      message,
+      channelId,
+      sessionId,
+      history = [],
+      pendingApprovals = [],
+      tasks = [],
+    } = req.body ?? {};
+    if (!message || typeof message !== "string") {
+      res.status(400).json({ error: "Message is required." });
+      return;
+    }
+
+    const result = await generateHermesReply({
+      message,
+      channelId,
+      sessionId,
+      history,
+      pendingApprovals,
+      tasks,
+    });
+    res.status(200).json(result);
   });
 
   app.post("/api/hermes/tts", async (req, res) => {
@@ -564,82 +749,175 @@ async function createServer() {
   });
 
   // ----- Duet adapter routes: real state, runs, approvals, live events -----
+  // Falls back cleanly to in-memory standalone Duet state when external Duet is absent.
   app.get("/api/duet/status", async (_req, res) => {
     try {
       const r = await duetFetch("/api/state");
-      res.json({ ok: r.ok, paired: r.ok, baseUrl: DUET_BASE_URL, device: DUET_DEVICE_NAME });
-    } catch (err) {
-      res.json({ ok: false, paired: false, baseUrl: DUET_BASE_URL, error: String(err).slice(0, 120) });
+      res.json({ ok: r.ok, paired: r.ok, mode: r.ok ? "duet-linked" : "standalone-duet", baseUrl: DUET_BASE_URL, device: DUET_DEVICE_NAME });
+    } catch {
+      res.json({ ok: true, paired: false, mode: "standalone-duet", baseUrl: DUET_BASE_URL, device: DUET_DEVICE_NAME });
     }
   });
 
   app.get("/api/duet/state", async (_req, res) => {
     try {
       const r = await duetFetch("/api/state");
-      if (!r.ok) {
-        res.status(r.status).json({ error: `duet responded ${r.status}` });
+      if (r.ok) {
+        res.status(200).json(await r.json());
         return;
       }
-      res.status(200).json(await r.json());
     } catch {
-      res.status(502).json({ error: "duet-unreachable" });
+      // External Duet daemon unreachable; serve in-memory standalone snapshot
     }
+    res.status(200).json({
+      items: standaloneItems,
+      pending: standalonePending,
+      tasks: standaloneTasks,
+      channels: standaloneChannels,
+    });
   });
 
   app.post("/api/duet/messages", async (req, res) => {
+    const { text, channel_id = "general" } = (req.body ?? {}) as { text?: string; channel_id?: string };
+    if (!text || typeof text !== "string") {
+      res.status(400).json({ error: "text is required" });
+      return;
+    }
+
     try {
-      const { text, channel_id } = (req.body ?? {}) as { text?: string; channel_id?: string };
-      if (!text || typeof text !== "string") {
-        res.status(400).json({ error: "text is required" });
-        return;
-      }
       const r = await duetFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, channel_id }),
       });
-      res.status(r.ok ? 200 : r.status).json(await r.json());
+      if (r.ok) {
+        res.status(200).json(await r.json());
+        return;
+      }
     } catch {
-      res.status(502).json({ error: "duet-unreachable" });
+      // Fall through to standalone in-memory Duet run
     }
+
+    const userItem: StandaloneDuetItem = {
+      id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      kind: "user",
+      created_at: Date.now(),
+      channel_id,
+      text,
+    };
+    standaloneItems.push(userItem);
+    broadcastStandaloneEvent({ type: "item", item: userItem });
+    res.status(200).json({ item: userItem });
+
+    // Generate Hermes reply asynchronously and emit over SSE just like the real Duet server
+    void (async () => {
+      const history = standaloneItems
+        .filter((it) => it.kind === "user" || it.kind === "assistant")
+        .slice(-6)
+        .map((it) => ({
+          role: it.kind === "user" ? "user" : "hermes",
+          text: it.text ?? "",
+        }));
+      const pendingApprovals = standalonePending
+        .filter((p) => p.card && p.card.status === "pending" && p.card.type !== "brief")
+        .map((p) => ({ id: p.id, title: p.card?.title }));
+
+      const replyData = await generateHermesReply({
+        message: text,
+        channelId: channel_id,
+        sessionId: `duet-${channel_id}`,
+        history,
+        pendingApprovals,
+        tasks: standaloneTasks,
+      });
+
+      const assistantItem: StandaloneDuetItem = {
+        id: `hermes-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        kind: "assistant",
+        created_at: Date.now(),
+        channel_id,
+        streaming: false,
+        text: replyData.suggestedCommand
+          ? `${replyData.reply}\n[Suggested: ${replyData.suggestedCommand}]`
+          : replyData.reply,
+      };
+      standaloneItems.push(assistantItem);
+      broadcastStandaloneEvent({ type: "item", item: assistantItem });
+    })();
   });
 
   app.post("/api/duet/cards/:cardId/act", async (req, res) => {
+    const { action, value } = (req.body ?? {}) as { action?: string; value?: string };
     try {
-      const { action, value } = (req.body ?? {}) as { action?: string; value?: string };
       const r = await duetFetch(`/api/cards/${encodeURIComponent(req.params.cardId)}/act`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, value }),
       });
-      res.status(r.ok ? 200 : r.status).json(await r.json());
+      if (r.ok) {
+        res.status(200).json(await r.json());
+        return;
+      }
     } catch {
-      res.status(502).json({ error: "duet-unreachable" });
+      // Fall through to standalone in-memory card update
     }
+
+    const item = standalonePending.find((p) => p.id === req.params.cardId);
+    if (!item || !item.card) {
+      res.status(404).json({ error: "card not found" });
+      return;
+    }
+    item.card.status = action === "approve" ? "approved" : "declined";
+    if (typeof value === "string") {
+      item.card.draft = value;
+    }
+    item.updated_at = Date.now();
+    broadcastStandaloneEvent({ type: "item", item });
+    res.status(200).json({ ok: true, item });
   });
 
-  // SSE passthrough: live items/tasks/channels from the Duet server.
+  // SSE passthrough: live items/tasks/channels from the Duet server (or standalone SSE hub).
   app.get("/api/duet/events", async (req, res) => {
     try {
       const upstream = await duetFetch("/api/events", { headers: { accept: "text/event-stream" } });
-      if (!upstream.ok || !upstream.body) {
-        res.status(502).json({ error: "duet-events-unavailable" });
+      if (upstream.ok && upstream.body) {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        });
+        const nodeStream = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]);
+        nodeStream.pipe(res);
+        req.on("close", () => {
+          nodeStream.destroy();
+        });
         return;
       }
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      });
-      const nodeStream = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]);
-      nodeStream.pipe(res);
-      req.on("close", () => {
-        nodeStream.destroy();
-      });
     } catch {
-      res.status(502).json({ error: "duet-unreachable" });
+      // Fall through to standalone SSE stream
     }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write(": standalone-duet-connected\n\n");
+    sseClients.add(res);
+    const keepalive = setInterval(() => {
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        clearInterval(keepalive);
+        sseClients.delete(res);
+      }
+    }, 25000);
+    req.on("close", () => {
+      clearInterval(keepalive);
+      sseClients.delete(res);
+    });
   });
 
   if (process.env.NODE_ENV !== "production") {

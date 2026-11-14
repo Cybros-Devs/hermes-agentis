@@ -155,12 +155,14 @@ export function BrailleHorizonCanvas({
 
     let timerId = 0;
     const loop = (now: number) => {
-      if (now - lastDraw >= 34) {
+      const active = stateRef.current.isActive;
+      const interval = active ? 34 : 64;
+      if (now - lastDraw >= interval) {
         drawFrame(now);
       }
       timerId = window.setTimeout(() => {
         rafId = window.requestAnimationFrame(loop);
-      }, 26);
+      }, active ? 26 : 56);
     };
 
     rafId = window.requestAnimationFrame(loop);
