@@ -120,6 +120,8 @@ function itemToEntry(item: DuetItem): TerminalEntry | null {
   };
 }
 
+export { itemToEntry as duetItemToEntry };
+
 function pendingToApproval(item: DuetItem): ApprovalCard | null {
   const c = item.card;
   if (!c || (c.type !== 'approval' && c.type !== 'payment')) return null;

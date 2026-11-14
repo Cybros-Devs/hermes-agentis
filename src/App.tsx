@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles, Layers, ListTodo, Terminal as TerminalIcon } from 'lucide-react';
 import { SidebarWorkspace } from './components/SidebarWorkspace';
 import { VoiceWorkspacePane, type WorkspacePanelView } from './components/VoiceWorkspacePane';
-import { useDuet } from './hooks/useDuet';
+import { useDuet, duetItemToEntry } from './hooks/useDuet';
 import { useVoiceAgent } from './hooks/useVoiceAgent';
 import type {
   ApprovalCard,
@@ -305,12 +305,18 @@ export default function App() {
       const { activeChannel: ch, approvals: appList, tasks: taskList, brief: briefList } =
         stateRef.current;
 
-      appendEntry({
-        channelId: ch,
-        role: trimmed.startsWith('/') ? 'command' : 'user',
-        source,
-        text: trimmed,
-      });
+      const isCommandInput = trimmed.startsWith('/');
+      if (!isCommandInput && duetConnected) {
+        // No local echo on the Duet path: the real item (POST response or SSE)
+        // is the single display copy, so transcript order stays chronological.
+      } else {
+        appendEntry({
+          channelId: ch,
+          role: isCommandInput ? 'command' : 'user',
+          source,
+          text: trimmed,
+        });
+      }
 
       const result = executeCliInput(trimmed, {
         activeChannel: ch,
@@ -379,10 +385,20 @@ export default function App() {
 
       if (duetConnected) {
         try {
-          await duetSendMessage(result.prompt, ch);
+          const { item } = await duetSendMessage(result.prompt, ch);
+          if (item) {
+            const entry = duetItemToEntry(item);
+            if (entry) upsertEntry(entry);
+          }
           return;
         } catch {
-          // Duet bridge hiccup: fall through to the offline chat path below.
+          // Duet bridge hiccup: echo late, then fall through to the offline path.
+          appendEntry({
+            channelId: ch,
+            role: 'user',
+            source,
+            text: result.prompt,
+          });
         }
       }
 
