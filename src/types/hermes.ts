@@ -7,7 +7,18 @@ export type ExpressionMood =
   | 'focused'
   | 'alert';
 
-export type MouthViseme = 'closed' | 'smile' | 'small' | 'mid' | 'wide' | 'round';
+export type MouthViseme =
+  | 'closed'
+  | 'rest'
+  | 'smile'
+  | 'mbp'
+  | 'fv'
+  | 'lth'
+  | 'small'
+  | 'mid'
+  | 'round'
+  | 'ee'
+  | 'wide';
 
 export type EyeState = 'open' | 'blink' | 'half' | 'wide' | 'happy' | 'side';
 

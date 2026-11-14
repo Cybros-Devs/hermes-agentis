@@ -22,9 +22,18 @@ export interface PortraitMotionState {
   wide: number;        // 0 .. 1 alert eye expansion
   browLift: number;    // -0.45 (focused) .. +1.0 (raised emphasis)
   mouthOpen: number;   // 0 .. 1 vertical aperture
-  mouthWidth: number;  // 0.65 .. 1.35 horizontal stretch
+  mouthWidth: number;  // 0.60 .. 1.38 horizontal stretch
   mouthRound: number;  // 0 .. 1 roundness for O/oo vowels
   smile: number;       // 0 .. 1 upturned smile corners
+  jawDrop: number;     // 0 .. 1 downward chin/jaw articulation
+  teethTop: number;    // 0 .. 1 upper teeth bar prominence
+  teethBottom: number; // 0 .. 1 lower teeth / smile bar (Wide / Ee)
+  tongueShow: number;  // 0 .. 1 tongue visibility inside open cavity
+  tongueLift: number;  // 0 .. 1 raised tongue tip behind upper teeth (L / Th)
+  lipPress: number;    // 0 .. 1 bilabial pressed seal (M / B / P)
+  lipBite: number;     // 0 .. 1 labiodental upper-teeth-on-lower-lip (F / V)
+  puckerRing: number;  // 0 .. 1 pursed O/Oo lip highlight ring
+  restPart: number;    // 0 .. 1 relaxed natural/rest slight parting
   gazeX: number;       // -1 .. 1 eye saccade X
   gazeY: number;       // -1 .. 1 eye saccade Y
   headYaw: number;     // -0.35 .. +0.35 radians 2.5D left/right head turn
@@ -124,16 +133,26 @@ function getMouthShape(viseme: MouthViseme, energy: number): { rx: number; ry: n
   switch (viseme) {
     case 'closed':
       return { rx: 0.044, ry: 0.008, open: 0 };
+    case 'rest':
+      return { rx: 0.045, ry: 0.011, open: 0.14 };
+    case 'mbp':
+      return { rx: 0.050, ry: 0.007, open: 0 };
+    case 'fv':
+      return { rx: 0.048, ry: 0.015 + e * 0.3, open: 0.34 };
+    case 'lth':
+      return { rx: 0.052, ry: 0.028 + e * 0.6, open: 0.68 };
     case 'smile':
       return { rx: 0.056, ry: 0.011, open: 0.15 };
     case 'small':
-      return { rx: 0.042, ry: 0.021 + e * 0.65, open: 0.52 };
+      return { rx: 0.046, ry: 0.021 + e * 0.65, open: 0.52 };
     case 'mid':
-      return { rx: 0.05, ry: 0.031 + e * 0.85, open: 0.82 };
+      return { rx: 0.052, ry: 0.031 + e * 0.85, open: 0.82 };
     case 'round':
-      return { rx: 0.036, ry: 0.035 + e * 0.9, open: 0.92 };
+      return { rx: 0.034, ry: 0.035 + e * 0.9, open: 0.92 };
+    case 'ee':
+      return { rx: 0.068, ry: 0.028 + e * 0.65, open: 0.78 };
     case 'wide':
-      return { rx: 0.064, ry: 0.04 + e, open: 1.0 };
+      return { rx: 0.060, ry: 0.044 + e, open: 1.0 };
   }
 }
 
@@ -225,6 +244,8 @@ function getTargetMotionFromParams(
       ? 0.52
       : eyeState === 'half' || mood === 'focused'
       ? 0.36
+      : viseme === 'ee'
+      ? 0.22
       : 0;
   const wide = eyeState === 'wide' || mood === 'alert' ? 0.88 : 0;
 
@@ -239,42 +260,97 @@ function getTargetMotionFromParams(
   }
   browLift = clamp(browLift, -0.45, 1.0);
 
-  // Mouth targets mapped to Talking Sequence shapes (Closed, A/H slightly open, O/Oh round, E/I wide)
+  // Mouth targets mapped to the 10-viseme Talking Reference sheet
   let mouthOpen = 0;
   let mouthWidth = 1;
   let mouthRound = 0;
   let smile = mood === 'happy' ? 0.68 : 0.08;
+  let jawDrop = 0;
+  let teethTop = 0;
+  let teethBottom = 0;
+  let tongueShow = 0;
+  let tongueLift = 0;
+  let lipPress = 0;
+  let lipBite = 0;
+  let puckerRing = 0;
+  let restPart = 0;
 
   switch (viseme) {
     case 'closed':
       mouthOpen = 0;
+      mouthWidth = 0.92;
+      break;
+    case 'rest': // Natural/Rest subtle relaxed parting
+      mouthOpen = 0.10;
       mouthWidth = 0.94;
+      teethTop = 0.48;
+      jawDrop = 0.05;
+      restPart = 1;
       break;
     case 'smile':
       mouthOpen = 0;
-      mouthWidth = 1.1;
+      mouthWidth = 1.12;
       smile = 1;
       break;
-    case 'small': // A/H slightly open teardrop/oval
-      mouthOpen = 0.28 + energy * 0.14;
-      mouthWidth = 0.82;
-      mouthRound = 0.35;
+    case 'mbp': // M / B / P bilabial pressed seal
+      mouthOpen = 0;
+      mouthWidth = 1.10;
+      smile = 0.02;
+      lipPress = 1;
+      break;
+    case 'fv': // F / V labiodental upper teeth resting on raised lower lip
+      mouthOpen = 0.24 + energy * 0.06;
+      mouthWidth = 1.02;
+      teethTop = 0.98;
+      lipBite = 1;
+      jawDrop = 0.12;
+      break;
+    case 'lth': // L / Th medium open with raised tongue tip behind upper teeth
+      mouthOpen = 0.56 + energy * 0.12;
+      mouthWidth = 1.02;
+      teethTop = 0.96;
+      tongueShow = 1;
+      tongueLift = 0.96;
+      jawDrop = 0.45;
+      break;
+    case 'small': // Slightly Open (Ah/Uh) horizontal slit with crisp upper teeth bar
+      mouthOpen = 0.30 + energy * 0.10;
+      mouthWidth = 1.04;
+      teethTop = 0.98;
+      jawDrop = 0.22;
       break;
     case 'mid': // conversational open
-      mouthOpen = 0.56 + energy * 0.18;
-      mouthWidth = 1.04;
-      mouthRound = 0.14;
+      mouthOpen = 0.62 + energy * 0.14;
+      mouthWidth = 1.06;
+      mouthRound = 0.10;
+      teethTop = 0.94;
+      tongueShow = 0.58;
+      jawDrop = 0.58;
       break;
-    case 'round': // O/Oh tall rounded cavity
-      mouthOpen = 0.74 + energy * 0.18;
-      mouthWidth = 0.76;
-      mouthRound = 0.96;
+    case 'round': { // Rounded / Oh (O/Oo) & tighter Rouh / Oo at lower energy
+      const tightOo = energy < 0.45 ? 1 - smoothstep(0.18, 0.45, energy) : 0;
+      mouthOpen = lerp(0.76 + energy * 0.14, 0.38, tightOo);
+      mouthWidth = lerp(0.74, 0.56, tightOo);
+      mouthRound = 0.98;
+      puckerRing = lerp(0.92, 1.0, tightOo);
+      jawDrop = lerp(0.62, 0.28, tightOo);
       break;
-    case 'wide': // E/I wide smiling D-shape with teeth + tongue
-      mouthOpen = 0.84 + energy * 0.14;
-      mouthWidth = 1.24;
-      mouthRound = 0;
-      smile = Math.max(smile, 0.75);
+    }
+    case 'ee': // Wide / Ee (E/I) stretched grin with crisp upper & lower teeth bars
+      mouthOpen = 0.54 + energy * 0.12;
+      mouthWidth = 1.36;
+      smile = Math.max(smile, 0.96);
+      teethTop = 1;
+      teethBottom = 0.98;
+      jawDrop = 0.36;
+      break;
+    case 'wide': // Wide Open (A/Ha) deep jaw drop + upper teeth + arched tongue
+      mouthOpen = 0.92 + energy * 0.08;
+      mouthWidth = 1.14;
+      teethTop = 1;
+      tongueShow = 0.96;
+      tongueLift = 0.08;
+      jawDrop = 1.0;
       break;
   }
 
@@ -314,6 +390,15 @@ function getTargetMotionFromParams(
     mouthWidth,
     mouthRound,
     smile: clamp01(smile),
+    jawDrop: clamp01(jawDrop),
+    teethTop: clamp01(teethTop),
+    teethBottom: clamp01(teethBottom),
+    tongueShow: clamp01(tongueShow),
+    tongueLift: clamp01(tongueLift),
+    lipPress: clamp01(lipPress),
+    lipBite: clamp01(lipBite),
+    puckerRing: clamp01(puckerRing),
+    restPart: clamp01(restPart),
     gazeX,
     gazeY,
     headYaw,
@@ -346,6 +431,15 @@ export function createPortraitAnimator() {
     mouthWidth: 1,
     mouthRound: 0,
     smile: 0.4,
+    jawDrop: 0,
+    teethTop: 0,
+    teethBottom: 0,
+    tongueShow: 0,
+    tongueLift: 0,
+    lipPress: 0,
+    lipBite: 0,
+    puckerRing: 0,
+    restPart: 0,
     gazeX: 0,
     gazeY: 0,
     headYaw: 0,
@@ -384,9 +478,18 @@ export function createPortraitAnimator() {
       // Lip-sync: snappy vocal attack (rate 30), natural vowel release (rate 18)
       const mouthRate = target.mouthOpen > state.mouthOpen ? 30 : 18;
       state.mouthOpen = expApproach(state.mouthOpen, target.mouthOpen, mouthRate, clampedDt);
-      state.mouthWidth = expApproach(state.mouthWidth, target.mouthWidth, 22, clampedDt);
-      state.mouthRound = expApproach(state.mouthRound, target.mouthRound, 22, clampedDt);
-      state.smile = expApproach(state.smile, target.smile, 10, clampedDt);
+      state.mouthWidth = expApproach(state.mouthWidth, target.mouthWidth, 24, clampedDt);
+      state.mouthRound = expApproach(state.mouthRound, target.mouthRound, 24, clampedDt);
+      state.smile = expApproach(state.smile, target.smile, 12, clampedDt);
+      state.jawDrop = expApproach(state.jawDrop, target.jawDrop, 22, clampedDt);
+      state.teethTop = expApproach(state.teethTop, target.teethTop, 28, clampedDt);
+      state.teethBottom = expApproach(state.teethBottom, target.teethBottom, 26, clampedDt);
+      state.tongueShow = expApproach(state.tongueShow, target.tongueShow, 24, clampedDt);
+      state.tongueLift = expApproach(state.tongueLift, target.tongueLift, 24, clampedDt);
+      state.lipPress = expApproach(state.lipPress, target.lipPress, 28, clampedDt);
+      state.lipBite = expApproach(state.lipBite, target.lipBite, 28, clampedDt);
+      state.puckerRing = expApproach(state.puckerRing, target.puckerRing, 24, clampedDt);
+      state.restPart = expApproach(state.restPart, target.restPart, 22, clampedDt);
 
       // Eye saccades snap cleanly with organic smoothing
       state.gazeX = expApproach(state.gazeX, target.gazeX, 16, clampedDt);
@@ -687,10 +790,12 @@ function sampleReferenceWithExpression(
   let ax = pivotX + dx * ct - dy * st;
   let ay = pivotY + dx * st + dy * ct;
 
-  // 4. Coupled downward jaw articulation strictly below lower lip when mouth opens
-  if (motion.mouthOpen > 0.06 && ay > 0.65 && ay < 0.80 && ax > 0.20 && ax < 0.44) {
-    const jawZone = (1 - smoothstep(0.30, 0.44, ax)) * smoothstep(0.65, 0.68, ay) * (1 - smoothstep(0.71, 0.80, ay));
-    ay -= motion.mouthOpen * 0.013 * jawZone;
+  // 4. Coupled downward jaw & chin articulation when mouth opens wide
+  const jawAmt = clamp01(motion.jawDrop + motion.mouthOpen * 0.12);
+  if (jawAmt > 0.04 && ay > 0.630 && ay < 0.790 && ax > 0.190 && ax < 0.460) {
+    const latW = smoothstep(0.190, 0.228, ax) * (1 - smoothstep(0.320, 0.460, ax));
+    const vertW = smoothstep(0.630, 0.675, ay) * (1 - smoothstep(0.738, 0.790, ay));
+    ay -= jawAmt * 0.030 * latW * vertW;
   }
 
   if (ax < 0 || ax > 1 || ay < 0 || ay > 1) {
@@ -826,108 +931,264 @@ function sampleReferenceWithExpression(
     }
   }
 
-  // 7. Template-Calibrated 4-Stage Talking Sequence at Exact Resting Lip Center (mx = 0.270, my = 0.620):
-  // Closed -> Slightly Open (A/H) -> Open (O/Oh) -> Wide (E/I)
-  const mx = 0.270;
-  const my = 0.620;
+  // 7. Reference-Calibrated 10-Shape Talking Articulation at Resting Lip Center (mx = 0.274, my = 0.614):
+  // Closed, Natural/Rest, M/B/P, F/V, Slightly Open (Ah/Uh), Wide Open (A/Ha), Rounded (O/Oo), Wide (Ee), L/Th
+  const mxBase = 0.274;
+  const my = 0.614;
   const openAmt = motion.mouthOpen;
   const smileAmt = motion.smile;
+  const lipPress = motion.lipPress;
+  const lipBite = motion.lipBite;
+  const restPart = motion.restPart;
+  const roundAmt = clamp01(motion.mouthRound);
+  const wideStretch = clamp01((motion.mouthWidth - 0.94) / 0.40) * (1 - roundAmt);
+  const isPureClosed =
+    openAmt <= 0.03 && lipPress < 0.08 && lipBite < 0.08 && restPart < 0.08 && smileAmt <= 0.32;
 
-  if (openAmt > 0.04 || smileAmt > 0.32) {
-    if (openAmt <= 0.06 && smileAmt > 0.32) {
-      // Stage 1: Closed gentle smile lifting outer lip corner slightly while preserving cupid's bow
-      const dOuterCornerPatch = sdEllipse(ax, ay, 0.296, 0.620, 0.019, 0.014);
-      if (dOuterCornerPatch < 0.006 && ax >= 0.236) {
-        const pMask = (1 - smoothstep(-0.003, 0.005, dOuterCornerPatch)) * smileAmt * 0.45;
-        lum = lerp(lum, 0.66, pMask);
+  if (isPureClosed) {
+    // Refine resting ink notch into a clean closed lip seal matching Reference Panel 1 (Closed)
+    if (ax >= 0.232 && ax <= 0.318 && ay >= 0.592 && ay <= 0.646) {
+      const dPatch = sdEllipse(ax, ay, 0.273, 0.616, 0.035, 0.020);
+      if (dPatch < 0.006) {
+        const pMask = 1 - smoothstep(-0.003, 0.005, dPatch);
+        const skinGrad = clamp01(0.73 - smoothstep(0.245, 0.335, ax) * 0.16);
+        lum = lerp(lum, skinGrad, pMask * 0.92);
       }
-      const smileLift = (((ax - 0.272) * 24) ** 2) * (0.0032 + smileAmt * 0.0018);
-      const dSmile = sdCapsule2(ax, ay + smileLift, 0.246, 0.619, 0.303, 0.616, 0.0032);
-      if (dSmile < 0.005 && ax >= 0.236) {
-        const sMask = (1 - smoothstep(-0.002, 0.004, dSmile)) * Math.min(1, smileAmt * 0.95);
-        lum *= 1 - sMask * 0.85;
+      const bowCurve = (((ax - 0.272) * 26) ** 2) * 0.0022;
+      const dClosedLine = sdCapsule2(ax, ay - bowCurve, 0.246, 0.615, 0.300, 0.613, 0.0026);
+      if (dClosedLine < 0.005 && ax >= 0.232) {
+        const cMask = 1 - smoothstep(-0.002, 0.0034, dClosedLine);
+        lum = lerp(lum, 0.015, cMask * 0.92);
       }
-    } else if (openAmt > 0.04) {
-      // Cleanly erase resting mouth ink (strictly right of left jawline ax >= 0.233)
-      const roundAmt = clamp01(motion.mouthRound);
-      const wideFactor = clamp01((motion.mouthWidth - 0.85) / 0.4) * (1 - roundAmt);
+      const dUnderLip = sdEllipse(ax, ay, 0.272, 0.625, 0.014, 0.0032);
+      if (dUnderLip < 0.004) {
+        const uMask = 1 - smoothstep(-0.002, 0.003, dUnderLip);
+        lum = Math.max(lum, uMask * 0.78);
+      }
+    }
+  } else {
+    const isSmileOnly =
+      openAmt <= 0.05 && lipPress < 0.15 && lipBite < 0.15 && restPart < 0.15 && smileAmt > 0.32;
 
-      const cleanW = lerp(0.036, 0.044, Math.max(openAmt, wideFactor));
-      const cleanH = lerp(0.025, 0.036, openAmt);
-      if (ax >= 0.233 && ax <= 0.320 && ay >= 0.588 && ay <= 0.660) {
-        const dPatch = sdEllipse(ax, ay, 0.273, 0.620, cleanW, cleanH);
+    if (isSmileOnly) {
+      // Closed gentle smile lifting outer lip corner slightly while preserving cupid's bow
+      const dOuterCornerPatch = sdEllipse(ax, ay, 0.294, 0.616, 0.024, 0.016);
+      if (dOuterCornerPatch < 0.006 && ax >= 0.232) {
+        const pMask = (1 - smoothstep(-0.003, 0.005, dOuterCornerPatch)) * smileAmt * 0.65;
+        lum = lerp(lum, 0.68, pMask);
+      }
+      const smileLift = (((ax - 0.272) * 24) ** 2) * (0.0034 + smileAmt * 0.0018);
+      const dSmile = sdCapsule2(ax, ay + smileLift, 0.245, 0.615, 0.306, 0.612, 0.0030);
+      if (dSmile < 0.005 && ax >= 0.232) {
+        const sMask = (1 - smoothstep(-0.002, 0.0038, dSmile)) * Math.min(1, smileAmt * 0.95);
+        lum = lerp(lum, 0.015, sMask * 0.88);
+      }
+    } else {
+      const isRoundO = roundAmt > 0.50;
+      const isWideEe = !isRoundO && (motion.teethBottom > 0.35 || wideStretch > 0.48);
+      const isFv = !isRoundO && lipBite > 0.42;
+      const isRest = !isRoundO && restPart > 0.45 && openAmt < 0.16;
+
+      // Wide / Ee shifts gently onto the 3/4 cheek plane so both teeth rows & corners stay crisp inside jawline
+      const mx = isWideEe ? 0.283 : mxBase;
+      const activeBlend = clamp01(
+        Math.max(openAmt * 3.0, lipPress * 1.4, lipBite * 1.4, restPart * 1.2)
+      );
+
+      // Erase resting mouth notch cleanly within cheek interior (never crossing left jawline at ax < 0.228)
+      const cleanW = lerp(0.038, 0.052, Math.max(openAmt, wideStretch, lipPress * 0.72));
+      const cleanH = lerp(0.024, 0.038, Math.max(openAmt, lipBite * 0.5));
+      if (ax >= 0.228 && ax <= 0.340 && ay >= 0.578 && ay <= 0.672) {
+        const dPatch = sdEllipse(ax, ay, 0.278, 0.616, cleanW, cleanH);
         if (dPatch < 0.008) {
-          const pMask = (1 - smoothstep(-0.004, 0.006, dPatch)) * smoothstep(0.04, 0.16, openAmt);
-          const skinGrad = clamp01(0.71 - smoothstep(0.25, 0.33, ax) * 0.14);
-          lum = lerp(lum, skinGrad, pMask * 0.96);
+          const pMask = (1 - smoothstep(-0.004, 0.006, dPatch)) * activeBlend;
+          const skinGrad = clamp01(0.73 - smoothstep(0.245, 0.345, ax) * 0.17);
+          lum = lerp(lum, skinGrad, pMask * 0.97);
         }
       }
 
-      // Compute shape dimensions for A/H (small), O/Oh (round), or E/I (wide)
-      const isRoundO = roundAmt > 0.55;
-      const isWideEI = !isRoundO && openAmt > 0.42 && wideFactor > 0.25;
+      if (lipPress > 0.45 && openAmt < 0.14) {
+        // Bilabial M / B / P: crisp wide pressed horizontal lip seal with corner inward dimples
+        const pressBlend = smoothstep(0.2, 0.75, lipPress);
+        const cornerCurve = (((ax - 0.274) * 30) ** 2) * 0.0014;
+        const dSeal = sdCapsule2(ax, ay - cornerCurve, 0.241, 0.615, 0.308, 0.613, 0.0034);
+        if (dSeal < 0.005 && ax >= 0.228) {
+          const sMask = (1 - smoothstep(-0.002, 0.0036, dSeal)) * pressBlend;
+          lum = lerp(lum, 0.015, sMask * 0.96);
+        }
+        // Subtle corner tension ticks
+        const dTickL = sdCapsule2(ax, ay, 0.241, 0.612, 0.242, 0.618, 0.0018);
+        const dTickR = sdCapsule2(ax, ay, 0.307, 0.610, 0.308, 0.616, 0.0018);
+        const dTicks = Math.min(dTickL, dTickR);
+        if (dTicks < 0.004 && ax >= 0.228) {
+          const tMask = (1 - smoothstep(-0.002, 0.003, dTicks)) * pressBlend;
+          lum = lerp(lum, 0.02, tMask * 0.88);
+        }
+        // Subtle pressed lip cushion highlight directly below the seal
+        const dPressGlow = sdEllipse(ax, ay, 0.274, 0.624, 0.019, 0.0042);
+        if (dPressGlow < 0.005 && ax >= 0.228) {
+          const gMask = (1 - smoothstep(-0.002, 0.0035, dPressGlow)) * pressBlend;
+          lum = Math.max(lum, gMask * 0.84);
+        }
+      } else {
+        // Articulatory aperture (Natural/Rest, F/V, Ah/Uh, A/Ha, O/Oo, Wide/Ee, L/Th)
+        const rx = isRoundO
+          ? lerp(0.014, 0.022, openAmt)
+          : isWideEe
+          ? lerp(0.034, 0.038, Math.max(openAmt, wideStretch))
+          : isFv
+          ? 0.030
+          : isRest
+          ? 0.022
+          : openAmt < 0.45
+          ? lerp(0.028, 0.031, openAmt / 0.45) // Slightly Open (Ah/Uh) crisp wide oval
+          : lerp(0.031, 0.036, (openAmt - 0.45) / 0.55); // Wide Open (A/Ha)
 
-      const rx = isRoundO
-        ? lerp(0.020, 0.026, openAmt)
-        : isWideEI
-        ? lerp(0.028, 0.037, openAmt) * lerp(1, 1.08, wideFactor)
-        : lerp(0.017, 0.023, clamp01(openAmt * 2.2));
+        const ry = isRoundO
+          ? lerp(0.016, 0.026, openAmt)
+          : isWideEe
+          ? lerp(0.0165, 0.020, openAmt)
+          : isFv
+          ? 0.0125
+          : isRest
+          ? 0.0062
+          : openAmt < 0.45
+          ? lerp(0.011, 0.014, openAmt / 0.45) // Slightly Open (Ah/Uh) distinct teeth + dark slit
+          : lerp(0.018, 0.035, (openAmt - 0.45) / 0.55); // Wide Open (A/Ha) tall jaw drop
 
-      const ry = isRoundO
-        ? lerp(0.018, 0.029, openAmt)
-        : isWideEI
-        ? lerp(0.020, 0.029, openAmt)
-        : lerp(0.008, 0.016, clamp01(openAmt * 2.2));
+        const cy = my + lerp(0.000, 0.012, motion.jawDrop);
+        const slantY = isWideEe ? (ax - mx) * -0.032 : isFv ? (ax - mx) * -0.018 : 0;
+        const mouthLocalY = ay - slantY;
 
-      const cy = my + lerp(0.001, 0.005, openAmt);
-      // Match 3/4 face plane: slight upward slant toward right cheek on wide smile E/I
-      const slantY = isWideEI ? (ax - mx) * -0.065 : 0;
-      const mouthLocalY = ay - slantY;
+        const normX = (ax - mx) / (rx || 0.01);
+        const cornerLift = isWideEe ? Math.max(0, normX * normX - 0.20) * -0.0028 : 0;
+        const topFlatten = isWideEe
+          ? Math.max(0, 1 - normX * normX) * 0.0024 + cornerLift
+          : isFv
+          ? Math.max(0, 1 - normX * normX) * 0.0018
+          : 0;
 
-      // D-shape top flattening for E/I wide smile
-      const normX = (ax - mx) / (rx || 0.01);
-      const topFlatten = isWideEI ? Math.max(0, 1 - normX * normX) * 0.0035 : 0;
-      const dOuterLip = sdEllipse(ax, mouthLocalY + topFlatten * 0.5, mx, cy, rx + 0.003, ry + 0.003);
-      const dCavity = sdEllipse(ax, mouthLocalY + topFlatten, mx, cy, rx, ry);
+        const lipBorder = isWideEe ? 0.0034 : isRest || isFv ? 0.0024 : 0.0036;
+        const dOuterLip = sdEllipse(
+          ax,
+          mouthLocalY + topFlatten * 0.5,
+          mx,
+          cy,
+          rx + lipBorder,
+          ry + lipBorder
+        );
+        const dCavity = sdEllipse(ax, mouthLocalY + topFlatten, mx, cy, rx, ry);
 
-      if (dOuterLip < 0.005 && ax >= 0.233) {
-        // Crisp dark lip outline around the aperture
-        const lipRim = (1 - smoothstep(-0.002, 0.0035, dOuterLip)) * smoothstep(0.04, 0.16, openAmt);
-        lum *= 1 - lipRim * (isWideEI ? 0.78 : 0.6);
-      }
-
-      if (dCavity < 0.005 && ax >= 0.233) {
-        const cMask = (1 - smoothstep(-0.002, 0.0032, dCavity)) * smoothstep(0.04, 0.16, openAmt);
-        // Deep dark oral interior
-        lum *= 1 - cMask * 0.97;
-
-        // Stage 2 (A/H): delicate tiny top-teeth gleam
-        if (!isRoundO && !isWideEI && openAmt > 0.14) {
-          const teethBand = mouthLocalY < cy - ry * 0.34 && Math.abs(normX) < 0.65;
-          if (teethBand) {
-            lum = Math.max(lum, 0.62 * cMask);
+        if (dOuterLip < 0.0055 && ax >= 0.230) {
+          const lipRim = (1 - smoothstep(-0.002, 0.0034, dOuterLip)) * activeBlend;
+          if (isWideEe) {
+            lum = lerp(lum, 0.02, lipRim * 0.90);
+          } else if (isRest) {
+            lum *= 1 - lipRim * 0.58;
+          } else {
+            lum *= 1 - lipRim * 0.80;
           }
         }
 
-        // Stage 4 (Wide E/I): crisp upper teeth row + deep middle oral cavity + subtle bottom tongue crescent
-        if (isWideEI) {
-          const teethLine = cy - ry * 0.36;
-          const tongueLine = cy + ry * 0.44;
-          if (mouthLocalY < teethLine && Math.abs(normX) < 0.85) {
-            const toothEdge = 1 - smoothstep(teethLine - 0.0035, teethLine, mouthLocalY);
-            lum = Math.max(lum, 0.86 * toothEdge * cMask);
-          } else if (mouthLocalY > tongueLine && Math.abs(normX) < 0.68) {
-            const tongueMask = smoothstep(tongueLine, tongueLine + 0.0045, mouthLocalY);
-            lum = Math.max(lum, 0.38 * tongueMask * cMask);
+        if (dCavity < 0.005 && ax >= 0.230) {
+          const cMask = (1 - smoothstep(-0.002, 0.0030, dCavity)) * activeBlend;
+          // Deep crisp oral interior (protected dark anchor <= 0.025)
+          lum = lerp(lum, 0.012, cMask * 0.98);
+
+          // 1) Crisp white upper teeth row (Ah/Uh, A/Ha, Wide/Ee, L/Th, F/V, subtle Rest)
+          if (motion.teethTop > 0.12 && !isRoundO) {
+            const teethCutoff = isFv
+              ? cy + 0.0008 // Upper teeth extend horizontally onto lower lip
+              : isWideEe
+              ? cy - 0.0020 // Crisp upper teeth bar above central dark smile gap
+              : isRest
+              ? cy + ry * 0.06
+              : openAmt < 0.45
+              ? cy - ry * 0.10 // Ah/Uh: bright upper teeth top-row leaving dark lower slit
+              : cy - ry * 0.40; // A/Ha: clean curved upper teeth arch at top of deep throat cavity
+            const teethSpan = isFv ? 0.86 : isWideEe ? 0.88 : 0.85;
+            if (mouthLocalY < teethCutoff && Math.abs(normX) < teethSpan) {
+              const tEdge = 1 - smoothstep(teethCutoff - 0.0020, teethCutoff + 0.0004, mouthLocalY);
+              const tBright = isRest ? 0.72 : lerp(0.88, 0.98, motion.teethTop);
+              lum = Math.max(lum, tBright * tEdge * cMask);
+            }
+          }
+
+          // 2) Wide / Ee crisp lower teeth bar separated by a clean thin dark smile gap
+          if (motion.teethBottom > 0.2 && !isRoundO && !isFv) {
+            const lowTeethTop = cy + 0.0022;
+            if (mouthLocalY > lowTeethTop && Math.abs(normX) < 0.84) {
+              const ltEdge = smoothstep(lowTeethTop, lowTeethTop + 0.0022, mouthLocalY);
+              lum = Math.max(lum, 0.96 * motion.teethBottom * ltEdge * cMask);
+            }
+          }
+
+          // 3) Tongue inside cavity:
+          //    - L/Th: bright raised tongue tip pressing behind upper teeth with crisp dark side pockets
+          //    - A/Ha: subtle darker-halftone tongue low on floor so deep open throat stays starkly black
+          if (motion.tongueShow > 0.18 && !isRoundO && !isFv) {
+            if (motion.tongueLift > 0.35) {
+              const dTongueTip = sdEllipse(
+                ax,
+                mouthLocalY,
+                mx,
+                cy + ry * 0.26,
+                rx * 0.38,
+                ry * 0.48
+              );
+              if (dTongueTip < 0.005) {
+                const tgMask = (1 - smoothstep(-0.002, 0.0028, dTongueTip)) * motion.tongueShow * cMask;
+                lum = Math.max(lum, 0.84 * tgMask);
+              }
+            } else {
+              const dFloorTongue = sdEllipse(
+                ax,
+                mouthLocalY,
+                mx + 0.002,
+                cy + ry * 0.66,
+                rx * 0.56,
+                ry * 0.30
+              );
+              if (dFloorTongue < 0.005) {
+                const tgMask = (1 - smoothstep(-0.002, 0.003, dFloorTongue)) * motion.tongueShow * cMask;
+                lum = Math.max(lum, 0.43 * tgMask);
+              }
+            }
+          }
+
+          // 4) F/V raised lower lip cushion tucking directly beneath upper teeth
+          if (lipBite > 0.35) {
+            const dTuckLip = sdEllipse(ax, mouthLocalY, mx, cy + ry * 0.44, rx * 0.84, ry * 0.48);
+            if (dTuckLip < 0.005 && mouthLocalY > cy + 0.0020) {
+              const bMask = (1 - smoothstep(-0.002, 0.0026, dTuckLip)) * lipBite * cMask;
+              lum = Math.max(lum, 0.96 * bMask);
+            }
           }
         }
-      }
 
-      // Clean luminous lower-lip crescent right below open cavity (matches all 3 open frames of template!)
-      const dLowerLipRim = sdEllipse(ax, mouthLocalY, mx + 0.001, cy + ry + 0.0065, rx * 0.65, 0.0036);
-      if (dLowerLipRim < 0.005 && ax >= 0.233) {
-        const lMask = (1 - smoothstep(-0.002, 0.004, dLowerLipRim)) * smoothstep(0.10, 0.42, openAmt);
-        lum = Math.max(lum, lMask * 0.78);
+        // Luminous pursed O/Oo lip highlight ring around the rounded cavity
+        if (motion.puckerRing > 0.20) {
+          const dRing = Math.abs(sdEllipse(ax, mouthLocalY, mx + 0.001, cy + 0.001, rx + 0.0066, ry + 0.0066)) - 0.0038;
+          if (dRing < 0.005 && ax >= 0.228) {
+            const rMask = (1 - smoothstep(-0.002, 0.0035, dRing)) * motion.puckerRing * activeBlend;
+            lum = Math.max(lum, rMask * 0.88);
+          }
+        }
+
+        // Clean luminous lower-lip crescent directly below cavity
+        const lowerOffset = isFv ? ry * 0.68 + 0.0024 : ry + 0.0056;
+        const dLowerLipRim = sdEllipse(
+          ax,
+          mouthLocalY,
+          mx + 0.001,
+          cy + lowerOffset,
+          rx * (isRoundO ? 0.72 : 0.80),
+          0.0038
+        );
+        if (dLowerLipRim < 0.005 && ax >= 0.228) {
+          const lMask = (1 - smoothstep(-0.002, 0.0035, dLowerLipRim)) * activeBlend;
+          lum = Math.max(lum, lMask * 0.86);
+        }
       }
     }
   }
@@ -1096,7 +1357,7 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
     }
   }
 
-  // 2. Unsharp contrast boost so hair highlights, lashes, catchlights & mouth stay crisp
+  // 2. Unsharp contrast boost so hair highlights, lashes, catchlights & mouth teeth/cavity stay crisp
   for (let sy = 0; sy < subH; sy++) {
     const rowOff = sy * subW;
     const upOff = Math.max(0, sy - 1) * subW;
@@ -1104,6 +1365,11 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
     for (let sx = 0; sx < subW; sx++) {
       const idx = rowOff + sx;
       const c = raw[idx];
+      // Preserve crisp feature anchors (solid teeth/catchlights vs deep oral cavity) from unsharp ringing
+      if (c >= 0.94 || c <= 0.025) {
+        work[idx] = c;
+        continue;
+      }
       const l = raw[rowOff + Math.max(0, sx - 1)];
       const r = raw[rowOff + Math.min(subW - 1, sx + 1)];
       const u = raw[upOff + sx];
@@ -1114,7 +1380,7 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
     }
   }
 
-  // 3. Serpentine Bill Atkinson Error Diffusion with fine Bayer micro-jitter
+  // 3. Serpentine Bill Atkinson Error Diffusion with feature-anchor protection
   for (let sy = 0; sy < subH; sy++) {
     const forward = (sy & 1) === 0;
     const startX = forward ? 0 : subW - 1;
@@ -1125,11 +1391,21 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
 
     for (let sx = startX; sx !== endX; sx += dir) {
       const idx = rowOff + sx;
+      const rawVal = raw[idx];
+      const isBrightAnchor = rawVal >= 0.94;
+      const isDarkAnchor = rawVal <= 0.025;
       const oldVal = work[idx];
-      const jitter = BAYER_4X4[bayerRow + (sx & 3)] * 0.1;
-      const newVal = oldVal >= 0.47 + jitter ? 1 : 0;
+      const jitter = (isBrightAnchor || isDarkAnchor) ? 0 : BAYER_4X4[bayerRow + (sx & 3)] * 0.1;
+      const newVal = isBrightAnchor
+        ? 1
+        : isDarkAnchor
+        ? 0
+        : oldVal >= 0.47 + jitter
+        ? 1
+        : 0;
       work[idx] = newVal;
-      const err = (oldVal - newVal) * 0.125;
+      // Don't dump harsh boundary error across locked teeth / deep cavity features
+      const err = (isBrightAnchor || isDarkAnchor) ? 0 : (oldVal - newVal) * 0.125;
 
       const nx1 = sx + dir;
       const nx2 = sx + dir * 2;
