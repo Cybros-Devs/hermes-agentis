@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160" role="img" aria-labelledby="wm-t wm-d">
+  <title id="wm-t">Hermes Duet // Cyber Comms wordmark</title>
+  <desc id="wm-d">Braille H monogram (dots 1, 2, 5) in a bordered panel beside a monospace terminal lockup with a cyan prompt cursor.</desc>
+  <!-- hard offset shadow (no blur, ever) -->
+  <rect x="28" y="34" width="92" height="92" rx="10" fill="#000000"/>
+  <!-- panel -->
+  <rect x="22" y="28" width="92" height="92" rx="10" fill="#161616" stroke="#f3eee3" stroke-width="1.5"/>
+  <!-- Braille cell, 2x3. H = dots 1 (top-left), 2 (mid-left), 5 (mid-right) -->
+  <g>
+    <circle cx="55" cy="48"  r="5.5" fill="#ffd700"/>
+    <circle cx="55" cy="74"  r="5.5" fill="#ffd700"/>
+    <circle cx="55" cy="100" r="5.5" fill="#2a2a2a"/>
+    <circle cx="81" cy="48"  r="5.5" fill="#2a2a2a"/>
+    <circle cx="81" cy="74"  r="5.5" fill="#ffd700"/>
+    <circle cx="81" cy="100" r="5.5" fill="#2a2a2a"/>
+  </g>
+  <!-- monospace terminal lockup -->
+  <text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#f3eee3" textLength="216" lengthAdjust="spacing" letter-spacing="0.5">HERMES DUET</text>
+  <text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="171" lengthAdjust="spacing"><tspan fill="#ffd700">//</tspan><tspan fill="#b9b2a3"> CYBER COMMS</tspan></text>
+  <!-- cyan prompt cursor (live state) -->
+  <rect x="322" y="93" width="11" height="20" fill="#22D3EE"/>
+  <!-- halftone hint -->
+  <g fill="#2f2f2f">
+    <circle cx="596" cy="34"  r="1.6"/><circle cx="586" cy="44"  r="1.6"/>
+    <circle cx="596" cy="54"  r="1.6"/><circle cx="586" cy="64"  r="1.6"/>
+    <circle cx="596" cy="74"  r="1.6"/><circle cx="586" cy="84"  r="1.6"/>
+    <circle cx="596" cy="94"  r="1.6"/><circle cx="586" cy="104" r="1.6"/>
+    <circle cx="596" cy="114" r="1.6"/>
+  </g>
+</svg>

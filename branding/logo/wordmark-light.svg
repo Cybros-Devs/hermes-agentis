@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160" role="img" aria-labelledby="wml-t wml-d">
-  <title id="wml-t">Hermes Duet // Cyber Comms wordmark — light variant</title>
-  <desc id="wml-d">Braille H monogram in an off-white panel beside a charcoal monospace lockup with a deep cyan prompt cursor.</desc>
+  <title id="wml-t">Voxcell wordmark — light variant</title>
+  <desc id="wml-d">Braille V monogram in an off-white panel beside a charcoal monospace VOXCELL lockup with a deep cyan prompt cursor.</desc>
   <!-- hard offset shadow, light mode: darker paper, still no blur -->
   <rect x="28" y="34" width="92" height="92" rx="10" fill="#d8d2c4"/>
   <!-- panel -->
   <rect x="22" y="28" width="92" height="92" rx="10" fill="#f7f4ec" stroke="#0e0e0e" stroke-width="1.5"/>
-  <!-- Braille cell, 2x3. H = dots 1, 2, 5. Gold reads bronze on light. -->
+  <!-- Braille cell, 2x3. V = dots 1, 2, 3, 6. Gold reads bronze on light. -->
   <g>
     <circle cx="55" cy="48"  r="5.5" fill="#cd853f"/>
     <circle cx="55" cy="74"  r="5.5" fill="#cd853f"/>
-    <circle cx="55" cy="100" r="5.5" fill="#d9d3c5"/>
+    <circle cx="55" cy="100" r="5.5" fill="#cd853f"/>
     <circle cx="81" cy="48"  r="5.5" fill="#d9d3c5"/>
     <circle cx="81" cy="74"  r="5.5" fill="#cd853f"/>
     <circle cx="81" cy="100" r="5.5" fill="#d9d3c5"/>
   </g>
   <!-- monospace terminal lockup -->
-  <text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#0e0e0e" textLength="216" lengthAdjust="spacing" letter-spacing="0.5">HERMES DUET</text>
-  <text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="171" lengthAdjust="spacing"><tspan fill="#cd853f">//</tspan><tspan fill="#565349"> CYBER COMMS</tspan></text>
+  <text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#0e0e0e" textLength="168" lengthAdjust="spacing" letter-spacing="0.5">VOXCELL</text>
+  <text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="190" lengthAdjust="spacing"><tspan fill="#cd853f">//</tspan><tspan fill="#565349"> FOR HERMES DUET</tspan></text>
   <!-- cyan prompt cursor, darkened for light-field contrast -->
-  <rect x="322" y="93" width="11" height="20" fill="#0891b2"/>
+  <rect x="318" y="60" width="11" height="24" fill="#0891b2"/>
   <!-- halftone hint -->
   <g fill="#cfc9bb">
     <circle cx="596" cy="34"  r="1.6"/><circle cx="586" cy="44"  r="1.6"/>

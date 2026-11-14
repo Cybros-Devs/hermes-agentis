@@ -1,67 +1,38 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Wordmark preview — Hermes Duet // Cyber Comms</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voxcell logo preview</title>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Inter, system-ui, -apple-system, sans-serif; background: #0e0e0e; color: #f3eee3; padding: 24px 16px 48px; }
-  h1 { font-family: 'JetBrains Mono', Menlo, Consolas, monospace; font-size: 15px; font-weight: 600; color: #ffd700; margin: 8px 0 20px; }
-  h1 span { color: #b9b2a3; }
-  .panel { background: #161616; border: 1.5px solid #f3eee3; border-radius: 10px; padding: 20px; margin-bottom: 22px; box-shadow: 6px 6px 0 #000; }
-  .panel.light { background: #f7f4ec; color: #0e0e0e; border-color: #0e0e0e; box-shadow: 6px 6px 0 #d8d2c4; }
-  .label { font-family: 'JetBrains Mono', Menlo, Consolas, monospace; font-size: 11px; color: #b9b2a3; margin: 18px 0 8px; letter-spacing: .08em; text-transform: uppercase; }
-  .light .label { color: #565349; }
-  .field { background: #0e0e0e; border: 1px dashed #3a3a3a; border-radius: 6px; padding: 14px; overflow-x: auto; }
-  .light .field { background: #f3eee3; border-color: #cfc9bb; }
-  .field svg { display: block; height: auto; }
-  .note { font-size: 12.5px; line-height: 1.55; color: #b9b2a3; max-width: 640px; }
-  .light .note { color: #565349; }
-  .note code { font-family: 'JetBrains Mono', Menlo, Consolas, monospace; color: #22D3EE; font-size: 11.5px; }
+  body { background:#0e0e0e; color:#f3eee3; font-family:'JetBrains Mono',Menlo,Consolas,monospace; margin:0; padding:24px; }
+  h1 { font-size:16px; letter-spacing:.08em; }
+  h2 { font-size:12px; color:#b9b2a3; letter-spacing:.08em; margin:28px 0 8px; border-bottom:1.5px solid #2a2a2a; padding-bottom:4px; }
+  .row { display:flex; align-items:center; gap:24px; flex-wrap:wrap; }
+  .light { background:#f3eee3; padding:16px; border-radius:8px; }
+  .size { font-size:11px; color:#b9b2a3; margin-top:4px; }
 </style>
 </head>
 <body>
-  <h1>hermes-agentis <span>// wordmark preview</span></h1>
+  <h1>VOXCELL — logo preview</h1>
 
-  <div class="panel">
-    <div class="label">Dark (primary) — full lockup @ 480px</div>
-    <div class="field">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="480" role="img" aria-label="Hermes Duet Cyber Comms dark wordmark">
-        <rect x="28" y="34" width="92" height="92" rx="10" fill="#000000"/>
-        <rect x="22" y="28" width="92" height="92" rx="10" fill="#161616" stroke="#f3eee3" stroke-width="1.5"/>
-        <g><circle cx="55" cy="48" r="5.5" fill="#ffd700"/><circle cx="55" cy="74" r="5.5" fill="#ffd700"/><circle cx="55" cy="100" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="48" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="74" r="5.5" fill="#ffd700"/><circle cx="81" cy="100" r="5.5" fill="#2a2a2a"/></g>
-        <text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#f3eee3" textLength="216" lengthAdjust="spacing" letter-spacing="0.5">HERMES DUET</text>
-        <text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="171" lengthAdjust="spacing"><tspan fill="#ffd700">//</tspan><tspan fill="#b9b2a3"> CYBER COMMS</tspan></text>
-        <rect x="322" y="93" width="11" height="20" fill="#22D3EE"/>
-        <g fill="#2f2f2f"><circle cx="596" cy="34" r="1.6"/><circle cx="586" cy="44" r="1.6"/><circle cx="596" cy="54" r="1.6"/><circle cx="586" cy="64" r="1.6"/><circle cx="596" cy="74" r="1.6"/><circle cx="586" cy="84" r="1.6"/><circle cx="596" cy="94" r="1.6"/><circle cx="586" cy="104" r="1.6"/><circle cx="596" cy="114" r="1.6"/></g>
-      </svg>
-    </div>
-    <div class="label">Scale check — 240 / 120 / 64 / 32 px wide</div>
-    <div class="field" style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end;">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="240" role="img" aria-label="wordmark 240px"><rect x="28" y="34" width="92" height="92" rx="10" fill="#000000"/><rect x="22" y="28" width="92" height="92" rx="10" fill="#161616" stroke="#f3eee3" stroke-width="1.5"/><g><circle cx="55" cy="48" r="5.5" fill="#ffd700"/><circle cx="55" cy="74" r="5.5" fill="#ffd700"/><circle cx="55" cy="100" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="48" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="74" r="5.5" fill="#ffd700"/><circle cx="81" cy="100" r="5.5" fill="#2a2a2a"/></g><text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#f3eee3" textLength="216" lengthAdjust="spacing" letter-spacing="0.5">HERMES DUET</text><text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="171" lengthAdjust="spacing"><tspan fill="#ffd700">//</tspan><tspan fill="#b9b2a3"> CYBER COMMS</tspan></text><rect x="322" y="93" width="11" height="20" fill="#22D3EE"/></svg>
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="120" role="img" aria-label="wordmark 120px"><rect x="28" y="34" width="92" height="92" rx="10" fill="#000000"/><rect x="22" y="28" width="92" height="92" rx="10" fill="#161616" stroke="#f3eee3" stroke-width="1.5"/><g><circle cx="55" cy="48" r="5.5" fill="#ffd700"/><circle cx="55" cy="74" r="5.5" fill="#ffd700"/><circle cx="55" cy="100" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="48" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="74" r="5.5" fill="#ffd700"/><circle cx="81" cy="100" r="5.5" fill="#2a2a2a"/></g><text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#f3eee3" textLength="216" lengthAdjust="spacing" letter-spacing="0.5">HERMES DUET</text><text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="171" lengthAdjust="spacing"><tspan fill="#ffd700">//</tspan><tspan fill="#b9b2a3"> CYBER COMMS</tspan></text><rect x="322" y="93" width="11" height="20" fill="#22D3EE"/></svg>
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="64" role="img" aria-label="wordmark 64px"><rect x="28" y="34" width="92" height="92" rx="10" fill="#000000"/><rect x="22" y="28" width="92" height="92" rx="10" fill="#161616" stroke="#f3eee3" stroke-width="1.5"/><g><circle cx="55" cy="48" r="5.5" fill="#ffd700"/><circle cx="55" cy="74" r="5.5" fill="#ffd700"/><circle cx="55" cy="100" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="48" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="74" r="5.5" fill="#ffd700"/><circle cx="81" cy="100" r="5.5" fill="#2a2a2a"/></g><text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#f3eee3" textLength="216" lengthAdjust="spacing" letter-spacing="0.5">HERMES DUET</text><text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="171" lengthAdjust="spacing"><tspan fill="#ffd700">//</tspan><tspan fill="#b9b2a3"> CYBER COMMS</tspan></text><rect x="322" y="93" width="11" height="20" fill="#22D3EE"/></svg>
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="32" role="img" aria-label="wordmark 32px"><rect x="28" y="34" width="92" height="92" rx="10" fill="#000000"/><rect x="22" y="28" width="92" height="92" rx="10" fill="#161616" stroke="#f3eee3" stroke-width="1.5"/><g><circle cx="55" cy="48" r="5.5" fill="#ffd700"/><circle cx="55" cy="74" r="5.5" fill="#ffd700"/><circle cx="55" cy="100" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="48" r="5.5" fill="#2a2a2a"/><circle cx="81" cy="74" r="5.5" fill="#ffd700"/><circle cx="81" cy="100" r="5.5" fill="#2a2a2a"/></g><text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#f3eee3" textLength="216" lengthAdjust="spacing" letter-spacing="0.5">HERMES DUET</text><text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="171" lengthAdjust="spacing"><tspan fill="#ffd700">//</tspan><tspan fill="#b9b2a3"> CYBER COMMS</tspan></text><rect x="322" y="93" width="11" height="20" fill="#22D3EE"/></svg>
-    </div>
-    <p class="note" style="margin-top:16px;">Mark = Braille <code>⠓</code> (dots 1·2·5, the H of Hermes) in a bordered panel; shadow is hard offset <code>+6/+6 #000</code>, never blurred; cyan <code>#22D3EE</code> prompt cursor only in the full lockup. Minimum panel height 24px — at 32px total width the shape still reads, which is the crispness floor.</p>
+  <h2>DARK (primary)</h2>
+  <div class="row">
+    <div><img src="wordmark.svg" width="480" alt="wordmark 480"><div class="size">480px</div></div>
+    <div><img src="wordmark.svg" width="320" alt="wordmark 320"><div class="size">320px</div></div>
+    <div><img src="wordmark.svg" width="200" alt="wordmark 200"><div class="size">200px</div></div>
   </div>
 
-  <div class="panel light">
-    <div class="label">Light — full lockup @ 480px</div>
-    <div class="field">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="480" role="img" aria-label="Hermes Duet Cyber Comms light wordmark">
-        <rect x="28" y="34" width="92" height="92" rx="10" fill="#d8d2c4"/>
-        <rect x="22" y="28" width="92" height="92" rx="10" fill="#f7f4ec" stroke="#0e0e0e" stroke-width="1.5"/>
-        <g><circle cx="55" cy="48" r="5.5" fill="#cd853f"/><circle cx="55" cy="74" r="5.5" fill="#cd853f"/><circle cx="55" cy="100" r="5.5" fill="#d9d3c5"/><circle cx="81" cy="48" r="5.5" fill="#d9d3c5"/><circle cx="81" cy="74" r="5.5" fill="#cd853f"/><circle cx="81" cy="100" r="5.5" fill="#d9d3c5"/></g>
-        <text x="140" y="80" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="30" font-weight="600" fill="#0e0e0e" textLength="216" lengthAdjust="spacing" letter-spacing="0.5">HERMES DUET</text>
-        <text x="140" y="110" font-family="'JetBrains Mono','Menlo','Consolas',monospace" font-size="19" font-weight="500" textLength="171" lengthAdjust="spacing"><tspan fill="#cd853f">//</tspan><tspan fill="#565349"> CYBER COMMS</tspan></text>
-        <rect x="322" y="93" width="11" height="20" fill="#0891b2"/>
-        <g fill="#cfc9bb"><circle cx="596" cy="34" r="1.6"/><circle cx="586" cy="44" r="1.6"/><circle cx="596" cy="54" r="1.6"/><circle cx="586" cy="64" r="1.6"/><circle cx="596" cy="74" r="1.6"/><circle cx="586" cy="84" r="1.6"/><circle cx="596" cy="94" r="1.6"/><circle cx="586" cy="104" r="1.6"/><circle cx="596" cy="114" r="1.6"/></g>
-      </svg>
-    </div>
-    <p class="note" style="margin-top:16px;">Light rules: field <code>#f3eee3</code>, ink <code>#0e0e0e</code>, gold drops to bronze <code>#cd853f</code>, cyan deepens to <code>#0891b2</code> for contrast, shadow becomes solid darker paper <code>#d8d2c4</code> — still hard offset, still no blur.</p>
+  <h2>LIGHT</h2>
+  <div class="light row">
+    <div><img src="wordmark-light.svg" width="480" alt="wordmark light 480"><div class="size">480px</div></div>
+    <div><img src="wordmark-light.svg" width="200" alt="wordmark light 200"><div class="size">200px</div></div>
+  </div>
+
+  <h2>SCALE CHECK (min panel 24px)</h2>
+  <div class="row">
+    <div><img src="wordmark.svg" width="120" alt="wordmark 120"><div class="size">120px</div></div>
+    <div><img src="wordmark.svg" width="80" alt="wordmark 80"><div class="size">80px — cursor still legible</div></div>
   </div>
 </body>
 </html>
