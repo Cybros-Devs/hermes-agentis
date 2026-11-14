@@ -18,7 +18,7 @@ Style: cyberpunk-terminal meets the Hermes Duet house style. Charcoal `#0e0e0e`,
 | `banner.jpg` | GitHub social banner concept, 16:9, mark only (generated via agy) |
 | `avatar.jpg` | Square avatar / hero mark (generated via agy) |
 | `infographic.jpg` | dense-modules × cyberpunk-neon product overview, 16:9 (generated via agy) |
-| `infographic-b.jpg` | periodic-table × cyberpunk-neon — the 11 tested engines, 16:9 (generated via agy) |
+| `infographic-b.png` | periodic-table × cyberpunk-neon — the 11 tested engines, 16:9 (rendered from SVG: `generate-infographic-b.py`) |
 | `analysis.md`, `structured-content.md`, `prompts/*.md`, `source.md` | Infographic process files (baoyu-infographic skill) + verified source facts |
 | `v1/` | The complete v1.0 kit, archived (name: "Hermes Duet // Cyber Comms") |
 
@@ -33,4 +33,4 @@ Style: cyberpunk-terminal meets the Hermes Duet house style. Charcoal `#0e0e0e`,
 ## Known defects (generated-image drift)
 
 - `infographic.jpg`: title, tagline, all 6 stats, ports, and the 11-engine list verified correct; one component label is garbled ("Ascii3DViewpozit" for Ascii3DViewport) and one label is clipped at the frame edge. Inherent drift of image-model text rendering — regenerating trades this defect for new random ones, so it ships as-is.
-- `infographic-b.jpg` was generated from the lean prompt (`prompts/infographic-b-lean.md`); the full-detail variant (`prompts/infographic-b.md`) timed out three times in agy's pipeline.
+- `infographic-b.png`: agy's image model timed out four times on this layout (full-detail and lean prompts; only low-res partials), so it is rendered programmatically from SVG (`generate-infographic-b.py`, resvg + Consolas) — pixel-exact engine names, exact palette, vision-verified defect-free. The lean prompt is kept at `prompts/infographic-b-lean.md` as process record.

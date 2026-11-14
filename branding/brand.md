@@ -121,7 +121,7 @@ No rotation, no gradient fills on dots, no glow, no blur, no animating the dots.
 | GitHub social banner | `banner.jpg` | 16:9 concept, generated via agy, mark only |
 | Avatar / hero mark | `avatar.jpg` | Square, generated via agy, mark only |
 | Infographic A — product overview | `infographic.jpg` | dense-modules × cyberpunk-neon, 16:9 |
-| Infographic B — engine bay | `infographic-b.jpg` | periodic-table × cyberpunk-neon, 16:9 |
+| Infographic B — engine bay | `infographic-b.png` | periodic-table × cyberpunk-neon, 16:9 — SVG render, pixel-exact text |
 | Brand board | `brand-board.html` | One-page kit summary, phone-friendly |
 
 ## 10. Facts policy
