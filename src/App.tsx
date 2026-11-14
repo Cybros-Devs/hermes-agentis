@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, Shapes, Layers, ListTodo, Terminal as TerminalIcon } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SidebarWorkspace } from './components/SidebarWorkspace';
 import { VoiceWorkspacePane, type WorkspacePanelView } from './components/VoiceWorkspacePane';
 import { useDuet, duetItemToEntry } from './hooks/useDuet';
@@ -75,9 +74,7 @@ function buildLocalFallbackReply(
   };
 }
 
-const CANVAS_STORAGE_KEY = 'duet.canvasSessions.v1';
-
-type MobileTab = 'home' | 'canvas' | 'voice' | 'tasks' | 'queue' | 'cli';
+const CANVAS_STORAGE_KEY = 'duet.canvasSessions.v2';
 
 export default function App() {
   const [activeChannel, setActiveChannel] = useState<ChannelId>('general');
@@ -108,11 +105,7 @@ export default function App() {
     }
     return 'home';
   });
-  const [mobileTab, setMobileTab] = useState<MobileTab>(() =>
-    typeof window !== 'undefined' && window.location.search.includes('view=canvas')
-      ? 'canvas'
-      : 'home'
-  );
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [animateSpeechLine, setAnimateSpeechLine] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<HermesGatewayStatus | null>(null);
@@ -136,7 +129,7 @@ export default function App() {
   });
   stateRef.current = { activeChannel, approvals, tasks, brief, entries, canvasSessions };
 
-  const chatAbortRef = useRef<AbortController | null>(null);
+  const chatAbortsRef = useRef<Map<string, AbortController>>(new Map());
 
   const voiceRef = useRef<{
     isMuted: boolean;
@@ -418,12 +411,13 @@ export default function App() {
   );
 
   const processUserInput = useCallback(
-    async (rawText: string, source: 'voice' | 'cli') => {
+    async (rawText: string, source: 'voice' | 'cli', targetChannelId?: ChannelId) => {
       const trimmed = rawText.trim();
       if (!trimmed) return;
 
-      const { activeChannel: ch, approvals: appList, tasks: taskList, brief: briefList } =
+      const { activeChannel: currentActive, approvals: appList, tasks: taskList, brief: briefList } =
         stateRef.current;
+      const ch = targetChannelId ?? currentActive;
 
       const isCommandInput = trimmed.startsWith('/');
       if (!isCommandInput && duetConnected) {
@@ -450,7 +444,7 @@ export default function App() {
 
       if (result.type === 'handled') {
         if (result.clearTerminal) {
-          setEntries([]);
+          setEntries((prev) => prev.filter((e) => e.channelId !== ch));
           setMood('neutral');
           return;
         }
@@ -470,7 +464,7 @@ export default function App() {
         }
         if (result.setMood) {
           setMood(result.setMood);
-        } else {
+        } else if (ch === stateRef.current.activeChannel) {
           setMood(result.mood);
         }
 
@@ -482,7 +476,7 @@ export default function App() {
         });
 
         if (result.spokenText) {
-          updateSpokenLine(result.spokenText);
+          updateSpokenLine(result.spokenText, result.switchChannel ?? ch);
           appendEntry({
             channelId: result.switchChannel ?? ch,
             role: 'hermes',
@@ -490,26 +484,30 @@ export default function App() {
             mood: result.mood,
             text: result.spokenText,
           });
-          voiceRef.current?.speakText(result.spokenText, result.mood);
+          if ((result.switchChannel ?? ch) === stateRef.current.activeChannel) {
+            voiceRef.current?.speakText(result.spokenText, result.mood);
+          }
         } else {
-          updateSpokenLine(result.output);
+          updateSpokenLine(result.output, result.switchChannel ?? ch);
         }
         return;
       }
 
       // Natural language prompt -> real Hermes Duet run inside this shape's isolated session.
-      const activeShape = stateRef.current.canvasSessions.find((s) => s.channelId === ch);
-      const activeHermesSessionId = activeShape?.hermesSessionId ?? createHermesSessionId(ch);
-      const activePersona = activeShape?.agentPersona;
+      const targetShape = stateRef.current.canvasSessions.find((s) => s.channelId === ch);
+      const targetHermesSessionId = targetShape?.hermesSessionId ?? createHermesSessionId(ch);
+      const targetPersona = targetShape?.agentPersona;
 
       setChannelThinking(ch, true);
-      setMood('thinking');
+      if (ch === stateRef.current.activeChannel) {
+        setMood('thinking');
+      }
 
       if (duetConnected) {
         try {
           const { item } = await duetSendMessage(result.prompt, ch, {
-            sessionId: activeHermesSessionId,
-            persona: activePersona,
+            sessionId: targetHermesSessionId,
+            persona: targetPersona,
           });
           if (item) {
             const entry = duetItemToEntry(item);
@@ -527,14 +525,16 @@ export default function App() {
         }
       }
 
-      // Offline fallback: direct gateway chat with a 6s timeout guard, strictly isolated by channelId.
-      chatAbortRef.current?.abort();
+      // Offline fallback: direct gateway chat isolated per-channel so multiple sessions run concurrently.
+      chatAbortsRef.current.get(ch)?.abort();
       const controller = new AbortController();
-      chatAbortRef.current = controller;
-      const timeoutId = window.setTimeout(() => controller.abort(), 6000);
+      chatAbortsRef.current.set(ch, controller);
+      const timeoutId = window.setTimeout(() => controller.abort(), 8000);
 
       setChannelThinking(ch, true);
-      setMood('thinking');
+      if (ch === stateRef.current.activeChannel) {
+        setMood('thinking');
+      }
 
       try {
         const res = await fetch('/api/hermes/chat', {
@@ -544,8 +544,8 @@ export default function App() {
           body: JSON.stringify({
             message: result.prompt,
             channelId: ch,
-            sessionId: activeHermesSessionId,
-            persona: activePersona,
+            sessionId: targetHermesSessionId,
+            persona: targetPersona,
             history: stateRef.current.entries
               .filter(
                 (e) =>
@@ -595,8 +595,7 @@ export default function App() {
       } catch (err) {
         window.clearTimeout(timeoutId);
         setChannelThinking(ch, false);
-        // If user explicitly cancelled via Stop/New task while another controller replaced this one, skip fallback
-        if (err instanceof DOMException && err.name === 'AbortError' && chatAbortRef.current !== controller) {
+        if (err instanceof DOMException && err.name === 'AbortError' && chatAbortsRef.current.get(ch) !== controller) {
           return;
         }
         const fallback = buildLocalFallbackReply(result.prompt, appList, taskList, briefList);
@@ -614,8 +613,8 @@ export default function App() {
           await voiceRef.current?.speakText(fallback.reply, fallback.mood);
         }
       } finally {
-        if (chatAbortRef.current === controller) {
-          chatAbortRef.current = null;
+        if (chatAbortsRef.current.get(ch) === controller) {
+          chatAbortsRef.current.delete(ch);
         }
       }
     },
@@ -732,7 +731,7 @@ export default function App() {
     const ch = stateRef.current.activeChannel;
     setSelectedItemId(null);
     setPanelView('voice');
-    setMobileTab('voice');
+    setMobileSidebarOpen(false);
     setMood('listening');
     void handleResetCanvasSession(ch);
   }, [handleResetCanvasSession]);
@@ -876,36 +875,30 @@ export default function App() {
       setActiveChannel(session.channelId);
       setMood(session.mood);
       setPanelView('voice');
-      setMobileTab('voice');
+      setMobileSidebarOpen(false);
     },
     []
   );
 
-  const handleMobileTabChange = (tab: MobileTab) => {
-    setMobileTab(tab);
-    if (tab === 'home') setPanelView('home');
-    else if (tab === 'canvas') setPanelView('canvas');
-    else if (tab === 'voice') setPanelView('voice');
-    else if (tab === 'queue') setPanelView('queue');
-    else if (tab === 'cli') setPanelView('cli');
-  };
-
   return (
-    <div className="h-screen min-h-[600px] emerald-ambient-bg text-[#ECF3F0] p-2.5 sm:p-4 xl:p-5 pb-16 lg:pb-4 flex flex-col overflow-hidden">
+    <div className="h-screen min-h-[560px] emerald-ambient-bg text-[#ECF3F0] p-2 sm:p-3.5 xl:p-4 flex flex-col overflow-hidden">
       <main
         id="top"
-        className="flex-1 min-h-0 w-full mx-auto grid grid-cols-1 lg:grid-cols-[clamp(300px,21vw,420px)_1fr] gap-3"
+        className="flex-1 min-h-0 w-full mx-auto grid grid-cols-1 lg:grid-cols-[clamp(272px,20vw,340px)_1fr] gap-3"
       >
         {/* Left Sidebar Window: Tasks, Approvals, Halftone Thumb & Lanes */}
         <div
           className={`${
-            mobileTab === 'tasks' ? 'flex' : 'hidden'
+            mobileSidebarOpen ? 'flex' : 'hidden'
           } lg:flex flex-col min-h-0 h-full`}
         >
           <SidebarWorkspace
             channels={channels}
             activeChannel={activeChannel}
-            onSelectChannel={handleSelectChannel}
+            onSelectChannel={(id) => {
+              handleSelectChannel(id);
+              setMobileSidebarOpen(false);
+            }}
             approvals={approvals}
             brief={brief}
             tasks={tasks}
@@ -919,32 +912,33 @@ export default function App() {
               setSelectedItemId(task.id);
               handleToggleTaskStatus(task.id);
               setPanelView('voice');
-              setMobileTab('voice');
+              setMobileSidebarOpen(false);
             }}
             onSelectApproval={(card) => {
               setSelectedItemId(card.id);
               setActiveChannel(card.channelId);
               setPanelView('queue');
-              setMobileTab('queue');
+              setMobileSidebarOpen(false);
             }}
             onSelectBrief={(item) => {
               setSelectedItemId(item.id);
               setPanelView('voice');
-              setMobileTab('voice');
+              setMobileSidebarOpen(false);
               handleRunBriefCommand(item.suggestedCommand, item.id);
             }}
             onNewTask={handleNewTask}
             onOpenQueue={() => {
               setPanelView((prev) => (prev === 'queue' ? 'home' : 'queue'));
-              setMobileTab('home');
+              setMobileSidebarOpen(false);
             }}
+            onCloseMobile={() => setMobileSidebarOpen(false)}
           />
         </div>
 
-        {/* Right Emerald-Framed Voice, Character Overview & Interactive CLI Workspace */}
+        {/* Right Emerald-Framed Workspace */}
         <div
           className={`${
-            mobileTab !== 'tasks' ? 'flex' : 'hidden'
+            mobileSidebarOpen ? 'hidden' : 'flex'
           } lg:flex flex-col min-h-0 h-full`}
         >
           <VoiceWorkspacePane
@@ -956,8 +950,9 @@ export default function App() {
             panelView={panelView}
             onChangePanelView={(view) => {
               setPanelView(view);
-              setMobileTab(view);
+              setMobileSidebarOpen(false);
             }}
+            onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
             voiceState={voice.voiceState}
             lastSpokenLine={lastSpokenLine}
             animateSpeechLine={animateSpeechLine}
@@ -973,14 +968,17 @@ export default function App() {
             onToggleListening={voice.toggleListening}
             onToggleMute={voice.toggleMute}
             onStopSpeaking={() => {
-              const current = chatAbortRef.current;
-              chatAbortRef.current = null;
+              const current = chatAbortsRef.current.get(activeChannel);
+              chatAbortsRef.current.delete(activeChannel);
               current?.abort();
               setChannelThinking(activeChannel, false);
               setSpeakingChannel(null);
               voice.stopSpeaking();
             }}
             onSubmitInput={(val, src) => processUserInput(val, src)}
+            onSubmitSessionInput={(channelId, val, src) =>
+              processUserInput(val, src, channelId)
+            }
             showThinking={showThinking}
             onToggleThinking={handleToggleThinking}
             canvasSessions={canvasSessions}
@@ -998,63 +996,6 @@ export default function App() {
           />
         </div>
       </main>
-
-      {/* Compact Mobile Bottom Nav (<= 56px height, < 7% of 844px viewport) */}
-      <nav
-        aria-label="Mobile workspace views"
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 h-14 bg-[#07120F]/95 backdrop-blur-md border-t border-white/10 grid grid-cols-5"
-      >
-        <button
-          type="button"
-          onClick={() => handleMobileTabChange('home')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer ${
-            mobileTab === 'home' || mobileTab === 'voice' ? 'text-[#4ADE80]' : 'text-emerald-100/55'
-          }`}
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>Home</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => handleMobileTabChange('canvas')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer ${
-            mobileTab === 'canvas' ? 'text-[#4ADE80]' : 'text-emerald-100/55'
-          }`}
-        >
-          <Shapes className="w-4 h-4" />
-          <span>Canvas</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => handleMobileTabChange('tasks')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer ${
-            mobileTab === 'tasks' ? 'text-[#4ADE80]' : 'text-emerald-100/55'
-          }`}
-        >
-          <ListTodo className="w-4 h-4" />
-          <span>Tasks</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => handleMobileTabChange('queue')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer ${
-            mobileTab === 'queue' ? 'text-[#4ADE80]' : 'text-emerald-100/55'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>Queue</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => handleMobileTabChange('cli')}
-          className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer ${
-            mobileTab === 'cli' ? 'text-[#4ADE80]' : 'text-emerald-100/55'
-          }`}
-        >
-          <TerminalIcon className="w-4 h-4" />
-          <span>CLI</span>
-        </button>
-      </nav>
     </div>
   );
 }

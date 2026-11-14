@@ -1,29 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  LayoutGrid,
-  MessageSquareText,
-  RotateCcw,
-  Sparkles,
-  Trash2,
-} from 'lucide-react';
+import { LayoutGrid } from 'lucide-react';
 import type {
   ChannelId,
-  ExpressionMood,
   HermesAgentSession,
   MouthViseme,
   TerminalEntry,
   VoiceState,
 } from '../types/hermes';
-import {
-  BRAILLE_TINT_PALETTE,
-  type BrailleShapeKind,
-  type BrailleShapeTint,
-} from '../utils/brailleShapesEngine';
-import { clampCanvasPosition, getShapeMeta, type CanvasSession } from '../utils/canvasSessions';
+import type { BrailleShapeKind, BrailleShapeTint } from '../utils/brailleShapesEngine';
+import { clampCanvasPosition, type CanvasSession } from '../utils/canvasSessions';
 import { AddSessionShapeModal } from './AddSessionShapeModal';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
-import { BrailleShapeCanvas } from './BrailleShapeCanvas';
-import { DecodedText } from './DecodedText';
+import { CanvasSessionNode } from './CanvasSessionNode';
 
 interface BrailleSessionsCanvasProps {
   sessions: CanvasSession[];
@@ -34,7 +22,6 @@ interface BrailleSessionsCanvasProps {
   entries: TerminalEntry[];
   voiceState: VoiceState;
   viseme: MouthViseme;
-  lastSpokenLine: string;
   onSelectSession: (session: CanvasSession) => void;
   onMoveSession: (id: string, xPct: number, yPct: number) => void;
   onAddSession: (payload: {
@@ -45,6 +32,12 @@ interface BrailleSessionsCanvasProps {
     tint: BrailleShapeTint;
     eyeStyle: 'open' | 'sleepy';
   }) => void;
+  onSubmitSessionMessage: (
+    channelId: ChannelId,
+    text: string,
+    source: 'voice' | 'cli'
+  ) => void;
+  onToggleListening: () => void;
   onAutoArrange: () => void;
   onCycleSessionMood: (id: string) => void;
   onResetSession: (channelId: string) => void;
@@ -61,10 +54,11 @@ export function BrailleSessionsCanvas({
   entries,
   voiceState,
   viseme,
-  lastSpokenLine,
   onSelectSession,
   onMoveSession,
   onAddSession,
+  onSubmitSessionMessage,
+  onToggleListening,
   onAutoArrange,
   onCycleSessionMood,
   onResetSession,
@@ -76,6 +70,7 @@ export function BrailleSessionsCanvas({
   const lookTargetRef = useRef<{ x: number; y: number } | null>(null);
 
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [openChats, setOpenChats] = useState<Record<string, boolean>>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<{ id: string; xPct: number; yPct: number } | null>(
     null
@@ -104,16 +99,15 @@ export function BrailleSessionsCanvas({
     return map;
   }, [hermesSessions]);
 
-  const statsByChannel = useMemo(() => {
-    const map = new Map<string, { latestReply: string; turnCount: number }>();
+  const entriesByChannel = useMemo(() => {
+    const map = new Map<string, { entries: TerminalEntry[]; turnCount: number }>();
     for (const e of entries) {
-      const prev = map.get(e.channelId) ?? { latestReply: '', turnCount: 0 };
+      const bucket = map.get(e.channelId) ?? { entries: [], turnCount: 0 };
+      bucket.entries.push(e);
       if (e.role === 'user' || e.role === 'command') {
-        prev.turnCount += 1;
-      } else if (e.role === 'hermes' && e.text.trim()) {
-        prev.latestReply = e.text.trim();
+        bucket.turnCount += 1;
       }
-      map.set(e.channelId, prev);
+      map.set(e.channelId, bucket);
     }
     return map;
   }, [entries]);
@@ -205,6 +199,10 @@ export function BrailleSessionsCanvas({
       onMoveSession(session.id, dragPreview.xPct, dragPreview.yPct);
     } else {
       onSelectSession(session);
+      setOpenChats((prev) => ({
+        ...prev,
+        [session.channelId]: !prev[session.channelId],
+      }));
     }
     dragMetaRef.current = null;
     setDraggingId(null);
@@ -235,34 +233,7 @@ export function BrailleSessionsCanvas({
     ? Math.max(0.15, voiceState.inputLevel)
     : 0.08;
 
-  const selectedStats = selectedSession ? statsByChannel.get(selectedSession.channelId) : undefined;
-  const selectedServerSession = selectedSession
-    ? hermesByChannel.get(selectedSession.channelId)
-    : undefined;
-  const selectedMeta = selectedSession ? getShapeMeta(selectedSession.shape) : null;
-  const selectedTurnCount = Math.max(
-    selectedStats?.turnCount ?? 0,
-    selectedServerSession?.turnCount ?? 0
-  );
-  const selectedThinking = selectedSession
-    ? Boolean(thinkingByChannel[selectedSession.channelId]) ||
-      selectedServerSession?.status === 'thinking'
-    : false;
-  const selectedSpeaking = Boolean(
-    selectedSession && voiceState.isSpeaking && (speakingChannel ?? activeChannel) === selectedSession.channelId
-  );
-  const selectedStatusLabel = selectedSpeaking
-    ? 'speaking'
-    : selectedThinking
-    ? 'thinking'
-    : selectedServerSession?.status === 'running'
-    ? 'running'
-    : 'ready';
-  const selectedReplyText = selectedSession
-    ? selectedStats?.latestReply ||
-      selectedServerSession?.lastMessage ||
-      (selectedSession.channelId === activeChannel ? lastSpokenLine : selectedSession.topic)
-    : '';
+  const runningCount = sessions.filter((s) => Boolean(thinkingByChannel[s.channelId])).length;
 
   return (
     <div
@@ -272,7 +243,7 @@ export function BrailleSessionsCanvas({
       onPointerLeave={handleStagePointerLeave}
       className="relative flex-1 min-h-0 flex flex-col justify-between overflow-hidden select-none"
     >
-      {/* Immersive Dots-inspired Smoked-Emerald Horizon & Subtle Dot-Matrix Floor */}
+      {/* Subtle Dot-Matrix Floor */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
@@ -289,7 +260,7 @@ export function BrailleSessionsCanvas({
       {/* Rolling Horizon Ground Plane */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-[44%] opacity-75"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[42%] opacity-75"
         style={{
           background:
             'radial-gradient(ellipse 115% 85% at 50% 100%, rgba(18, 88, 68, 0.34) 0%, rgba(10, 28, 23, 0.14) 55%, transparent 82%)',
@@ -297,7 +268,7 @@ export function BrailleSessionsCanvas({
       />
 
       {/* Flowing Braille Wave Horizon along lower floor */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-14 h-[140px] opacity-65">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[132px] opacity-60">
         <BrailleHorizonCanvas
           energy={activeSpeechEnergy}
           isActive={voiceState.isSpeaking || voiceState.isListening}
@@ -306,18 +277,15 @@ export function BrailleSessionsCanvas({
         />
       </div>
 
-      {/* Top Canvas Header & + Add Primary Action */}
+      {/* Minimal Top Canvas Header & + Add Primary Action */}
       <div className="relative z-20 flex items-center justify-between gap-3 px-4 sm:px-6 pt-3 pb-2 shrink-0">
-        <div className="min-w-0">
-          <div className="flex flex-col sm:flex-row sm:items-baseline sm:gap-2.5">
-            <h1 className="text-sm sm:text-lg font-semibold text-white tracking-tight truncate">
-              Hermes Agent Sessions
-            </h1>
-            <span className="font-mono text-[11px] sm:text-xs text-emerald-100/55 tabular-nums whitespace-nowrap">
-              {sessions.length} isolated
-              <span className="hidden sm:inline"> · drag to arrange · click to open session</span>
-            </span>
-          </div>
+        <div className="flex items-baseline gap-2.5 min-w-0">
+          <h1 className="text-sm sm:text-base font-semibold text-white tracking-tight truncate">
+            Hermes Sessions
+          </h1>
+          <span className="font-mono text-[11px] text-emerald-100/50 tabular-nums whitespace-nowrap">
+            {sessions.length} parallel{runningCount > 0 ? ` · ${runningCount} running` : ''}
+          </span>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -342,12 +310,12 @@ export function BrailleSessionsCanvas({
         </div>
       </div>
 
-      {/* Spatial Constellation Stage */}
-      <div className="relative flex-1 min-h-0 w-full">
-        {/* Subtle Constellation Connection Filaments */}
+      {/* Spatial Parallel Sessions Stage (scrolls vertically on mobile, free spatial drag on sm+) */}
+      <div className="relative flex-1 min-h-0 w-full overflow-y-auto sm:overflow-hidden cyber-scroll flex flex-col items-center gap-4 px-4 pb-6 sm:block sm:p-0">
+        {/* Subtle Constellation Connection Filaments on sm+ */}
         <svg
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 w-full h-full z-0"
+          className="hidden sm:block pointer-events-none absolute inset-0 w-full h-full z-0"
           preserveAspectRatio="none"
         >
           {selectedSession &&
@@ -376,7 +344,7 @@ export function BrailleSessionsCanvas({
         </svg>
 
         {sessions.length === 0 ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-6">
+          <div className="sm:absolute sm:inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 py-12">
             <p className="text-sm text-emerald-100/70">
               No isolated hermes-agent sessions on this canvas yet.
             </p>
@@ -397,205 +365,82 @@ export function BrailleSessionsCanvas({
                 : { xPct: session.xPct, yPct: session.yPct };
 
             const isSelected = session.channelId === activeChannel;
+            const isChatOpen = Boolean(openChats[session.channelId]);
             const serverSession = hermesByChannel.get(session.channelId);
-            const localStats = statsByChannel.get(session.channelId);
+            const bucket = entriesByChannel.get(session.channelId);
             const isThinkingHere =
               Boolean(thinkingByChannel[session.channelId]) ||
               serverSession?.status === 'thinking';
             const isSpeakingHere =
               voiceState.isSpeaking &&
               (speakingChannel ?? activeChannel) === session.channelId;
+            const isListeningHere =
+              voiceState.isListening && session.channelId === activeChannel;
             const turnCount = Math.max(
-              localStats?.turnCount ?? 0,
+              bucket?.turnCount ?? 0,
               serverSession?.turnCount ?? 0
             );
-            const palette = BRAILLE_TINT_PALETTE[session.tint];
-            const meta = getShapeMeta(session.shape);
-
-            const effectiveMood: ExpressionMood = isThinkingHere
-              ? 'thinking'
-              : isSpeakingHere
-              ? 'speaking'
-              : session.mood;
 
             return (
-              <div
+              <CanvasSessionNode
                 key={session.id}
-                data-testid={`canvas-session-${session.channelId}`}
-                data-shape={session.shape}
-                data-hermes-session={session.hermesSessionId}
-                data-x={livePos.xPct}
-                data-y={livePos.yPct}
-                style={{
-                  left: `${livePos.xPct}%`,
-                  top: `${livePos.yPct}%`,
-                  zIndex: isDragged ? 30 : isSelected ? 20 : 10,
+                session={session}
+                index={idx}
+                livePos={livePos}
+                isSelected={isSelected}
+                isChatOpen={isChatOpen}
+                isDragged={isDragged}
+                isThinking={isThinkingHere}
+                isSpeaking={isSpeakingHere}
+                isListeningHere={isListeningHere}
+                viseme={viseme}
+                energy={activeSpeechEnergy}
+                entries={bucket?.entries ?? []}
+                turnCount={turnCount}
+                canRemove={sessions.length > 1}
+                gazeRef={gazeRef}
+                onPointerDown={(e) => handleCreaturePointerDown(e, session)}
+                onPointerUp={(e) => handleCreaturePointerUp(e, session)}
+                onKeyDown={(e) => handleCreatureKeyDown(e, session)}
+                onSelect={() => onSelectSession(session)}
+                onToggleChat={() => {
+                  onSelectSession(session);
+                  setOpenChats((prev) => ({
+                    ...prev,
+                    [session.channelId]: !prev[session.channelId],
+                  }));
                 }}
-                className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center touch-none"
-              >
-                <button
-                  type="button"
-                  onPointerDown={(e) => handleCreaturePointerDown(e, session)}
-                  onPointerUp={(e) => handleCreaturePointerUp(e, session)}
-                  onDoubleClick={() => onOpenSessionThread(session)}
-                  onKeyDown={(e) => handleCreatureKeyDown(e, session)}
-                  aria-label={`Session #${session.name} (${session.hermesSessionId}), ${meta.label} anime character, ${turnCount} turns. Drag to move or double-click to open session.`}
-                  aria-pressed={isSelected}
-                  className={`group relative flex flex-col items-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] rounded-2xl transition-transform duration-150 ${
-                    isDragged
-                      ? 'scale-110 -translate-y-2 cursor-grabbing'
-                      : isSelected
-                      ? 'scale-105 cursor-grab hover:scale-110'
-                      : 'cursor-grab hover:scale-105'
-                  }`}
-                >
-                  {/* Ambient Soft Tint Halo when active/selected or thinking */}
-                  <div
-                    aria-hidden="true"
-                    className={`pointer-events-none absolute -inset-3 rounded-full transition-opacity duration-200 ${
-                      isSelected || isDragged || isThinkingHere
-                        ? 'opacity-100'
-                        : 'opacity-0 group-hover:opacity-70'
-                    }`}
-                    style={{
-                      background: `radial-gradient(circle, ${palette.glow} 0%, transparent 72%)`,
-                    }}
-                  />
-
-                  <div className="relative z-10 scale-[0.76] sm:scale-100 origin-bottom">
-                    <BrailleShapeCanvas
-                      shape={session.shape}
-                      tint={session.tint}
-                      mood={effectiveMood}
-                      eyeStyle={session.eyeStyle}
-                      viseme={isSpeakingHere ? viseme : 'closed'}
-                      energy={isSpeakingHere ? activeSpeechEnergy : isThinkingHere ? 0.28 : 0.08}
-                      isSpeaking={isSpeakingHere}
-                      isThinking={isThinkingHere}
-                      isDragging={isDragged}
-                      blinkPhaseOffset={idx * 1.15}
-                      gazeRef={gazeRef}
-                    />
-                  </div>
-
-                  {/* Soft Ground Contact Shadow matching Dots reference */}
-                  <div
-                    aria-hidden="true"
-                    className={`pointer-events-none rounded-full transition-all duration-150 -mt-1 ${
-                      isDragged ? 'w-14 h-2 opacity-35 blur-[3px]' : 'w-20 h-3 opacity-60 blur-[2px]'
-                    }`}
-                    style={{
-                      background:
-                        'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.72) 0%, transparent 75%)',
-                    }}
-                  />
-
-                  {/* Crisp Unboxed Anime Character & Isolated hermes-agent Session Readout */}
-                  <div className="relative z-10 mt-1 flex flex-col items-center leading-tight whitespace-nowrap">
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <span
-                        className={`font-mono font-semibold ${
-                          isSelected ? 'text-white' : 'text-emerald-50/85 group-hover:text-white'
-                        }`}
-                      >
-                        #{session.name}
-                      </span>
-                      {(isSpeakingHere || isThinkingHere) && (
-                        <span
-                          className="font-mono text-[10.5px]"
-                          style={{ color: palette.mid }}
-                        >
-                          · {isSpeakingHere ? 'speaking' : 'thinking'}
-                        </span>
-                      )}
-                    </div>
-                    <span className="font-mono text-[10px] text-emerald-100/50 tabular-nums">
-                      {session.hermesSessionId} · {turnCount}t
-                    </span>
-                  </div>
-                </button>
-              </div>
+                onSendMessage={(text) => {
+                  setOpenChats((prev) => ({
+                    ...prev,
+                    [session.channelId]: true,
+                  }));
+                  onSubmitSessionMessage(
+                    session.channelId,
+                    text,
+                    text.startsWith('/') ? 'cli' : 'voice'
+                  );
+                }}
+                onToggleVoice={() => {
+                  onSelectSession(session);
+                  onToggleListening();
+                }}
+                onCycleMood={() => onCycleSessionMood(session.id)}
+                onResetSession={() => onResetSession(session.channelId)}
+                onOpenThread={() => onOpenSessionThread(session)}
+                onRemoveSession={() => onRemoveSession(session.id)}
+              />
             );
           })
         )}
       </div>
 
-      {/* Selected Session Inspector Dock (Zero-pill clean footer strip) */}
-      {selectedSession && (
-        <div
-          data-testid="canvas-session-inspector"
-          className="relative z-20 mx-4 sm:mx-8 mb-1 px-4 py-2.5 rounded-xl bg-[#07120F]/82 border border-white/10 backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0"
-        >
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-emerald-100/60">
-              <span className="font-mono font-semibold text-white">
-                #{selectedSession.name}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span className="text-emerald-50/80">{selectedMeta?.label}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono text-[11px] text-[#6EE7B7]">
-                {selectedSession.hermesSessionId}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono text-[11px] tabular-nums">
-                {selectedTurnCount} {selectedTurnCount === 1 ? 'turn' : 'turns'} · {selectedStatusLabel}
-              </span>
-            </div>
-            <p className="text-xs text-emerald-50/85 truncate mt-0.5">
-              <DecodedText text={selectedReplyText} animate={false} />
-            </p>
-          </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => onCycleSessionMood(selectedSession.id)}
-              className="px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.08] text-xs text-emerald-50/85 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Mood</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onResetSession(selectedSession.channelId)}
-              aria-label={`Reset hermes-agent session #${selectedSession.name}`}
-              title="Reset isolated session context"
-              className="px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.08] text-xs text-emerald-50/85 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Reset</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onOpenSessionThread(selectedSession)}
-              data-testid="canvas-open-session-button"
-              className="px-2.5 py-1.5 rounded-lg border border-[#34D399]/40 bg-[#34D399]/12 hover:bg-[#34D399]/22 text-xs font-medium text-[#6EE7B7] flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <MessageSquareText className="w-3.5 h-3.5" />
-              <span>Open Session</span>
-            </button>
-
-            {sessions.length > 1 && !selectedSession.isCore && (
-              <button
-                type="button"
-                onClick={() => onRemoveSession(selectedSession.id)}
-                aria-label={`Remove session #${selectedSession.name}`}
-                className="w-8 h-8 rounded-lg border border-white/12 bg-white/[0.04] hover:border-rose-400/50 hover:bg-rose-500/15 text-emerald-100/60 hover:text-rose-200 flex items-center justify-center transition-colors cursor-pointer shrink-0"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       <AddSessionShapeModal
         open={isAddOpen}
         onClose={() => setIsAddOpen(false)}
-        onCreate={onAddSession}
+        onCreate={(payload) => {
+          onAddSession(payload);
+        }}
       />
     </div>
   );

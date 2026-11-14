@@ -121,13 +121,27 @@ export function autoArrangeSessions(sessions: CanvasSession[]): CanvasSession[] 
   const count = sessions.length;
   if (count === 0) return sessions;
 
-  // Staggered organic horizon arc inspired by Dots
+  // Two-row staggered constellation with generous spacing for per-character input & chat windows
+  if (count <= 3) {
+    return sessions.map((session, idx) => {
+      const t = count === 1 ? 0.5 : idx / (count - 1);
+      const clamped = clampCanvasPosition(18 + t * 64, idx % 2 === 0 ? 44 : 52);
+      return { ...session, ...clamped };
+    });
+  }
+
+  const topCount = Math.ceil(count / 2);
+  const bottomCount = count - topCount;
+
   return sessions.map((session, idx) => {
-    const t = count === 1 ? 0.5 : idx / (count - 1);
-    const xPct = 15 + t * 70;
-    const waveOffset = idx % 2 === 0 ? -9 : 8;
-    const arch = Math.sin(t * Math.PI) * -6;
-    const clamped = clampCanvasPosition(xPct, 48 + waveOffset + arch);
+    const isTop = idx < topCount;
+    const rowIdx = isTop ? idx : idx - topCount;
+    const rowLen = isTop ? topCount : bottomCount;
+    const t = rowLen === 1 ? 0.5 : rowIdx / (rowLen - 1);
+    const xMargin = isTop ? 18 : 26;
+    const xSpan = isTop ? 64 : 48;
+    const yPct = isTop ? 28 : 66;
+    const clamped = clampCanvasPosition(xMargin + t * xSpan, yPct);
     return {
       ...session,
       ...clamped,
@@ -139,12 +153,12 @@ const DEFAULT_SHAPE_PRESETS: Record<
   string,
   { shape: BrailleShapeKind; tint: BrailleShapeTint; xPct: number; yPct: number; eyeStyle: 'open' | 'sleepy'; mood: ExpressionMood }
 > = {
-  general: { shape: 'clover', tint: 'lime', xPct: 19, yPct: 56, eyeStyle: 'open', mood: 'happy' },
-  ops: { shape: 'trapezoid', tint: 'amber', xPct: 37, yPct: 48, eyeStyle: 'sleepy', mood: 'focused' },
-  research: { shape: 'pebble', tint: 'periwinkle', xPct: 52, yPct: 58, eyeStyle: 'sleepy', mood: 'thinking' },
-  launch: { shape: 'star', tint: 'pink', xPct: 81, yPct: 55, eyeStyle: 'open', mood: 'happy' },
-  daemon: { shape: 'ghost', tint: 'lavender', xPct: 24, yPct: 29, eyeStyle: 'open', mood: 'neutral' },
-  memory: { shape: 'cloud', tint: 'orange', xPct: 72, yPct: 33, eyeStyle: 'open', mood: 'happy' },
+  general: { shape: 'clover', tint: 'lime', xPct: 18, yPct: 33, eyeStyle: 'open', mood: 'happy' },
+  ops: { shape: 'trapezoid', tint: 'amber', xPct: 50, yPct: 26, eyeStyle: 'sleepy', mood: 'focused' },
+  research: { shape: 'pebble', tint: 'periwinkle', xPct: 82, yPct: 30, eyeStyle: 'sleepy', mood: 'thinking' },
+  launch: { shape: 'star', tint: 'pink', xPct: 33, yPct: 68, eyeStyle: 'open', mood: 'happy' },
+  daemon: { shape: 'ghost', tint: 'lavender', xPct: 72, yPct: 67, eyeStyle: 'open', mood: 'neutral' },
+  memory: { shape: 'cloud', tint: 'orange', xPct: 52, yPct: 68, eyeStyle: 'open', mood: 'happy' },
 };
 
 export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): CanvasSession[] {

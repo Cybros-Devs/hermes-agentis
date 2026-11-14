@@ -1,0 +1,31 @@
+/* Scoped onboarding overlay styles — dims & blurs app chrome while keeping BackgroundLayer crystal-clear */
+
+html[data-onboarding-open="true"] .emerald-ambient-bg {
+  opacity: 0.34;
+  filter: brightness(0.48) saturate(0.75) blur(2px);
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 200ms ease, filter 200ms ease;
+}
+
+/* Keep the corner settings trigger tucked away while modal is active */
+html[data-onboarding-open="true"] [data-testid="backgrounds-trigger"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.onboarding-modal-backdrop {
+  transition: opacity 180ms ease;
+}
+
+.onboarding-modal-card {
+  transition: opacity 200ms ease, transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-onboarding-open="true"] .emerald-ambient-bg,
+  .onboarding-modal-backdrop,
+  .onboarding-modal-card {
+    transition: none !important;
+  }
+}

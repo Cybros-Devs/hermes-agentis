@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Sparkles,
-  MessageSquareText,
-  Globe,
-  Terminal as TerminalIcon,
+  PanelLeft,
   Mic,
   MicOff,
   Square,
@@ -13,7 +10,6 @@ import {
   Brain,
   Check,
   X,
-  Shapes,
   RotateCcw,
 } from 'lucide-react';
 import type {
@@ -50,6 +46,7 @@ interface VoiceWorkspacePaneProps {
   onCycleMood: () => void;
   panelView: WorkspacePanelView;
   onChangePanelView: (view: WorkspacePanelView) => void;
+  onOpenMobileSidebar?: () => void;
   voiceState: VoiceState;
   lastSpokenLine: string;
   animateSpeechLine: boolean;
@@ -66,6 +63,7 @@ interface VoiceWorkspacePaneProps {
   onToggleMute: () => void;
   onStopSpeaking: () => void;
   onSubmitInput: (value: string, source: 'voice' | 'cli') => void;
+  onSubmitSessionInput: (channelId: ChannelId, value: string, source: 'voice' | 'cli') => void;
   /** Whether the agent's live activity trace is shown in the transcript. */
   showThinking: boolean;
   onToggleThinking: () => void;
@@ -98,6 +96,7 @@ export function VoiceWorkspacePane({
   onCycleMood,
   panelView,
   onChangePanelView,
+  onOpenMobileSidebar,
   voiceState,
   lastSpokenLine,
   animateSpeechLine,
@@ -114,6 +113,7 @@ export function VoiceWorkspacePane({
   onToggleMute,
   onStopSpeaking,
   onSubmitInput,
+  onSubmitSessionInput,
   showThinking,
   onToggleThinking,
   canvasSessions,
@@ -235,11 +235,6 @@ export function VoiceWorkspacePane({
     [pendingApprovals, activeChannel]
   );
 
-  const runningTask = useMemo(
-    () => tasks.find((t) => t.status === 'running') ?? tasks[0],
-    [tasks]
-  );
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = input.trim();
@@ -317,152 +312,82 @@ export function VoiceWorkspacePane({
       onPointerLeave={handlePointerLeave}
       className="relative flex flex-col h-full rounded-2xl bg-[#0A1613]/92 border border-[#34D399]/60 shadow-[0_0_32px_rgba(52,211,153,0.09)] overflow-hidden"
     >
-      {/* Top Bar matching reference: left breadcrumbs + right utility controls */}
-      <div className="flex items-center justify-between gap-3 px-4 sm:px-5 pt-3 pb-1 z-30 shrink-0">
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 overflow-hidden text-xs text-emerald-100/60">
-          <button
-            type="button"
-            onClick={() => onChangePanelView('home')}
-            className={`underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              isHomeOverview
-                ? 'text-[#6EE7B7] font-medium decoration-[#34D399]/60'
-                : 'text-emerald-50/80 hover:text-white decoration-white/20'
-            }`}
-          >
-            Home
-          </button>
-          <span aria-hidden="true" className="text-emerald-100/30 shrink-0">·</span>
-          <button
-            type="button"
-            onClick={() => onChangePanelView('canvas')}
-            className={`underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              panelView === 'canvas'
-                ? 'text-[#6EE7B7] font-medium decoration-[#34D399]/60'
-                : 'text-emerald-50/80 hover:text-white decoration-white/20'
-            }`}
-          >
-            Canvas
-          </button>
-          <span aria-hidden="true" className="hidden sm:inline text-emerald-100/30 shrink-0">·</span>
-          <button
-            type="button"
-            onClick={() => onChangePanelView(panelView === 'queue' ? 'home' : 'queue')}
-            className="hidden sm:inline hover:text-white underline underline-offset-4 decoration-white/20 truncate cursor-pointer"
-          >
-            ← {runningTask ? runningTask.title : `#${activeChannel}`}
-          </button>
-          <span aria-hidden="true" className="hidden md:inline text-emerald-100/30 shrink-0">·</span>
-          <button
-            type="button"
-            onClick={() => onSubmitInput('/brief', 'cli')}
-            className="hidden md:inline hover:text-white underline underline-offset-4 decoration-white/20 whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Morning brief
-          </button>
+      {/* Unified Clean Top Bar */}
+      <div className="flex items-center justify-between gap-3 px-4 sm:px-6 pt-3 pb-2 border-b border-white/6 z-30 shrink-0">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0 overflow-x-auto cyber-scroll">
+          {onOpenMobileSidebar && (
+            <button
+              type="button"
+              onClick={onOpenMobileSidebar}
+              aria-label="Open tasks and lanes"
+              className="lg:hidden inline-flex items-center gap-1.5 text-xs text-emerald-100/75 hover:text-white transition-colors shrink-0 cursor-pointer"
+            >
+              <PanelLeft className="w-3.5 h-3.5" />
+              <span>Tasks</span>
+            </button>
+          )}
+
+          {(
+            [
+              { id: 'home', label: 'Home' },
+              { id: 'canvas', label: 'Canvas' },
+              { id: 'voice', label: 'Thread' },
+              {
+                id: 'queue',
+                label: pendingApprovals.length > 0 ? `Queue (${pendingApprovals.length})` : 'Queue',
+              },
+              { id: 'cli', label: 'CLI' },
+            ] as { id: WorkspacePanelView; label: string }[]
+          ).map((tab) => {
+            const active = panelView === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onChangePanelView(tab.id)}
+                aria-current={active ? 'page' : undefined}
+                className={`text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer pb-0.5 ${
+                  active
+                    ? 'text-[#6EE7B7] font-medium border-b border-[#34D399]'
+                    : 'text-emerald-100/60 hover:text-white border-b border-transparent'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={onToggleThinking}
-            aria-pressed={showThinking}
-            aria-label={showThinking ? 'Hide agent thinking trace' : 'Show agent thinking trace'}
-            title={showThinking ? 'Hide thinking trace' : 'Show thinking trace'}
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
-              showThinking
-                ? 'border-[#34D399]/50 bg-[#34D399]/12 text-[#6EE7B7]'
-                : 'border-white/12 bg-white/[0.05] text-emerald-50/50 hover:text-white hover:border-white/25'
-            }`}
-          >
-            <Brain className="w-3.5 h-3.5" />
-          </button>
+          {panelView === 'voice' && (
+            <button
+              type="button"
+              onClick={onToggleThinking}
+              aria-pressed={showThinking}
+              aria-label={showThinking ? 'Hide agent thinking trace' : 'Show agent thinking trace'}
+              title={showThinking ? 'Hide thinking trace' : 'Show thinking trace'}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                showThinking
+                  ? 'bg-[#34D399]/14 text-[#6EE7B7]'
+                  : 'text-emerald-100/45 hover:text-white hover:bg-white/6'
+              }`}
+            >
+              <Brain className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onToggleMute}
             aria-label={voiceState.isMuted ? 'Unmute Hermes audio' : 'Mute Hermes audio'}
             title={voiceState.isMuted ? 'Unmute audio' : 'Mute audio'}
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
               voiceState.isMuted
-                ? 'border-rose-400/45 bg-rose-500/15 text-rose-200'
-                : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
+                ? 'bg-rose-500/15 text-rose-200'
+                : 'text-emerald-100/60 hover:text-white hover:bg-white/6'
             }`}
           >
             {voiceState.isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onChangePanelView('home')}
-            aria-pressed={panelView === 'home'}
-            aria-label="Character overview home view"
-            title="Character Overview (Home)"
-            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
-              panelView === 'home'
-                ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
-                : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onChangePanelView(panelView === 'canvas' ? 'home' : 'canvas')}
-            aria-pressed={panelView === 'canvas'}
-            aria-label="Open Braille sessions canvas"
-            title="Braille Sessions Canvas"
-            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
-              panelView === 'canvas'
-                ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
-                : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
-            }`}
-          >
-            <Shapes className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onChangePanelView(panelView === 'voice' ? 'home' : 'voice')}
-            aria-pressed={panelView === 'voice'}
-            aria-label="Switch to voice conversation thread view"
-            title="Voice Conversation Thread"
-            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
-              panelView === 'voice'
-                ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
-                : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
-            }`}
-          >
-            <MessageSquareText className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onChangePanelView(panelView === 'queue' ? 'home' : 'queue')}
-            aria-pressed={panelView === 'queue'}
-            aria-label="Toggle approvals and Hermes runtime queue"
-            title="Duet Gates, Brief & Hermes Agent Runtime"
-            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
-              panelView === 'queue'
-                ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
-                : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onChangePanelView(panelView === 'cli' ? 'home' : 'cli')}
-            aria-pressed={panelView === 'cli'}
-            aria-label="Toggle interactive CLI console"
-            title="Interactive Command Line (hermes-duet)"
-            className={`hidden sm:flex w-8 h-8 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
-              panelView === 'cli'
-                ? 'border-[#34D399] bg-[#34D399]/18 text-[#6EE7B7]'
-                : 'border-white/12 bg-white/[0.05] text-emerald-50/75 hover:text-white hover:border-white/25'
-            }`}
-          >
-            <TerminalIcon className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -498,10 +423,10 @@ export function VoiceWorkspacePane({
             </div>
           </div>
 
-          <div className="relative z-10 flex items-center gap-2 mt-2 text-xs font-medium text-emerald-50/80">
+          <div className="relative z-10 flex items-center gap-2 mt-2 text-xs text-emerald-100/70">
             <span
               aria-hidden="true"
-              className={`inline-block w-2 h-2 rounded-full ${
+              className={`inline-block w-1.5 h-1.5 rounded-full ${
                 activeIsSpeaking || voiceState.isListening
                   ? 'bg-[#4ADE80]'
                   : activeIsThinking
@@ -510,19 +435,15 @@ export function VoiceWorkspacePane({
               }`}
             />
             <span>{statusText}</span>
-            <span aria-hidden="true" className="text-emerald-100/35">·</span>
-            <span className="font-mono text-[11px] text-emerald-100/60">{effectiveMood}</span>
-            <span aria-hidden="true" className="text-emerald-100/35">·</span>
-            <span className="font-mono text-[11px] text-[#6EE7B7]/80">
-              {gatewayStatus?.connected ? 'gateway :8642' : activeHermesSessionId}
-            </span>
+            <span aria-hidden="true" className="text-emerald-100/30">·</span>
+            <span className="font-mono text-[11px] text-[#6EE7B7]/85">#{activeChannel}</span>
           </div>
 
-          {/* Live Decoded Speech / Response Readout beneath the Character */}
-          <div className="relative z-10 mt-4 max-w-[56ch] text-center space-y-2">
+          {/* Live Decoded Speech / Response Readout */}
+          <div className="relative z-10 mt-3.5 max-w-[52ch] text-center space-y-2.5">
             <p
               data-testid="home-decoded-line"
-              className="text-sm sm:text-[15.5px] leading-relaxed text-white/95"
+              className="text-sm sm:text-[15px] leading-relaxed text-white/95"
             >
               {activeIsThinking ? (
                 <DecodedText text={`Routing turn inside ${activeHermesSessionId}...`} animate />
@@ -531,32 +452,38 @@ export function VoiceWorkspacePane({
               )}
             </p>
 
-            <div className="flex items-center justify-center gap-4 text-xs text-emerald-100/55">
-              {(activeIsThinking || activeIsSpeaking) && (
-                <button
-                  type="button"
-                  onClick={onStopSpeaking}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/15 text-emerald-50 hover:bg-white/12 transition-colors cursor-pointer"
-                >
-                  <Square className="w-2.5 h-2.5 fill-current" />
-                  <span>Stop</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => onChangePanelView('voice')}
-                className="text-[#6EE7B7]/90 hover:text-white underline underline-offset-4 decoration-[#34D399]/35 transition-colors cursor-pointer"
-              >
-                Open thread ({visibleMessages.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => onChangePanelView('queue')}
-                className="hover:text-white underline underline-offset-4 decoration-white/20 transition-colors cursor-pointer"
-              >
-                {pendingApprovals.length} mcp__duet gates
-              </button>
-            </div>
+            {(activeIsThinking || activeIsSpeaking || visibleMessages.length > 0 || pendingApprovals.length > 0) && (
+              <div className="flex items-center justify-center gap-4 text-xs text-emerald-100/55">
+                {(activeIsThinking || activeIsSpeaking) && (
+                  <button
+                    type="button"
+                    onClick={onStopSpeaking}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/15 text-emerald-50 hover:bg-white/12 transition-colors cursor-pointer"
+                  >
+                    <Square className="w-2.5 h-2.5 fill-current" />
+                    <span>Stop</span>
+                  </button>
+                )}
+                {visibleMessages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onChangePanelView('voice')}
+                    className="text-[#6EE7B7]/90 hover:text-white underline underline-offset-4 decoration-[#34D399]/35 transition-colors cursor-pointer"
+                  >
+                    Open thread ({visibleMessages.length})
+                  </button>
+                )}
+                {pendingApprovals.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onChangePanelView('queue')}
+                    className="hover:text-white underline underline-offset-4 decoration-white/20 transition-colors cursor-pointer"
+                  >
+                    {pendingApprovals.length} pending
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ) : panelView === 'canvas' ? (
@@ -569,10 +496,11 @@ export function VoiceWorkspacePane({
           entries={entries}
           voiceState={voiceState}
           viseme={viseme}
-          lastSpokenLine={lastSpokenLine}
           onSelectSession={onSelectCanvasSession}
           onMoveSession={onMoveCanvasSession}
           onAddSession={onAddCanvasSession}
+          onSubmitSessionMessage={onSubmitSessionInput}
+          onToggleListening={onToggleListening}
           onAutoArrange={onAutoArrangeCanvas}
           onCycleSessionMood={onCycleSessionMood}
           onResetSession={onResetSession}
@@ -783,7 +711,7 @@ export function VoiceWorkspacePane({
 
       {/* Fluid Bottom Braille Wave Horizon inside the Main Window (Home Overview) */}
       {isHomeOverview && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-[74px] sm:bottom-[80px] h-[132px] sm:h-[150px] z-0 overflow-hidden opacity-85">
+        <div className="pointer-events-none absolute inset-x-0 bottom-[62px] sm:bottom-[68px] h-[126px] sm:h-[144px] z-0 overflow-hidden opacity-80">
           <BrailleHorizonCanvas
             energy={energy}
             isActive={activeIsSpeaking || voiceState.isListening}
@@ -793,120 +721,81 @@ export function VoiceWorkspacePane({
         </div>
       )}
 
-      {/* Bottom Emerald-Framed Voice & Command Dock matching reference */}
-      <div
-        className={`relative z-20 px-5 sm:px-10 lg:px-16 pb-4 pt-3 shrink-0 space-y-2 ${
-          isHomeOverview
-            ? 'bg-gradient-to-t from-[#091512] via-[#091512]/94 to-transparent'
-            : ''
-        }`}
-      >
-        <div className="flex items-center justify-between gap-2 text-[11.5px] text-emerald-100/65">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="shrink-0 sm:hidden">
-              {activeIsThinking || activeIsSpeaking
-                ? `Working · ${workingSeconds}s`
-                : `#${activeChannel}`}
-            </span>
-            <span className="hidden sm:inline shrink-0 font-mono text-[11px]">
-              {activeIsThinking || activeIsSpeaking
-                ? `Working · ${workingSeconds}s`
-                : `${activeHermesSessionId} · #${activeChannel}`}
-            </span>
-            <span aria-hidden="true" className="hidden sm:inline">·</span>
-            <span className="hidden sm:inline truncate">
-              {voiceState.isListening ? 'Voice active' : 'Tap mic or type /help'}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 shrink-0 font-mono text-[11px]">
-            <button
-              type="button"
-              onClick={() => onSubmitInput('/brief', 'cli')}
-              className="text-emerald-100/65 hover:text-[#6EE7B7] transition-colors cursor-pointer whitespace-nowrap"
-            >
-              “/brief”
-            </button>
-            <button
-              type="button"
-              onClick={() => onSubmitInput('/skills', 'cli')}
-              className="text-emerald-100/65 hover:text-[#6EE7B7] transition-colors cursor-pointer whitespace-nowrap"
-            >
-              “/skills”
-            </button>
-            <button
-              type="button"
-              onClick={() => onSubmitInput('/gateway', 'cli')}
-              className="text-emerald-100/65 hover:text-[#6EE7B7] transition-colors cursor-pointer whitespace-nowrap"
-            >
-              “/gateway”
-            </button>
-          </div>
-        </div>
-
-        <form
-          onSubmit={handleSubmit}
-          className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-colors ${
-            voiceState.isListening
-              ? 'border-[#4ADE80] bg-[#071410]/90'
-              : 'border-[#34D399]/60 focus-within:border-[#4ADE80] bg-[#07120F]/88'
+      {/* Single Clean Voice & Command Bar (omitted on Canvas for spatial breathing room) */}
+      {panelView !== 'canvas' && (
+        <div
+          className={`relative z-20 px-4 sm:px-8 lg:px-14 pb-3.5 pt-2 shrink-0 ${
+            isHomeOverview
+              ? 'bg-gradient-to-t from-[#091512] via-[#091512]/92 to-transparent'
+              : ''
           }`}
         >
-          <span
-            aria-hidden="true"
-            className={`font-mono text-sm select-none ${
-              voiceState.isListening ? 'text-[#4ADE80]' : 'text-emerald-100/50'
+          <form
+            onSubmit={handleSubmit}
+            className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-1.5 transition-colors ${
+              voiceState.isListening
+                ? 'border-[#4ADE80] bg-[#071410]/92'
+                : 'border-[#34D399]/45 focus-within:border-[#4ADE80] bg-[#07120F]/90'
             }`}
           >
-            &gt;
-          </span>
-
-          <label htmlFor="hermes-voice-input" className="sr-only">
-            Voice transcript or command input
-          </label>
-          <input
-            id="hermes-voice-input"
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              voiceState.isListening
-                ? 'Listening...'
-                : 'Listening... or type /help'
-            }
-            className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-emerald-100/45 focus:outline-none py-1.5"
-          />
-
-          {input.trim() && (
-            <button
-              type="submit"
-              aria-label="Send message or command"
-              className="w-8 h-8 rounded-lg bg-[#34D399] text-[#05140E] flex items-center justify-center hover:bg-[#6EE7B7] transition-colors cursor-pointer shrink-0"
+            <span
+              aria-hidden="true"
+              className={`font-mono text-sm select-none ${
+                voiceState.isListening ? 'text-[#4ADE80]' : 'text-emerald-100/50'
+              }`}
             >
-              <ArrowUp className="w-4 h-4" />
-            </button>
-          )}
+              &gt;
+            </span>
 
-          <button
-            type="button"
-            onClick={onToggleListening}
-            aria-pressed={voiceState.isListening}
-            aria-label={voiceState.isListening ? 'Stop voice input' : 'Start voice input'}
-            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
-              voiceState.isListening
-                ? 'bg-[#34D399]/20 text-[#4ADE80] border border-[#4ADE80]/60'
-                : 'text-[#34D399]/80 hover:text-[#6EE7B7] hover:bg-white/5'
-            }`}
-          >
-            {voiceState.isListening ? (
-              <Mic className="w-4 h-4" />
-            ) : (
-              <MicOff className="w-4 h-4" />
+            <label htmlFor="hermes-voice-input" className="sr-only">
+              Voice transcript or command input
+            </label>
+            <input
+              id="hermes-voice-input"
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                activeIsThinking || activeIsSpeaking
+                  ? `Working · ${workingSeconds}s`
+                  : voiceState.isListening
+                  ? 'Listening...'
+                  : `Message #${activeChannel} or type /help`
+              }
+              className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder:text-emerald-100/45 focus:outline-none py-1.5"
+            />
+
+            {input.trim() && (
+              <button
+                type="submit"
+                aria-label="Send message or command"
+                className="w-8 h-8 rounded-lg bg-[#34D399] text-[#05140E] flex items-center justify-center hover:bg-[#6EE7B7] transition-colors cursor-pointer shrink-0"
+              >
+                <ArrowUp className="w-4 h-4" />
+              </button>
             )}
-          </button>
-        </form>
-      </div>
+
+            <button
+              type="button"
+              onClick={onToggleListening}
+              aria-pressed={voiceState.isListening}
+              aria-label={voiceState.isListening ? 'Stop voice input' : 'Start voice input'}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
+                voiceState.isListening
+                  ? 'bg-[#34D399]/20 text-[#4ADE80] border border-[#4ADE80]/60'
+                  : 'text-[#34D399]/80 hover:text-[#6EE7B7] hover:bg-white/5'
+              }`}
+            >
+              {voiceState.isListening ? (
+                <Mic className="w-4 h-4" />
+              ) : (
+                <MicOff className="w-4 h-4" />
+              )}
+            </button>
+          </form>
+        </div>
+      )}
     </section>
   );
 }
