@@ -463,5 +463,35 @@ test('buildPortraitBankFromSpriteSheet extracts 12 aligned panels, strips corner
   assert.notEqual(frameClosed, frameWide, 'Expected sprite-bank closed vs speaking frames to differ');
 });
 
+test('createPortraitAnimator triggerImpulse adds tactile nod/brow bounce and idle cadence produces natural blinks', () => {
+  const anim = createPortraitAnimator();
+  const base = anim.step(
+    { time: 0.1, mood: 'neutral', viseme: 'closed', eyeState: 'open', energy: 0.08, isSpeaking: false, isListening: false },
+    0.016
+  );
+  anim.triggerImpulse('tap');
+  const tapped = anim.step(
+    { time: 0.12, mood: 'neutral', viseme: 'closed', eyeState: 'open', energy: 0.08, isSpeaking: false, isListening: false },
+    0.02
+  );
+  assert.ok(tapped.headPitch > base.headPitch + 0.005, 'Tap impulse should excite spring headPitch nod');
+  assert.ok(Math.abs(tapped.browLift) > Math.abs(base.browLift), 'Tap impulse should excite browLift');
+
+  const blinkAnim = createPortraitAnimator();
+  let sawBlink = false;
+  for (let i = 0; i < 200; i++) {
+    const s = blinkAnim.step(
+      { time: i * 0.03, mood: 'happy', viseme: 'closed', eyeState: 'open', energy: 0.08, isSpeaking: false, isListening: false },
+      0.03
+    );
+    if (s.blink > 0.65) {
+      sawBlink = true;
+      break;
+    }
+  }
+  assert.ok(sawBlink, 'Expected quasi-periodic idle cadence to produce natural blink over ~6s');
+});
+
+
 
 

@@ -236,6 +236,8 @@ export function AsciiPortraitCanvas({
   const readyAtMsRef = useRef<number | null>(
     cachedSpriteBank || cachedPortraitSource ? 0 : null
   );
+  const animatorRef = useRef<ReturnType<typeof createPortraitAnimator> | null>(null);
+  const isHoveredRef = useRef(false);
 
   const stateRef = useRef({
     mood,
@@ -323,6 +325,7 @@ export function AsciiPortraitCanvas({
     const dotRadius = isThumb ? 0.42 : Math.min(dotW, dotH) * (isStage ? 0.44 : 0.42);
     const startTime = performance.now();
     const animator = createPortraitAnimator();
+    animatorRef.current = animator;
     const systemReduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -491,31 +494,46 @@ export function AsciiPortraitCanvas({
       (!startedWhileLoadingRef.current || readyAtMsRef.current === 0);
     if (thumbMaterialized) return;
 
-    let timerId = 0;
-    const minIntervalMs = isStage ? 28 : 24;
-
     const loop = (now: number) => {
+      const s = stateRef.current;
+      const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
+      const activeLook = s.lookTargetRef?.current ?? s.lookTarget ?? null;
+      const readyElapsed =
+        startedWhileLoadingRef.current && readyAtMsRef.current !== null && readyAtMsRef.current > 0
+          ? (now - readyAtMsRef.current) / 1000
+          : 10;
+      const isMaterializing = readyElapsed < 1.25;
+      const activeMotion =
+        s.status !== 'ready' ||
+        isMaterializing ||
+        s.isSpeaking ||
+        s.isListening ||
+        s.mood === 'thinking' ||
+        isHoveredRef.current ||
+        activeLook !== null;
+
+      // Smooth VSync cadence (~60fps active/materializing/hover/look, ~30fps calm idle)
+      const minIntervalMs = isReduced ? 220 : activeMotion ? 14 : 30;
       if (now - lastDraw >= minIntervalMs) {
         drawFrame(now);
       }
-      if (isThumb && stateRef.current.status === 'ready') {
+      if (isThumb && s.status === 'ready') {
         const doneElapsed =
           readyAtMsRef.current && readyAtMsRef.current > 0
             ? (now - readyAtMsRef.current) / 1000
             : 10;
         if (doneElapsed > 0.5) {
+          animatorRef.current = null;
           return;
         }
       }
-      timerId = window.setTimeout(() => {
-        rafId = window.requestAnimationFrame(loop);
-      }, 16);
+      rafId = window.requestAnimationFrame(loop);
     };
 
     rafId = window.requestAnimationFrame(loop);
     return () => {
       window.cancelAnimationFrame(rafId);
-      window.clearTimeout(timerId);
+      animatorRef.current = null;
     };
   }, [variant, sourceField, spriteBank, status]);
 
@@ -539,7 +557,20 @@ export function AsciiPortraitCanvas({
     <div className="relative flex flex-col items-center justify-center">
       <button
         type="button"
-        onClick={isError ? retryPortraitAssetsLoading : onClick}
+        onMouseEnter={() => {
+          isHoveredRef.current = true;
+        }}
+        onMouseLeave={() => {
+          isHoveredRef.current = false;
+        }}
+        onClick={() => {
+          if (isError) {
+            retryPortraitAssetsLoading();
+            return;
+          }
+          animatorRef.current?.triggerImpulse('tap');
+          onClick?.();
+        }}
         aria-busy={isLoading}
         aria-label={
           isLoading
@@ -548,7 +579,7 @@ export function AsciiPortraitCanvas({
             ? 'Character signal failed to load. Click to retry.'
             : `Animated monochrome braille halftone portrait of Hermes, expression ${mood}, mouth ${viseme}. Click to cycle mood.`
         }
-        className="group relative flex items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] cursor-pointer"
+        className="group relative flex items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] transition-transform duration-200 ease-out active:scale-[0.97] hover:scale-[1.015] cursor-pointer"
       >
         <canvas
           ref={canvasRef}

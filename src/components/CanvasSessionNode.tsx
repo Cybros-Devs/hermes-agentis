@@ -35,6 +35,8 @@ interface CanvasSessionNodeProps {
   entries: TerminalEntry[];
   turnCount: number;
   canRemove: boolean;
+  speedScale?: number;
+  reducedMotionOverride?: boolean;
   gazeRef: RefObject<{ clientX: number; clientY: number } | null>;
   onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => void;
@@ -64,6 +66,8 @@ export function CanvasSessionNode({
   entries,
   turnCount,
   canRemove,
+  speedScale = 1,
+  reducedMotionOverride = false,
   gazeRef,
   onPointerDown,
   onPointerUp,
@@ -78,6 +82,7 @@ export function CanvasSessionNode({
   onRemoveSession,
 }: CanvasSessionNodeProps) {
   const [draft, setDraft] = useState('');
+  const [isHovered, setIsHovered] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -136,12 +141,14 @@ export function CanvasSessionNode({
       {/* Draggable / Clickable Anime Braille Character Sprite */}
       <button
         type="button"
+        onPointerEnter={() => setIsHovered(true)}
+        onPointerLeave={() => setIsHovered(false)}
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
         onKeyDown={onKeyDown}
         aria-label={`Session #${session.name} (${session.hermesSessionId}), ${meta.label} anime character, ${turnCount} turns. Click to toggle chat or drag to move.`}
         aria-expanded={isChatOpen}
-        className={`group relative flex flex-col items-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] rounded-2xl transition-transform duration-150 ${
+        className={`group relative flex flex-col items-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] rounded-2xl transition-transform duration-200 ease-out ${
           isDragged
             ? 'scale-110 -translate-y-1.5 cursor-grabbing'
             : isSelected || isChatOpen
@@ -172,6 +179,9 @@ export function CanvasSessionNode({
             isSpeaking={isSpeaking}
             isThinking={isThinking}
             isDragging={isDragged}
+            isHovered={isHovered}
+            speedScale={speedScale}
+            reducedMotionOverride={reducedMotionOverride}
             blinkPhaseOffset={index * 1.15}
             gazeRef={gazeRef}
           />
@@ -219,7 +229,7 @@ export function CanvasSessionNode({
           data-testid={`session-chat-${session.channelId}`}
           onPointerDown={(e) => e.stopPropagation()}
           onWheelCapture={(e) => e.stopPropagation()}
-          className="mt-2 w-[min(280px,calc(100vw-2.5rem))] rounded-xl bg-[#07120F]/94 border border-[#34D399]/35 backdrop-blur-md shadow-[0_14px_34px_rgba(0,0,0,0.58)] overflow-hidden flex flex-col"
+          className="ui-chat-pop mt-2 w-[min(280px,calc(100vw-2.5rem))] rounded-xl bg-[#07120F]/94 border border-[#34D399]/35 backdrop-blur-md shadow-[0_14px_34px_rgba(0,0,0,0.58)] overflow-hidden flex flex-col"
         >
           {/* Individual Window Header */}
           <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 border-b border-white/8 bg-white/[0.02]">
@@ -321,7 +331,7 @@ export function CanvasSessionNode({
                   return (
                     <div
                       key={entry.id}
-                      className="ml-auto max-w-[88%] rounded-lg bg-white/[0.08] border border-white/10 px-2.5 py-1.5 text-white/95 whitespace-pre-wrap break-words"
+                      className="ui-msg-enter ml-auto max-w-[88%] rounded-lg bg-white/[0.08] border border-white/10 px-2.5 py-1.5 text-white/95 whitespace-pre-wrap break-words"
                     >
                       {entry.text}
                     </div>
@@ -330,7 +340,7 @@ export function CanvasSessionNode({
                 return (
                   <div
                     key={entry.id}
-                    className="max-w-[94%] text-emerald-50/90 whitespace-pre-wrap break-words"
+                    className="ui-msg-enter max-w-[94%] text-emerald-50/90 whitespace-pre-wrap break-words"
                   >
                     <DecodedText
                       text={entry.text}

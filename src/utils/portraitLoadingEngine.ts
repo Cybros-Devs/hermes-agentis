@@ -198,11 +198,21 @@ export function blendLoadingToPortraitFrame(
       const idx = r * cols + c;
       const hash = (((r * 73 + c * 179) ^ (r * c * 13)) & 31) / 31;
       const localThreshold = ny * 0.68 + hash * 0.32;
-      const usePortrait = frontier >= localThreshold;
+      const delta = frontier - localThreshold;
 
-      if (usePortrait) {
-        outLine += pLine[c] ?? ' ';
-        cells[idx] = portraitFrame.cells[idx] ?? 0;
+      if (delta >= 0) {
+        const pChar = pLine[c] ?? ' ';
+        const pCell = portraitFrame.cells[idx] ?? 0;
+        if (delta < 0.085 && pChar !== ' ') {
+          outLine += pChar;
+          cells[idx] = Math.min(255, Math.max(pCell, 240));
+        } else {
+          outLine += pChar;
+          cells[idx] = pCell;
+        }
+      } else if (delta > -0.065 && ((r + c) & 1) === 0 && (lLine[c] ?? ' ') !== ' ') {
+        outLine += lLine[c] ?? ' ';
+        cells[idx] = Math.min(255, Math.max(loadingFrame.cells[idx] ?? 0, 215));
       } else {
         outLine += lLine[c] ?? ' ';
         cells[idx] = loadingFrame.cells[idx] ?? 0;

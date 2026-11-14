@@ -70,4 +70,12 @@ test('blendLoadingToPortraitFrame smoothly transitions from loading frame to rea
 
   const atEnd = blendLoadingToPortraitFrame(loading, portrait, 1);
   assert.equal(atEnd.lines.join('\n'), portrait.lines.join('\n'));
+
+  // Frontier scan line around row 4 (0.5 progress) should carry luminous boost (>= 215)
+  const midRowCells = Array.from(atMid.cells.slice(4 * cols, 5 * cols));
+  assert.ok(
+    midRowCells.some((v) => v >= 215),
+    'Expected luminous scan wavefront highlight near materialize boundary'
+  );
 });
+

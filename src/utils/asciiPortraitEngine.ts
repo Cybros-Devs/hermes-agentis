@@ -231,35 +231,38 @@ function getTargetMotionFromParams(
       : Math.sin(time * 1.6) * 0.02;
   const headTilt = baseTilt + speakNod - headYaw * 0.12;
 
-  // Smooth natural blink curve (~3.0s cycle, plus occasional double blink)
-  const blinkCycle = (time * 0.33) % 1;
+  // Organic quasi-periodic blink curve (~2.9–4.2s natural intervals, plus occasional double blink)
+  const blinkWarp = time * 0.29 + 0.14 * Math.sin(time * 0.43);
+  const blinkCycle = blinkWarp - Math.floor(blinkWarp);
   let autoBlink = 0;
-  if (blinkCycle > 0.925) {
-    autoBlink = Math.sin(((blinkCycle - 0.925) / 0.075) * Math.PI);
-  } else if (blinkCycle > 0.83 && blinkCycle < 0.885 && Math.floor(time * 0.33) % 3 === 1) {
-    autoBlink = Math.sin(((blinkCycle - 0.83) / 0.055) * Math.PI) * 0.92;
+  if (blinkCycle > 0.922) {
+    autoBlink = Math.sin(((blinkCycle - 0.922) / 0.078) * Math.PI);
+  } else if (blinkCycle > 0.822 && blinkCycle < 0.878 && Math.floor(blinkWarp) % 3 === 1) {
+    autoBlink = Math.sin(((blinkCycle - 0.822) / 0.056) * Math.PI) * 0.92;
   }
 
   const blink =
     eyeState === 'blink' ? 1 : eyeState === 'half' ? 0.48 : autoBlink;
   const squint =
     eyeState === 'happy' || mood === 'happy'
-      ? 0.52
+      ? 0.52 + (isSpeaking ? Math.max(0, speakCadence) * energy * 0.12 : 0)
       : eyeState === 'half' || mood === 'focused'
       ? 0.36
       : viseme === 'ee'
-      ? 0.22
+      ? 0.24
+      : isSpeaking
+      ? energy * 0.14
       : 0;
   const wide = eyeState === 'wide' || mood === 'alert' ? 0.88 : 0;
 
   // Dynamic eyebrow micro-expressions (emphasis raises, focused narrows, curious thinking lift)
-  let browLift = 0.08 * Math.sin(time * 1.3);
+  let browLift = 0.09 * Math.sin(time * 1.3);
   if (mood === 'alert' || eyeState === 'wide') browLift = 0.72;
   else if (mood === 'thinking') browLift = 0.38 + Math.sin(time * 1.6) * 0.12;
   else if (mood === 'focused' || eyeState === 'half') browLift = -0.34;
   else if (mood === 'happy' || eyeState === 'happy') browLift = 0.28 + Math.sin(time * 2.1) * 0.1;
   if (isSpeaking) {
-    browLift += Math.max(0, Math.sin(time * 3.8)) * energy * 0.45;
+    browLift += Math.max(0, Math.sin(time * 3.8)) * (0.12 + energy * 0.46);
   }
   browLift = clamp(browLift, -0.45, 1.0);
 
@@ -466,11 +469,32 @@ export function createPortraitAnimator() {
   let mouthVel = 0;
   let jawVel = 0;
   let browVel = 0;
+  let impulseNodVel = 0;
+  let impulseNodOffset = 0;
+  let impulsePitchOffset = 0;
+  let impulsePitchVel = 0;
   let prevHeadTilt = 0;
   let prevHeadYaw = 0;
   let prevHeadNodY = 0;
+  let prevMood: ExpressionMood | null = null;
+  let prevSpeaking = false;
+
+  const triggerImpulse = (kind: 'mood' | 'speak' | 'tap' = 'tap') => {
+    if (kind === 'mood' || kind === 'tap') {
+      impulseNodVel += 0.26;
+      impulsePitchVel += 1.45;
+      browVel += 3.6;
+      hairVelX += 0.32;
+      hairVelY += 0.18;
+    } else if (kind === 'speak') {
+      impulseNodVel += 0.16;
+      browVel += 2.4;
+      hairVelY += 0.1;
+    }
+  };
 
   return {
+    triggerImpulse,
     step(
       params: Omit<PortraitParams, 'cols' | 'rows' | 'style' | 'sourceField' | 'motion'>,
       dt: number,
@@ -478,6 +502,17 @@ export function createPortraitAnimator() {
       lookTarget?: LookTarget | null
     ): PortraitMotionState {
       const clampedDt = Math.min(0.06, Math.max(0.004, dt));
+      if (!reducedMotion) {
+        if (prevMood !== null && prevMood !== params.mood) {
+          triggerImpulse('mood');
+        }
+        if (!prevSpeaking && params.isSpeaking) {
+          triggerImpulse('speak');
+        }
+      }
+      prevMood = params.mood;
+      prevSpeaking = params.isSpeaking;
+
       const target = getTargetMotionFromParams(params as PortraitParams, lookTarget);
 
       // Asymmetric crisp blink: fast close (rate 38), graceful open (rate 18)
@@ -523,11 +558,28 @@ export function createPortraitAnimator() {
         state.hairLagX = 0;
         state.hairLagY = 0;
         state.shoulderY = 0;
+        impulseNodVel = 0;
+        impulseNodOffset = 0;
+        impulsePitchOffset = 0;
+        impulsePitchVel = 0;
       } else {
+        impulseNodVel += (-impulseNodOffset * 135 - impulseNodVel * 16) * clampedDt;
+        impulseNodOffset = clamp(impulseNodOffset + impulseNodVel * clampedDt, -0.024, 0.024);
+
+        impulsePitchVel += (-impulsePitchOffset * 120 - impulsePitchVel * 15) * clampedDt;
+        impulsePitchOffset = clamp(impulsePitchOffset + impulsePitchVel * clampedDt, -0.09, 0.09);
+
         state.headYaw = expApproach(state.headYaw, target.headYaw, 7.5, clampedDt);
-        state.headPitch = expApproach(state.headPitch, target.headPitch, 8.0, clampedDt);
+        state.headPitch = clamp(
+          expApproach(state.headPitch, target.headPitch, 8.0, clampedDt) + impulsePitchOffset,
+          -0.24,
+          0.24
+        );
         state.headTilt = expApproach(state.headTilt, target.headTilt, 8.5, clampedDt);
-        state.headNodY = expApproach(state.headNodY, target.headNodY, 10, clampedDt);
+        state.headNodY =
+          expApproach(state.headNodY, target.headNodY, 10, clampedDt) +
+          impulseNodOffset -
+          Math.max(0, jawVel) * 0.0022;
         state.headSwayX = expApproach(state.headSwayX, target.headSwayX, 8, clampedDt);
         state.shoulderY = expApproach(state.shoulderY, target.shoulderY, 5.5, clampedDt);
 
@@ -535,15 +587,15 @@ export function createPortraitAnimator() {
         const tiltVel = (state.headTilt - prevHeadTilt) / clampedDt;
         const yawVel = (state.headYaw - prevHeadYaw) / clampedDt;
         const nodVel = (state.headNodY - prevHeadNodY) / clampedDt;
-        const desiredLagX = target.hairLagX - tiltVel * 0.032 - yawVel * 0.042;
-        const desiredLagY = target.hairLagY - nodVel * 0.028;
+        const desiredLagX = target.hairLagX - tiltVel * 0.036 - yawVel * 0.048;
+        const desiredLagY = target.hairLagY - nodVel * 0.034;
 
-        const stiffness = 62;
-        const damping = 9.2;
+        const stiffness = 68;
+        const damping = 9.0;
         hairVelX += ((desiredLagX - state.hairLagX) * stiffness - hairVelX * damping) * clampedDt;
         hairVelY += ((desiredLagY - state.hairLagY) * stiffness - hairVelY * damping) * clampedDt;
-        state.hairLagX = clamp(state.hairLagX + hairVelX * clampedDt, -0.06, 0.06);
-        state.hairLagY = clamp(state.hairLagY + hairVelY * clampedDt, -0.04, 0.04);
+        state.hairLagX = clamp(state.hairLagX + hairVelX * clampedDt, -0.065, 0.065);
+        state.hairLagY = clamp(state.hairLagY + hairVelY * clampedDt, -0.045, 0.045);
       }
 
       state.listenPulse = expApproach(state.listenPulse, target.listenPulse, 9, clampedDt);
@@ -758,10 +810,10 @@ export function resolveReferencePoseBlend(
     eyeBlend = clamp01(
       Math.max(smoothstep(0.14, 0.54, blinkAmt), (motion.squint - 0.35) * 0.72)
     );
-  } else if (isSpeaking && open > 0.65) {
-    // Engaged wide eyes during vocal emphasis (04 -> idx 3)
+  } else if (isSpeaking && open > 0.50) {
+    // Smoothly ramped engaged wide eyes during vocal emphasis (04 -> idx 3)
     eyeIndex = 3;
-    eyeBlend = 0.5;
+    eyeBlend = smoothstep(0.50, 0.85, open) * 0.58;
   }
 
   return {
@@ -1717,7 +1769,7 @@ function sampleSpriteBankWithExpression(
   const lumB = sampleLum(fieldB);
   const inkA = sampleInk(fieldA);
   const inkB = sampleInk(fieldB);
-  const blendT = smoothstep(0.14, 0.86, pose.mouthBlend);
+  const blendT = smoothstep(0.06, 0.94, pose.mouthBlend);
 
   let lum = lerp(lumA, lumB, blendT);
   const ink = lerp(inkA, inkB, blendT);

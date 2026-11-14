@@ -216,24 +216,21 @@ export function BrailleHorizonCanvas({
 
     drawFrame(startTime);
 
-    let timerId = 0;
     const loop = (now: number) => {
       const active = stateRef.current.isActive;
       const isReduced = Boolean(systemReduced || stateRef.current.reducedMotionOverride);
-      const interval = isReduced ? 220 : active ? 28 : 50;
+      const hasPointer = Boolean(stateRef.current.lookTargetRef?.current);
+      const interval = isReduced ? 220 : active || hasPointer ? 14 : 30;
       if (now - lastDraw >= interval) {
         drawFrame(now);
       }
-      timerId = window.setTimeout(() => {
-        rafId = window.requestAnimationFrame(loop);
-      }, active && !isReduced ? 20 : 40);
+      rafId = window.requestAnimationFrame(loop);
     };
 
     rafId = window.requestAnimationFrame(loop);
     return () => {
       window.removeEventListener('resize', resize);
       window.cancelAnimationFrame(rafId);
-      window.clearTimeout(timerId);
     };
   }, []);
 

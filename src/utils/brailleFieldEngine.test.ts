@@ -64,3 +64,19 @@ test('createHorizonAnimator smoothly damps step transients across energy, pointe
   assert.ok(s1.pointerX > 0 && s1.pointerX < 0.5, `Expected damped pointer shift, got ${s1.pointerX}`);
   assert.ok(s1.bands[0] > 0.05 && s1.bands[0] < 0.6, `Expected damped band attack, got ${s1.bands[0]}`);
 });
+
+test('renderBrailleHorizon smoothly interpolates across contrasting FFT frequency bands', () => {
+  const alternating = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
+  const frame = renderBrailleHorizon({
+    cols: 72,
+    rows: 14,
+    time: 0.8,
+    energy: 0.75,
+    pointerX: 0,
+    pointerY: 0,
+    bands: alternating,
+  });
+  const totalLit = frame.lines.join('').replace(/ /g, '').length;
+  assert.ok(totalLit > 80, 'Expected substantial continuous wave crest density across alternating FFT bands');
+});
+

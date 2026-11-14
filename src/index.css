@@ -202,9 +202,104 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
   background: rgba(var(--ui-accent-rgb, 52, 211, 153), 0.48);
 }
 
+/* Speed-scaled UI choreography animations (--ui-anim-speed driven by Studio) */
+@keyframes uiViewEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.994);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes uiMsgEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes uiChatPop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes uiConstellationFlow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+@keyframes uiHaloPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.055);
+    opacity: 1;
+  }
+}
+
+.ui-view-enter {
+  animation: uiViewEnter calc(240ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-msg-enter {
+  animation: uiMsgEnter calc(210ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-chat-pop {
+  transform-origin: top center;
+  animation: uiChatPop calc(240ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-constellation-line {
+  animation: uiConstellationFlow calc(3.4s / var(--ui-anim-speed, 1)) linear infinite;
+}
+
+.ui-halo-pulse {
+  animation: uiHaloPulse calc(5.2s / var(--ui-anim-speed, 1)) ease-in-out infinite;
+}
+
+html[data-ui-motion="reduced"] .ui-view-enter,
+html[data-ui-motion="reduced"] .ui-msg-enter,
+html[data-ui-motion="reduced"] .ui-chat-pop,
+html[data-ui-motion="reduced"] .ui-constellation-line,
+html[data-ui-motion="reduced"] .ui-halo-pulse,
+html[data-ui-motion="reduced"] .motion-safe-only {
+  animation: none !important;
+  transition: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .ui-view-enter,
+  .ui-msg-enter,
+  .ui-chat-pop,
+  .ui-constellation-line,
+  .ui-halo-pulse,
   .motion-safe-only {
     animation: none !important;
     transition: none !important;
   }
 }
+

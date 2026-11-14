@@ -18,6 +18,9 @@ interface BrailleShapeCanvasProps {
   isSpeaking?: boolean;
   isThinking?: boolean;
   isDragging?: boolean;
+  isHovered?: boolean;
+  speedScale?: number;
+  reducedMotionOverride?: boolean;
   variant?: 'creature' | 'preview';
   blinkPhaseOffset?: number;
   gazeRef?: RefObject<{ clientX: number; clientY: number } | null>;
@@ -45,6 +48,9 @@ export function BrailleShapeCanvas({
   isSpeaking = false,
   isThinking = false,
   isDragging = false,
+  isHovered = false,
+  speedScale = 1,
+  reducedMotionOverride = false,
   variant = 'creature',
   blinkPhaseOffset = 0,
   gazeRef,
@@ -61,6 +67,9 @@ export function BrailleShapeCanvas({
     isSpeaking,
     isThinking,
     isDragging,
+    isHovered,
+    speedScale,
+    reducedMotionOverride,
     blinkPhaseOffset,
     gazeRef,
   });
@@ -74,6 +83,9 @@ export function BrailleShapeCanvas({
     isSpeaking,
     isThinking,
     isDragging,
+    isHovered,
+    speedScale,
+    reducedMotionOverride,
     blinkPhaseOffset,
     gazeRef,
   };
@@ -102,27 +114,33 @@ export function BrailleShapeCanvas({
     const dotRadius = Math.min(dotW, dotH) * (isPreview ? 0.44 : 0.43);
     const dotDiameter = Math.max(1.0, dotRadius * 1.9);
 
-    const reducedMotion =
+    const systemReduced =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     const startTime = performance.now();
     const animator = createBrailleShapeAnimator();
     let lastDraw = startTime;
+    let elapsedPhase = 0;
     let prevRectX: number | null = null;
     let prevRectY: number | null = null;
     let prevDragActive = false;
     let settleUntilMs = 0;
     let smoothEnergy = stateRef.current.energy;
     let rafId = 0;
-    let timerId = 0;
 
     const drawFrame = (now: number) => {
       const s = stateRef.current;
-      const dt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
+      const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
+      const speed = Math.max(0.25, Math.min(2.0, s.speedScale || 1));
+      const rawDt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
+      const dt = isReduced ? rawDt : rawDt * speed;
       lastDraw = now;
+      if (!isReduced) {
+        elapsedPhase += dt;
+      }
 
-      const elapsed = reducedMotion ? 0.5 : (now - startTime) / 1000;
+      const elapsed = isReduced ? 0.5 : elapsedPhase;
       smoothEnergy += (s.energy - smoothEnergy) * (1 - Math.exp(-16 * dt));
 
       let targetGazeX: number | undefined;
@@ -164,6 +182,7 @@ export function BrailleShapeCanvas({
               isSpeaking: s.isSpeaking,
               isThinking: s.isThinking,
               isDragging: s.isDragging,
+              isHovered: s.isHovered,
               dragVelX,
               dragVelY,
               gazeX: targetGazeX,
@@ -171,7 +190,7 @@ export function BrailleShapeCanvas({
               blinkPhaseOffset: s.blinkPhaseOffset,
             },
             dt,
-            reducedMotion
+            isReduced
           );
 
       const frame = renderBrailleShape({
@@ -238,36 +257,34 @@ export function BrailleShapeCanvas({
     };
 
     drawFrame(startTime);
-    if (reducedMotion || isPreview) return;
+    if (isPreview) return;
 
     const loop = (now: number) => {
       const s = stateRef.current;
+      const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
       if (prevDragActive && !s.isDragging) {
-        settleUntilMs = now + 850;
+        settleUntilMs = now + 900;
       }
       prevDragActive = s.isDragging;
 
-      const elapsed = (now - startTime) / 1000;
-      const cyclePos = ((elapsed + s.blinkPhaseOffset) / 4.2) % 1;
+      const cyclePos = ((elapsedPhase + s.blinkPhaseOffset) / 4.2) % 1;
       const activeMotion =
         s.isSpeaking ||
         s.isThinking ||
         s.isDragging ||
+        s.isHovered ||
         now < settleUntilMs ||
-        cyclePos > 0.80;
-      const minInterval = activeMotion ? 32 : 52;
+        cyclePos > 0.78;
+      const minInterval = isReduced ? 220 : activeMotion ? 14 : 32;
       if (now - lastDraw >= minInterval) {
         drawFrame(now);
       }
-      timerId = window.setTimeout(() => {
-        rafId = window.requestAnimationFrame(loop);
-      }, activeMotion ? 22 : 44);
+      rafId = window.requestAnimationFrame(loop);
     };
 
     rafId = window.requestAnimationFrame(loop);
     return () => {
       window.cancelAnimationFrame(rafId);
-      window.clearTimeout(timerId);
     };
   }, [variant]);
 

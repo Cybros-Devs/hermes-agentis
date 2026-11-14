@@ -159,4 +159,45 @@ test('createBrailleShapeAnimator produces smooth blink curves, drag tilt, drop b
   );
   assert.equal(reduced.dragTilt, 0);
   assert.equal(reduced.hairLag, 0);
+  assert.equal(reduced.earTwitch, 0);
+  assert.equal(reduced.haloFloat, 0);
 });
+
+test('createBrailleShapeAnimator drives hoverBoost, earTwitch, and haloFloat on pointer hover', () => {
+  const anim = createBrailleShapeAnimator();
+  const calm = anim.step(
+    {
+      time: 0.2,
+      mood: 'happy',
+      eyeStyle: 'open',
+      viseme: 'closed',
+      energy: 0.08,
+      isSpeaking: false,
+      isThinking: false,
+      isDragging: false,
+      isHovered: false,
+    },
+    1 / 30
+  );
+  let hovered = calm;
+  for (let i = 1; i <= 10; i++) {
+    hovered = anim.step(
+      {
+        time: 0.2 + i / 30,
+        mood: 'happy',
+        eyeStyle: 'open',
+        viseme: 'closed',
+        energy: 0.08,
+        isSpeaking: false,
+        isThinking: false,
+        isDragging: false,
+        isHovered: true,
+      },
+      1 / 30
+    );
+  }
+  assert.ok(hovered.hoverBoost > 0.5, `Expected hoverBoost ramp on hover, got ${hovered.hoverBoost}`);
+  assert.ok(Math.abs(hovered.earTwitch) > 0.005, 'Hover entry should trigger subtle earTwitch perk');
+  assert.notEqual(hovered.haloFloat, 0, 'Active character should compute haloFloat levitation');
+});
+

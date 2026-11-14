@@ -485,9 +485,10 @@ export function VoiceWorkspacePane({
       {/* Center Stage: Overall Character Home View OR Compact Header + Thread/Queue/CLI */}
       {isHomeOverview ? (
         <div
+          key="view-home"
           ref={portraitWrapRef}
           data-testid="home-character-overview"
-          className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-4 sm:px-10 pb-4 sm:pb-6"
+          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-4 sm:px-10 pb-4 sm:pb-6"
         >
           {uiConfig.portraitVisible && (
             <div
@@ -496,7 +497,7 @@ export function VoiceWorkspacePane({
             >
               <div
                 aria-hidden="true"
-                className="absolute inset-0 -m-10 rounded-full pointer-events-none"
+                className="ui-halo-pulse absolute inset-0 -m-10 rounded-full pointer-events-none"
                 style={{
                   background:
                     'radial-gradient(circle at 50% 48%, rgba(var(--ui-accent-rgb), 0.16) 0%, rgba(var(--ui-accent-rgb), 0.05) 44%, transparent 72%)',
@@ -599,6 +600,8 @@ export function VoiceWorkspacePane({
           entries={entries}
           voiceState={voiceState}
           viseme={viseme}
+          speedScale={uiConfig.animationSpeed}
+          reducedMotionOverride={uiConfig.reducedMotion}
           onSelectSession={onSelectCanvasSession}
           onMoveSession={onMoveCanvasSession}
           onAddSession={onAddCanvasSession}
@@ -729,7 +732,7 @@ export function VoiceWorkspacePane({
           )}
 
           {panelView === 'queue' ? (
-            <div className="flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-y-auto cyber-scroll">
+            <div key="view-queue" className="ui-view-enter flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-y-auto cyber-scroll">
               <DuetOperationsPanel
                 channels={channels}
                 activeChannel={activeChannel}
@@ -748,7 +751,7 @@ export function VoiceWorkspacePane({
               />
             </div>
           ) : panelView === 'cli' ? (
-            <div className="flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-hidden">
+            <div key="view-cli" className="ui-view-enter flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-hidden">
               <CommandTerminal
                 activeChannel={activeChannel}
                 activeSessionId={activeHermesSessionId}
@@ -759,9 +762,10 @@ export function VoiceWorkspacePane({
             </div>
           ) : (
             <div
+              key="view-voice"
               ref={scrollRef}
               data-testid="voice-transcript-stream"
-              className="transcript-fade-mask flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-14 lg:px-20 py-3 sm:py-4 space-y-4 sm:space-y-5"
+              className="ui-view-enter transcript-fade-mask flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-14 lg:px-20 py-3 sm:py-4 space-y-4 sm:space-y-5"
             >
               {timelineBlocks.map((block, idx) => {
                 if (block.kind === 'trace') {
@@ -781,14 +785,14 @@ export function VoiceWorkspacePane({
                   return (
                     <div
                       key={entry.id}
-                      className="ml-auto max-w-[85%] sm:max-w-[66%] rounded-2xl bg-white/[0.07] border border-white/10 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50/90"
+                      className="ui-msg-enter ml-auto max-w-[85%] sm:max-w-[66%] rounded-2xl bg-white/[0.07] border border-white/10 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50/90"
                     >
                       <p className="whitespace-pre-wrap break-words">{entry.text}</p>
                     </div>
                   );
                 }
                 return (
-                  <div key={entry.id} className="max-w-[68ch] space-y-2">
+                  <div key={entry.id} className="ui-msg-enter max-w-[68ch] space-y-2">
                     <p className="text-[14.5px] sm:text-[16px] leading-[1.6] font-normal text-white/95 whitespace-pre-wrap break-words">
                       <DecodedText
                         text={entry.text}

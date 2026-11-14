@@ -22,6 +22,8 @@ interface BrailleSessionsCanvasProps {
   entries: TerminalEntry[];
   voiceState: VoiceState;
   viseme: MouthViseme;
+  speedScale?: number;
+  reducedMotionOverride?: boolean;
   onSelectSession: (session: CanvasSession) => void;
   onMoveSession: (id: string, xPct: number, yPct: number) => void;
   onAddSession: (payload: {
@@ -54,6 +56,8 @@ export function BrailleSessionsCanvas({
   entries,
   voiceState,
   viseme,
+  speedScale = 1,
+  reducedMotionOverride = false,
   onSelectSession,
   onMoveSession,
   onAddSession,
@@ -241,7 +245,7 @@ export function BrailleSessionsCanvas({
       data-testid="braille-sessions-canvas"
       onPointerMove={handleStagePointerMove}
       onPointerLeave={handleStagePointerLeave}
-      className="relative flex-1 min-h-0 flex flex-col justify-between overflow-hidden select-none"
+      className="ui-view-enter relative flex-1 min-h-0 flex flex-col justify-between overflow-hidden select-none"
     >
       {/* Subtle Dot-Matrix Floor */}
       <div
@@ -274,6 +278,8 @@ export function BrailleSessionsCanvas({
           isActive={voiceState.isSpeaking || voiceState.isListening}
           frequencyBands={voiceState.frequencyBands}
           lookTargetRef={lookTargetRef}
+          speedScale={speedScale}
+          reducedMotionOverride={reducedMotionOverride}
         />
       </div>
 
@@ -335,9 +341,10 @@ export function BrailleSessionsCanvas({
                     y1={`${sPos.yPct}%`}
                     x2={`${oPos.xPct}%`}
                     y2={`${oPos.yPct}%`}
-                    stroke="rgba(110, 231, 183, 0.10)"
+                    stroke="rgba(110, 231, 183, 0.14)"
                     strokeWidth="1"
-                    strokeDasharray="3 5"
+                    strokeDasharray="4 6"
+                    className="ui-constellation-line"
                   />
                 );
               })}
@@ -398,6 +405,8 @@ export function BrailleSessionsCanvas({
                 entries={bucket?.entries ?? []}
                 turnCount={turnCount}
                 canRemove={sessions.length > 1}
+                speedScale={speedScale}
+                reducedMotionOverride={reducedMotionOverride}
                 gazeRef={gazeRef}
                 onPointerDown={(e) => handleCreaturePointerDown(e, session)}
                 onPointerUp={(e) => handleCreaturePointerUp(e, session)}
