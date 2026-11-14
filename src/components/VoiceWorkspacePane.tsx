@@ -126,8 +126,16 @@ export function VoiceWorkspacePane({
     : mood;
 
   const viseme = useMemo(
-    () => amplitudeToViseme(voiceState.outputLevel, effectiveMood, tick, voiceState.isSpeaking),
-    [voiceState.outputLevel, effectiveMood, tick, voiceState.isSpeaking]
+    () =>
+      amplitudeToViseme(
+        voiceState.outputLevel,
+        effectiveMood,
+        tick,
+        voiceState.isSpeaking,
+        voiceState.frequencyBands,
+        lastSpokenLine
+      ),
+    [voiceState.outputLevel, effectiveMood, tick, voiceState.isSpeaking, voiceState.frequencyBands, lastSpokenLine]
   );
 
   const eyeState = useMemo(

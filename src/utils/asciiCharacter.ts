@@ -21,37 +21,140 @@ const EYE_PATTERNS: Record<EyeState, { left: string; right: string; browL: strin
 
 const MOUTH_PATTERNS: Record<MouthViseme, string> = {
   closed: '  ───  ',
+  rest:   '  ─·─  ',
   smile:  '  ╰─╯  ',
+  mbp:    '  ═══  ',
+  fv:     '  ▀─▀  ',
+  lth:    '  ╰╦╯  ',
   small:  '  ╰o╯  ',
   mid:    '  (◯)  ',
-  wide:   ' ╰═══╯ ',
   round:  '  (O)  ',
+  ee:     ' ╰───╯ ',
+  wide:   ' ╰═══╯ ',
 };
 
+const TEXT_VISEME_MAP: Array<[RegExp, MouthViseme]> = [
+  [/^[mbp]/i, 'mbp'],
+  [/^[fv]/i, 'fv'],
+  [/^(th|l|d|t|n)/i, 'lth'],
+  [/^(ee|ea|ie|i|y|ch|sh|j)/i, 'ee'],
+  [/^(oo|ou|oh|ow|o|w|q)/i, 'round'],
+  [/^(ah|ha|aa|ar|a)/i, 'wide'],
+  [/^(uh|eh|er|e|u|r|s|z|k|g|c)/i, 'small'],
+];
+
 /**
- * Maps instantaneous audio RMS amplitude (0..1), current mood, and frame tick
- * into a realistic animated MouthViseme for real-time lip synchronization.
+ * Extracts a compact phoneme-viseme sequence from spoken text so talking lip-sync
+ * hits bilabial (M/B/P), labiodental (F/V), lingual (L/Th), E/I, O/Oo, and A/Ha shapes.
+ */
+export function textToVisemeTimeline(text: string): MouthViseme[] {
+  const cleaned = text.trim();
+  if (!cleaned) return ['small', 'mid', 'wide', 'round'];
+
+  const out: MouthViseme[] = [];
+  let i = 0;
+  while (i < cleaned.length) {
+    const ch = cleaned[i];
+    if (/[\s,.;:!?—-]/.test(ch)) {
+      if (out.length > 0 && out[out.length - 1] !== 'rest') {
+        out.push('rest');
+      }
+      i += 1;
+      continue;
+    }
+    const slice = cleaned.slice(i, i + 2);
+    let matched: MouthViseme | null = null;
+    for (const [re, viseme] of TEXT_VISEME_MAP) {
+      const m = slice.match(re);
+      if (m) {
+        matched = viseme;
+        i += m[0].length;
+        break;
+      }
+    }
+    if (!matched) {
+      i += 1;
+      continue;
+    }
+    if (out[out.length - 1] !== matched) {
+      out.push(matched);
+    }
+  }
+
+  return out.length > 0 ? out : ['small', 'mid', 'wide', 'round'];
+}
+
+/**
+ * Maps instantaneous audio RMS amplitude (0..1), current mood, frame tick, and optional
+ * FFT bands / spoken text into a realistic animated MouthViseme for real-time lip synchronization.
  */
 export function amplitudeToViseme(
   amplitude: number,
   mood: ExpressionMood,
   tick: number,
-  isSpeaking: boolean
+  isSpeaking: boolean,
+  bands?: number[],
+  spokenText?: string
 ): MouthViseme {
   if (!isSpeaking) {
     if (mood === 'happy') return 'smile';
     if (mood === 'alert') return 'small';
+    if (mood === 'listening') return 'rest';
     return 'closed';
   }
 
   const clamped = Math.max(0, Math.min(1, amplitude));
-  // Richer syllable cadence across A/H (small), O/Oh (round), mid, and E/I (wide)
   const syllableWave = Math.sin(tick * 0.85);
   const syllableMod = (syllableWave + 1) * 0.11;
   const level = Math.min(1, clamped + syllableMod);
 
   if (level < 0.07) return 'closed';
   if (level < 0.22) return 'small';
+
+  // When live FFT bands or spoken text are supplied, drive full 10-shape phoneme articulation
+  if (spokenText && spokenText.trim().length > 0) {
+    const timeline = textToVisemeTimeline(spokenText);
+    const phoneme = timeline[Math.abs(tick) % timeline.length];
+
+    // Preserve crisp bilabial M/B/P closures unless peak vowel energy demands wide opening
+    if (phoneme === 'mbp' && clamped < 0.85) {
+      return 'mbp';
+    }
+
+    // Modulate phoneme by instantaneous audio energy so quiet moments tighten and peaks open
+    if (clamped < 0.14 && phoneme !== 'fv') {
+      return tick % 3 === 0 ? 'rest' : 'small';
+    }
+    if (bands && bands.length >= 10) {
+      const low = ((bands[1] ?? 0) + (bands[2] ?? 0) + (bands[3] ?? 0)) / 3;
+      const mid = ((bands[4] ?? 0) + (bands[5] ?? 0) + (bands[6] ?? 0)) / 3;
+      const high = ((bands[7] ?? 0) + (bands[8] ?? 0) + (bands[9] ?? 0)) / 3;
+
+      // Strong high-frequency fricative/sibilant energy boosts F/V, L/Th, or Wide/Ee
+      if (high > mid * 1.18 && high > 0.28) {
+        if (phoneme === 'fv' || phoneme === 'lth' || phoneme === 'ee') return phoneme;
+        return tick % 2 === 0 ? 'fv' : 'ee';
+      }
+      // Strong low vowel resonance biases Rounded O/Oo or Wide Open A/Ha
+      if (low > high * 1.25 && clamped > 0.52) {
+        return phoneme === 'round' ? 'round' : 'wide';
+      }
+    }
+    if (clamped > 0.78 && (phoneme === 'small' || phoneme === 'rest')) {
+      return 'wide';
+    }
+    return phoneme;
+  }
+
+  if (bands && bands.length >= 10) {
+    const low = ((bands[1] ?? 0) + (bands[2] ?? 0)) * 0.5;
+    const high = ((bands[7] ?? 0) + (bands[8] ?? 0)) * 0.5;
+    if (clamped < 0.28 && tick % 5 === 0) return 'mbp';
+    if (high > low * 1.2 && high > 0.3) {
+      return tick % 3 === 0 ? 'fv' : tick % 3 === 1 ? 'lth' : 'ee';
+    }
+  }
+
   if (level < 0.44) {
     if (tick % 4 === 0) return 'round';
     if (tick % 3 === 0) return 'small';

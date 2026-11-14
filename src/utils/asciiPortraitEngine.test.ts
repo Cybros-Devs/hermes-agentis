@@ -245,4 +245,74 @@ test('4-stage Talking Sequence and 3-stage Blinking Sequence produce distinct re
   assert.notEqual(blinkHalf, blinkClosed, 'Half-closed vs closed eyes must render differently');
 });
 
+test('10-panel talking reference visemes render distinctly and animator damps jaw/teeth/tongue/lip states', () => {
+  const size = 96;
+  const rgba = new Uint8ClampedArray(size * size * 4);
+  for (let y = 16; y <= 80; y++) {
+    for (let x = 16; x <= 80; x++) {
+      if (x === 16 || x === 80 || y === 16 || y === 80) {
+        const idx = (y * size + x) * 4;
+        rgba[idx + 3] = 255;
+      }
+    }
+  }
+  const field = buildPortraitSourceFromRgba(rgba, size, size);
+
+  const specs: Array<{ viseme: PortraitParams['viseme']; energy: number }> = [
+    { viseme: 'closed', energy: 0.08 },
+    { viseme: 'small', energy: 0.36 },
+    { viseme: 'wide', energy: 0.92 },
+    { viseme: 'round', energy: 0.72 },
+    { viseme: 'round', energy: 0.25 },
+    { viseme: 'ee', energy: 0.68 },
+    { viseme: 'lth', energy: 0.56 },
+    { viseme: 'fv', energy: 0.44 },
+    { viseme: 'rest', energy: 0.12 },
+    { viseme: 'mbp', energy: 0.22 },
+  ];
+  const outputs = new Set(
+    specs.map((s) =>
+      renderHalftonePortrait({
+        cols: 92,
+        rows: 42,
+        time: 0.4,
+        mood: 'speaking',
+        viseme: s.viseme,
+        eyeState: 'open',
+        energy: s.energy,
+        isSpeaking: s.viseme !== 'closed' && s.viseme !== 'rest',
+        isListening: false,
+        style: 'braille',
+        sourceField: field,
+      }).lines.join('\n')
+    )
+  );
+  assert.equal(outputs.size, 10, 'All 10 talking reference panels (including Oh vs Oo) must render uniquely');
+
+  const anim = createPortraitAnimator();
+  const sClosed = anim.step(
+    { time: 0, mood: 'neutral', viseme: 'closed', eyeState: 'open', energy: 0.05, isSpeaking: false, isListening: false },
+    0.016
+  );
+  const sWide = anim.step(
+    { time: 0.1, mood: 'speaking', viseme: 'wide', eyeState: 'open', energy: 0.9, isSpeaking: true, isListening: false },
+    0.05
+  );
+  assert.ok(sWide.jawDrop > sClosed.jawDrop, 'Wide Open (A/Ha) should articulate jawDrop');
+  assert.ok(sWide.teethTop > sClosed.teethTop, 'Wide Open (A/Ha) should reveal upper teeth');
+  assert.ok(sWide.tongueShow > sClosed.tongueShow, 'Wide Open (A/Ha) should engage floor tongue');
+
+  const sFv = anim.step(
+    { time: 0.2, mood: 'speaking', viseme: 'fv', eyeState: 'open', energy: 0.45, isSpeaking: true, isListening: false },
+    0.05
+  );
+  assert.ok(sFv.lipBite > 0.2, 'F/V should engage labiodental lipBite channel');
+
+  const sMbp = anim.step(
+    { time: 0.3, mood: 'speaking', viseme: 'mbp', eyeState: 'open', energy: 0.25, isSpeaking: true, isListening: false },
+    0.05
+  );
+  assert.ok(sMbp.lipPress > 0.2, 'M/B/P should engage bilabial lipPress channel');
+});
+
 

@@ -129,8 +129,8 @@ export function AsciiPortraitCanvas({
 
     const isThumb = variant === 'thumb';
     const isStage = variant === 'stage';
-    const cols = isThumb ? 22 : isStage ? 82 : 62;
-    const rows = isThumb ? 11 : isStage ? 37 : 28;
+    const cols = isThumb ? 22 : isStage ? 92 : 62;
+    const rows = isThumb ? 11 : isStage ? 42 : 28;
     const width = isThumb ? 42 : isStage ? 360 : 216;
     const height = isThumb ? 42 : isStage ? 330 : 198;
 

@@ -214,16 +214,26 @@ function getMouthOpening(viseme: MouthViseme, energy: number): { rx: number; ry:
   switch (viseme) {
     case 'closed':
       return { rx: 0.145, ry: 0.02 };
+    case 'rest':
+      return { rx: 0.15, ry: 0.032 };
+    case 'mbp':
+      return { rx: 0.165, ry: 0.016 };
+    case 'fv':
+      return { rx: 0.16, ry: 0.048 + boost * 0.4 };
+    case 'lth':
+      return { rx: 0.17, ry: 0.085 + boost * 0.7 };
     case 'smile':
       return { rx: 0.195, ry: 0.028 };
     case 'small':
-      return { rx: 0.115, ry: 0.062 + boost };
+      return { rx: 0.135, ry: 0.062 + boost };
     case 'mid':
-      return { rx: 0.16, ry: 0.102 + boost };
+      return { rx: 0.165, ry: 0.102 + boost };
     case 'round':
       return { rx: 0.112, ry: 0.125 + boost };
+    case 'ee':
+      return { rx: 0.235, ry: 0.095 + boost * 0.75 };
     case 'wide':
-      return { rx: 0.225, ry: 0.14 + boost };
+      return { rx: 0.21, ry: 0.148 + boost };
   }
 }
 
@@ -272,7 +282,7 @@ function buildFramePrecompute(params: Ascii3DParams): FramePrecompute {
     sTalkX: Math.sin(talkX),
     mouthRx: mouth.rx,
     mouthRy: mouth.ry,
-    mouthOpen: viseme !== 'closed' && viseme !== 'smile',
+    mouthOpen: viseme !== 'closed' && viseme !== 'smile' && viseme !== 'mbp',
     isSmile: viseme === 'smile',
     viseme,
     eyeScaleY:
