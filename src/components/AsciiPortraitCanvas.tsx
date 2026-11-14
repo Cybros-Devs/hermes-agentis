@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { ExpressionMood, EyeState, MouthViseme } from '../types/hermes';
 import {
+  buildPortraitBankFromSpriteSheet,
   buildPortraitSourceFromRgba,
   createPortraitAnimator,
   renderHalftonePortrait,
@@ -9,8 +10,12 @@ import {
 } from '../utils/asciiPortraitEngine';
 
 const REFERENCE_PORTRAIT_URL = '/assets/aistudio/image_9fdb5ec4.png';
+const REFERENCE_SPRITE_SHEET_URL = '/assets/aistudio/image_f0b5dc2e.png';
+
 let cachedPortraitSource: PortraitSourceField | null = null;
 let portraitLoadPromise: Promise<PortraitSourceField | null> | null = null;
+let cachedSpriteBank: PortraitSourceField[] | null = null;
+let spriteBankLoadPromise: Promise<PortraitSourceField[] | null> | null = null;
 
 function loadReferencePortraitField(): Promise<PortraitSourceField | null> {
   if (cachedPortraitSource) return Promise.resolve(cachedPortraitSource);
@@ -42,6 +47,48 @@ function loadReferencePortraitField(): Promise<PortraitSourceField | null> {
   });
 
   return portraitLoadPromise;
+}
+
+function loadReferenceSpriteBank(): Promise<PortraitSourceField[] | null> {
+  if (cachedSpriteBank) return Promise.resolve(cachedSpriteBank);
+  if (spriteBankLoadPromise) return spriteBankLoadPromise;
+
+  spriteBankLoadPromise = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        if (!w || !h) {
+          resolve(null);
+          return;
+        }
+        const offscreen = document.createElement('canvas');
+        offscreen.width = w;
+        offscreen.height = h;
+        const octx = offscreen.getContext('2d');
+        if (!octx) {
+          resolve(null);
+          return;
+        }
+        octx.drawImage(img, 0, 0, w, h);
+        const rgba = octx.getImageData(0, 0, w, h).data;
+        const bank = buildPortraitBankFromSpriteSheet(rgba, w, h, 160);
+        if (bank.length >= 12) {
+          cachedSpriteBank = bank;
+          resolve(bank);
+        } else {
+          resolve(null);
+        }
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = REFERENCE_SPRITE_SHEET_URL;
+  });
+
+  return spriteBankLoadPromise;
 }
 
 interface AsciiPortraitCanvasProps {
@@ -83,6 +130,7 @@ export function AsciiPortraitCanvas({
 }: AsciiPortraitCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [sourceField, setSourceField] = useState<PortraitSourceField | null>(cachedPortraitSource);
+  const [spriteBank, setSpriteBank] = useState<PortraitSourceField[] | null>(cachedSpriteBank);
 
   const stateRef = useRef({
     mood,
@@ -94,6 +142,7 @@ export function AsciiPortraitCanvas({
     lookTarget,
     lookTargetRef,
     sourceField,
+    spriteBank,
   });
   stateRef.current = {
     mood,
@@ -105,10 +154,18 @@ export function AsciiPortraitCanvas({
     lookTarget,
     lookTargetRef,
     sourceField,
+    spriteBank,
   };
 
   useEffect(() => {
     let mounted = true;
+    if (!cachedSpriteBank) {
+      loadReferenceSpriteBank().then((loadedBank) => {
+        if (mounted && loadedBank) {
+          setSpriteBank(loadedBank);
+        }
+      });
+    }
     if (!cachedPortraitSource) {
       loadReferencePortraitField().then((loaded) => {
         if (mounted && loaded) {
@@ -192,6 +249,7 @@ export function AsciiPortraitCanvas({
         isListening: isThumb ? false : s.isListening,
         style: 'braille',
         sourceField: s.sourceField,
+        spriteBank: s.spriteBank,
         motion,
       });
 
@@ -265,7 +323,7 @@ export function AsciiPortraitCanvas({
       window.cancelAnimationFrame(rafId);
       window.clearTimeout(timerId);
     };
-  }, [variant, sourceField]);
+  }, [variant, sourceField, spriteBank]);
 
   if (variant === 'thumb') {
     return (

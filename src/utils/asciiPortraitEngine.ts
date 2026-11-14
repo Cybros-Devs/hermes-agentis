@@ -59,6 +59,7 @@ export interface PortraitParams {
   isListening: boolean;
   style?: DitherStyle;
   sourceField?: PortraitSourceField | null;
+  spriteBank?: PortraitSourceField[] | null;
   motion?: PortraitMotionState | null;
 }
 
@@ -666,6 +667,397 @@ export function buildPortraitSourceFromRgba(
   return { width, height, baseLum, inkMask };
 }
 
+export interface ReferencePoseBlend {
+  mouthIndexA: number;
+  mouthIndexB: number;
+  mouthBlend: number;
+  eyeIndex: number;
+  eyeBlend: number;
+}
+
+/**
+ * Maps continuous facial motion state + phoneme viseme onto smooth crossfade indices
+ * across the 12-panel reference sprite sheet (panels 01..12 mapped to indices 0..11),
+ * decoupling mouth articulation from co-articulated blinking and half-lid micro-acting.
+ */
+export function resolveReferencePoseBlend(
+  motion: PortraitMotionState,
+  viseme: MouthViseme,
+  mood: ExpressionMood,
+  isSpeaking: boolean
+): ReferencePoseBlend {
+  const open = clamp01(motion.mouthOpen);
+  const roundAmt = clamp01(motion.mouthRound);
+  const smileAmt = clamp01(motion.smile);
+  const blinkAmt = clamp01(motion.blink);
+
+  let mouthIndexA = 0;
+  let mouthIndexB = 0;
+  let mouthBlend = 0;
+
+  if (!isSpeaking && open < 0.08 && motion.lipPress < 0.2 && motion.lipBite < 0.2) {
+    // Smooth idle crossfade between neutral alert (01 -> idx 0) and warm subtle smile (12 -> idx 11)
+    mouthIndexA = 0;
+    mouthIndexB = 11;
+    mouthBlend = smoothstep(0.15, 0.85, smileAmt);
+  } else if (viseme === 'round' || roundAmt > 0.45) {
+    // O / Oo sequence: slight part (02) -> tight O pucker (08) <-> rounded mid vowel (07)
+    if (open < 0.48) {
+      mouthIndexA = 9; // narrow round onset (10)
+      mouthIndexB = 7; // tight O pucker (08)
+      mouthBlend = smoothstep(0.12, 0.48, open);
+    } else {
+      mouthIndexA = 7; // tight O pucker (08)
+      mouthIndexB = 6; // rounded open (07)
+      mouthBlend = smoothstep(0.48, 0.88, open);
+    }
+  } else if (viseme === 'fv' || motion.lipBite > 0.42) {
+    mouthIndexA = 1; // gentle part (02)
+    mouthIndexB = 9; // narrow labiodental (10)
+    mouthBlend = clamp01(motion.lipBite);
+  } else if (viseme === 'lth' || motion.tongueLift > 0.42) {
+    mouthIndexA = 8; // oblique 3/4 lingual/mid (09)
+    mouthIndexB = 2; // crisp upper teeth (03)
+    mouthBlend = 0.45;
+  } else if (viseme === 'ee' || (motion.mouthWidth > 1.15 && open > 0.24)) {
+    mouthIndexA = 2; // crisp open teeth (03)
+    mouthIndexB = 8; // 3/4 oblique teeth/jaw (09)
+    mouthBlend = clamp01((open - 0.24) * 1.15);
+  } else if (motion.lipPress > 0.45 && open < 0.14) {
+    mouthIndexA = 0; // clean sealed lips (01)
+    mouthIndexB = 9; // pressed tension (10)
+    mouthBlend = clamp01(motion.lipPress * 0.65);
+  } else if (open < 0.12) {
+    mouthIndexA = smileAmt > 0.45 ? 11 : 0; // 12 or 01
+    mouthIndexB = 1; // gentle parting (02)
+    mouthBlend = smoothstep(0.02, 0.12, open);
+  } else if (open < 0.34) {
+    mouthIndexA = 1; // 02 gentle part
+    mouthIndexB = 2; // 03 crisp open + upper teeth
+    mouthBlend = (open - 0.12) / 0.22;
+  } else if (open < 0.66) {
+    mouthIndexA = 2; // 03 crisp open
+    mouthIndexB = mood === 'thinking' ? 8 : 3; // 09 oblique or 04 peak open
+    mouthBlend = (open - 0.34) / 0.32;
+  } else {
+    mouthIndexA = 2; // 03 conversational open
+    mouthIndexB = 3; // 04 wide jaw drop
+    mouthBlend = clamp01((open - 0.56) / 0.36);
+  }
+
+  // Co-articulated eye blink & half-lid expression overlay from panels 05, 06, 07, 11
+  let eyeIndex = mouthIndexB;
+  let eyeBlend = 0;
+  if (blinkAmt > 0.64) {
+    // Full calm blink (06 -> idx 5) or warm blink (11 -> idx 10)
+    eyeIndex = smileAmt > 0.45 || mood === 'happy' ? 10 : 5;
+    eyeBlend = smoothstep(0.54, 0.90, blinkAmt);
+  } else if (blinkAmt > 0.16 || motion.squint > 0.40) {
+    // Half-lidded blinks drawn in panels 05 (heavy peak, idx 4) & 07 (calm mid, idx 6)
+    eyeIndex = open > 0.52 ? 4 : 6;
+    eyeBlend = clamp01(
+      Math.max(smoothstep(0.14, 0.54, blinkAmt), (motion.squint - 0.35) * 0.72)
+    );
+  } else if (isSpeaking && open > 0.65) {
+    // Engaged wide eyes during vocal emphasis (04 -> idx 3)
+    eyeIndex = 3;
+    eyeBlend = 0.5;
+  }
+
+  return {
+    mouthIndexA,
+    mouthIndexB,
+    mouthBlend: clamp01(mouthBlend),
+    eyeIndex,
+    eyeBlend: clamp01(eyeBlend),
+  };
+}
+
+function detectAxisSegments(
+  isDividerLine: (pos: number) => boolean,
+  total: number,
+  expectedCount: number
+): Array<[number, number]> {
+  const dividers: Array<[number, number]> = [];
+  let inDiv = false;
+  let divStart = 0;
+
+  // Scan interior dividers (ignoring outermost 4% borders)
+  const minScan = Math.floor(total * 0.08);
+  const maxScan = Math.ceil(total * 0.92);
+  for (let p = minScan; p < maxScan; p++) {
+    const hit = isDividerLine(p);
+    if (hit && !inDiv) {
+      inDiv = true;
+      divStart = p;
+    } else if (!hit && inDiv) {
+      inDiv = false;
+      dividers.push([divStart, p - 1]);
+    }
+  }
+
+  // Pick evenly spaced divider bands matching expectedCount - 1 splits
+  if (dividers.length >= expectedCount - 1) {
+    const selected: Array<[number, number]> = [];
+    for (let k = 1; k < expectedCount; k++) {
+      const target = (total * k) / expectedCount;
+      let best = dividers[0];
+      let bestDist = Infinity;
+      for (const d of dividers) {
+        const mid = (d[0] + d[1]) * 0.5;
+        const dist = Math.abs(mid - target);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = d;
+        }
+      }
+      if (bestDist < total * 0.08) {
+        selected.push(best);
+      }
+    }
+    if (selected.length === expectedCount - 1) {
+      const segments: Array<[number, number]> = [];
+      let cur = 2;
+      for (const [d0, d1] of selected) {
+        segments.push([cur, Math.max(cur + 8, d0 - 2)]);
+        cur = d1 + 2;
+      }
+      segments.push([cur, Math.max(cur + 8, total - 3)]);
+      return segments;
+    }
+  }
+
+  // Fallback equal splits
+  const segments: Array<[number, number]> = [];
+  for (let k = 0; k < expectedCount; k++) {
+    const s = Math.floor((total * k) / expectedCount) + 2;
+    const e = Math.floor((total * (k + 1)) / expectedCount) - 2;
+    segments.push([s, Math.max(s + 8, e)]);
+  }
+  return segments;
+}
+
+/**
+ * Extracts, cleans, aligns, and builds a 12-pose PortraitSourceField bank
+ * from a 4x3 character talking sprite sheet (such as image_f0b5dc2e.png).
+ */
+export function buildPortraitBankFromSpriteSheet(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  targetSize: number = 160
+): PortraitSourceField[] {
+  const lumAt = (x: number, y: number) => {
+    const i = (y * width + x) * 4;
+    return (0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]) / 255;
+  };
+
+  const rowSegments = detectAxisSegments(
+    (y) => {
+      let dark = 0;
+      for (let x = 0; x < width; x += 2) {
+        if (lumAt(x, y) < 0.92) dark++;
+      }
+      return dark / Math.ceil(width / 2) > 0.72;
+    },
+    height,
+    3
+  );
+
+  const colSegments = detectAxisSegments(
+    (x) => {
+      let dark = 0;
+      for (let y = 0; y < height; y += 2) {
+        if (lumAt(x, y) < 0.92) dark++;
+      }
+      return dark / Math.ceil(height / 2) > 0.72;
+    },
+    width,
+    4
+  );
+
+  const bank: PortraitSourceField[] = [];
+
+  for (const [y0, y1] of rowSegments) {
+    for (const [x0, x1] of colSegments) {
+      const cw = x1 - x0 + 1;
+      const ch = y1 - y0 + 1;
+      const cTotal = cw * ch;
+
+      // Copy cell RGB & mark candidate dark ink
+      const cellRgb = new Uint8ClampedArray(cTotal * 3);
+      for (let ry = 0; ry < ch; ry++) {
+        for (let rx = 0; rx < cw; rx++) {
+          const srcIdx = ((y0 + ry) * width + (x0 + rx)) * 4;
+          const dstIdx = (ry * cw + rx) * 3;
+          const a = rgba[srcIdx + 3] / 255;
+          cellRgb[dstIdx] = Math.round(rgba[srcIdx] * a + 255 * (1 - a));
+          cellRgb[dstIdx + 1] = Math.round(rgba[srcIdx + 1] * a + 255 * (1 - a));
+          cellRgb[dstIdx + 2] = Math.round(rgba[srcIdx + 2] * a + 255 * (1 - a));
+        }
+      }
+
+      // 1) Remove disconnected panel number labels ("01".."12") strictly inside top-left corner
+      const visited = new Uint8Array(cTotal);
+      const queue = new Int32Array(cTotal);
+      const labelMaxX = Math.floor(cw * 0.24);
+      const labelMaxY = Math.floor(ch * 0.20);
+      const boundMaxX = Math.floor(cw * 0.27);
+      const boundMaxY = Math.floor(ch * 0.23);
+
+      const isCellDark = (idx: number) =>
+        (cellRgb[idx * 3] + cellRgb[idx * 3 + 1] + cellRgb[idx * 3 + 2]) / 3 < 195;
+      // Match flood-fill ceiling (>234) so anti-aliased digit edge pixels are also stripped
+      const isLabelCandidate = (idx: number) =>
+        cellRgb[idx * 3] <= 236 || cellRgb[idx * 3 + 1] <= 236 || cellRgb[idx * 3 + 2] <= 236;
+
+      for (let sy = 0; sy < labelMaxY; sy++) {
+        for (let sx = 0; sx < labelMaxX; sx++) {
+          const seed = sy * cw + sx;
+          if (visited[seed] || !isLabelCandidate(seed)) continue;
+          let qH = 0;
+          let qT = 0;
+          visited[seed] = 1;
+          queue[qT++] = seed;
+          let compMaxX = sx;
+          let compMaxY = sy;
+
+          while (qH < qT) {
+            const p = queue[qH++];
+            const px = p % cw;
+            const py = (p / cw) | 0;
+            if (px > compMaxX) compMaxX = px;
+            if (py > compMaxY) compMaxY = py;
+            const nbs = [
+              px > 0 ? p - 1 : -1,
+              px + 1 < cw ? p + 1 : -1,
+              py > 0 ? p - cw : -1,
+              py + 1 < ch ? p + cw : -1,
+            ];
+            for (const nb of nbs) {
+              if (nb >= 0 && !visited[nb] && isLabelCandidate(nb)) {
+                visited[nb] = 1;
+                queue[qT++] = nb;
+              }
+            }
+          }
+
+          if (compMaxX < boundMaxX && compMaxY < boundMaxY) {
+            for (let k = 0; k < qT; k++) {
+              const p = queue[k];
+              const px = p % cw;
+              const py = (p / cw) | 0;
+              for (let dy = -1; dy <= 1; dy++) {
+                const ny = py + dy;
+                if (ny < 0 || ny >= ch) continue;
+                for (let dx = -1; dx <= 1; dx++) {
+                  const nx = px + dx;
+                  if (nx < 0 || nx >= cw) continue;
+                  const np = ny * cw + nx;
+                  cellRgb[np * 3] = 255;
+                  cellRgb[np * 3 + 1] = 255;
+                  cellRgb[np * 3 + 2] = 255;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 2) Exterior flood-fill from bright outer background -> transparent alpha 0
+      const outside = new Uint8Array(cTotal);
+      let oH = 0;
+      let oT = 0;
+      const isBrightBg = (idx: number) =>
+        cellRgb[idx * 3] > 234 && cellRgb[idx * 3 + 1] > 234 && cellRgb[idx * 3 + 2] > 234;
+      const pushOut = (rx: number, ry: number) => {
+        const idx = ry * cw + rx;
+        if (!outside[idx] && isBrightBg(idx)) {
+          outside[idx] = 1;
+          queue[oT++] = idx;
+        }
+      };
+
+      for (let rx = 0; rx < cw; rx++) {
+        pushOut(rx, 0);
+        if (rx < cw * 0.25 || rx > cw * 0.74) {
+          pushOut(rx, ch - 1);
+        }
+      }
+      for (let ry = 0; ry < ch; ry++) {
+        pushOut(0, ry);
+        pushOut(cw - 1, ry);
+      }
+
+      while (oH < oT) {
+        const p = queue[oH++];
+        const px = p % cw;
+        const py = (p / cw) | 0;
+        if (px > 0) pushOut(px - 1, py);
+        if (px + 1 < cw) pushOut(px + 1, py);
+        if (py > 0) pushOut(px, py - 1);
+        if (py + 1 < ch) pushOut(px, py + 1);
+      }
+
+      // 3) Measure stable alignment anchor (crown top Y & upper-hair horizontal centroid)
+      let crownY = Math.floor(ch * 0.06);
+      let foundCrown = false;
+      let sumX = 0;
+      let cntX = 0;
+      for (let ry = 0; ry < ch; ry++) {
+        for (let rx = 0; rx < cw; rx++) {
+          const idx = ry * cw + rx;
+          if (!outside[idx] && isCellDark(idx)) {
+            if (!foundCrown && rx > cw * 0.22 && rx < cw * 0.78) {
+              crownY = ry;
+              foundCrown = true;
+            }
+            if (ry >= ch * 0.10 && ry <= ch * 0.48) {
+              sumX += rx;
+              cntX++;
+            }
+          }
+        }
+      }
+      const anchorCx = cntX > 0 ? sumX / cntX : cw * 0.5;
+      const anchorCrownY = foundCrown ? crownY : ch * 0.06;
+
+      // 4) Resample aligned panel into canonical targetSize x targetSize RGBA buffer
+      const aligned = new Uint8ClampedArray(targetSize * targetSize * 4);
+      const scale = Math.min(cw, ch) * 0.94;
+      const dstCx = targetSize * 0.505;
+      const dstCrownY = targetSize * 0.055;
+
+      for (let ty = 0; ty < targetSize; ty++) {
+        const srcY = anchorCrownY + ((ty - dstCrownY) / targetSize) * scale;
+        for (let tx = 0; tx < targetSize; tx++) {
+          const srcX = anchorCx + ((tx - dstCx) / targetSize) * scale;
+          const outIdx = (ty * targetSize + tx) * 4;
+          if (srcX < 0 || srcX >= cw - 1 || srcY < 0 || srcY >= ch - 1) {
+            aligned[outIdx + 3] = 0;
+            continue;
+          }
+          const sx = Math.round(srcX);
+          const sy = Math.round(srcY);
+          const sIdx = sy * cw + sx;
+          if (outside[sIdx]) {
+            aligned[outIdx + 3] = 0;
+            continue;
+          }
+          aligned[outIdx] = cellRgb[sIdx * 3];
+          aligned[outIdx + 1] = cellRgb[sIdx * 3 + 1];
+          aligned[outIdx + 2] = cellRgb[sIdx * 3 + 2];
+          aligned[outIdx + 3] = 255;
+        }
+      }
+
+      bank.push(buildPortraitSourceFromRgba(aligned, targetSize, targetSize));
+    }
+  }
+
+  return bank;
+}
+
 interface PrecomputedReferenceFrame {
   time: number;
   energy: number;
@@ -1223,6 +1615,156 @@ function sampleReferenceWithExpression(
 }
 
 /**
+ * Samples the 12-pose aligned sprite bank (`image_f0b5dc2e.png`) using:
+ * - 2.5D head yaw/pitch depth parallax & overlapping curl/shoulder breathing
+ * - Crossfaded mouth articulation across reference panels 01..12
+ * - Decoupled co-articulated eye-band blending for smooth natural blinks & half-lids
+ * - Subtle saccade catchlights & headband shimmer
+ */
+function sampleSpriteBankWithExpression(
+  ux: number,
+  uy: number,
+  fc: PrecomputedReferenceFrame,
+  bank: PortraitSourceField[],
+  pose: ReferencePoseBlend
+): number {
+  const { motion, ct, st, energy } = fc;
+
+  const framedX = (ux - 0.50) * 1.075 + 0.50;
+  const framedY = (uy - 0.54) * 1.085 + 0.51;
+
+  const headMask = 1 - smoothstep(0.68, 0.88, framedY);
+  const hx = framedX - 0.44;
+  const hy = framedY - 0.46;
+
+  let zDepth = 0;
+  let faceZone = 0;
+  if (headMask > 0.004 && framedX > 0.05 && framedX < 0.92 && framedY > 0.02) {
+    const faceDome = Math.exp(-(((hx + 0.12) / 0.26) ** 2 + ((hy - 0.02) / 0.29) ** 2));
+    const noseDome =
+      framedX < 0.48 && framedY > 0.25
+        ? Math.exp(-(((framedX - 0.26) / 0.09) ** 2 + ((framedY - 0.52) / 0.14) ** 2))
+        : 0;
+    const crownDome =
+      framedY < 0.55
+        ? Math.exp(-(((framedX - 0.40) / 0.22) ** 2 + ((framedY - 0.22) / 0.16) ** 2))
+        : 0;
+    const backHairDepth = smoothstep(0.06, 0.40, hx) * (1 - smoothstep(0.64, 0.90, framedY));
+    zDepth = (faceDome * 1.05 + noseDome * 0.48 + crownDome * 0.38 - backHairDepth * 0.78) * headMask;
+    faceZone = faceDome * headMask;
+  }
+
+  const yawParallaxX = -motion.headYaw * (0.095 * zDepth + 0.014 * headMask);
+  const pitchParallaxY = -motion.headPitch * (0.085 * zDepth + 0.012 * headMask);
+  const foreshortenX =
+    -hx * motion.headYaw * 0.14 * faceZone +
+    (motion.headYaw > 0 ? -0.014 * motion.headYaw * faceZone : 0);
+
+  const lowerFactor = smoothstep(0.45, 0.90, framedY);
+  const bangFactor = (1 - smoothstep(0.28, 0.42, framedY)) * smoothstep(0.10, 0.32, framedX);
+  const shoulderFactor = smoothstep(0.70, 0.94, framedY);
+
+  const localSwayX =
+    motion.headSwayX +
+    motion.hairLagX * lowerFactor +
+    motion.hairLagX * 0.38 * bangFactor;
+  const localNodY =
+    lerp(motion.headNodY, motion.shoulderY, shoulderFactor) +
+    motion.hairLagY * lowerFactor;
+
+  const pivotX = 0.42;
+  const pivotY = 0.74;
+  const dx = framedX + yawParallaxX + foreshortenX - pivotX - localSwayX;
+  const dy = framedY + pitchParallaxY - pivotY - localNodY;
+
+  const ax = pivotX + dx * ct - dy * st;
+  const ay = pivotY + dx * st + dy * ct;
+
+  if (ax < 0 || ax > 1 || ay < 0 || ay > 1) {
+    return 0;
+  }
+
+  const fieldA = bank[clamp(pose.mouthIndexA, 0, bank.length - 1)];
+  const fieldB = bank[clamp(pose.mouthIndexB, 0, bank.length - 1)];
+
+  const maxX = fieldA.width - 1;
+  const maxY = fieldA.height - 1;
+  const fx = clamp01(ax) * maxX;
+  const fy = clamp01(ay) * maxY;
+  const x0 = fx | 0;
+  const y0 = fy | 0;
+  const x1 = x0 < maxX ? x0 + 1 : maxX;
+  const y1 = y0 < maxY ? y0 + 1 : maxY;
+  const tx = fx - x0;
+  const ty = fy - y0;
+
+  const w00 = (1 - tx) * (1 - ty);
+  const w10 = tx * (1 - ty);
+  const w01 = (1 - tx) * ty;
+  const w11 = tx * ty;
+
+  const i00 = y0 * fieldA.width + x0;
+  const i10 = y0 * fieldA.width + x1;
+  const i01 = y1 * fieldA.width + x0;
+  const i11 = y1 * fieldA.width + x1;
+
+  const sampleLum = (f: PortraitSourceField) =>
+    f.baseLum[i00] * w00 + f.baseLum[i10] * w10 + f.baseLum[i01] * w01 + f.baseLum[i11] * w11;
+  const sampleInk = (f: PortraitSourceField) =>
+    f.inkMask[i00] * w00 + f.inkMask[i10] * w10 + f.inkMask[i01] * w01 + f.inkMask[i11] * w11;
+
+  const lumA = sampleLum(fieldA);
+  const lumB = sampleLum(fieldB);
+  const inkA = sampleInk(fieldA);
+  const inkB = sampleInk(fieldB);
+  const blendT = smoothstep(0.14, 0.86, pose.mouthBlend);
+
+  let lum = lerp(lumA, lumB, blendT);
+  const ink = lerp(inkA, inkB, blendT);
+
+  // Preserve crisp mouth cavity & lip line contrast during crossfades
+  if (
+    pose.mouthIndexA !== pose.mouthIndexB &&
+    blendT > 0.04 &&
+    blendT < 0.96 &&
+    ax >= 0.22 &&
+    ax <= 0.44 &&
+    ay >= 0.56 &&
+    ay <= 0.71
+  ) {
+    if (inkA > 0.55 || inkB > 0.55) {
+      lum = lerp(lum, Math.min(lumA, lumB), 0.35);
+    }
+  }
+
+  // Co-articulated upper eye/brow band blend from dedicated blink/half-lid panel (05, 06, 07, 11)
+  if (pose.eyeBlend > 0.02 && ax >= 0.14 && ax <= 0.56 && ay >= 0.30 && ay <= 0.52) {
+    const eyeField = bank[clamp(pose.eyeIndex, 0, bank.length - 1)];
+    const exMask = smoothstep(0.14, 0.19, ax) * (1 - smoothstep(0.50, 0.56, ax));
+    const eyMask = smoothstep(0.30, 0.34, ay) * (1 - smoothstep(0.47, 0.52, ay));
+    const eBlend = exMask * eyMask * pose.eyeBlend;
+    if (eBlend > 0.01) {
+      lum = lerp(lum, sampleLum(eyeField), eBlend);
+    }
+  }
+
+  // 2.5D studio key-light cheek shading shift during head turn
+  if (ink < 0.35 && faceZone > 0.1 && Math.abs(motion.headYaw) > 0.02 && ay > 0.36 && ay < 0.76 && ax > 0.18 && ax < 0.52) {
+    const cheekArea = smoothstep(0.19, 0.48, ax) * smoothstep(0.38, 0.65, ay) * (1 - smoothstep(0.65, 0.76, ay));
+    lum = clamp01(lum + motion.headYaw * 0.18 * cheekArea);
+  }
+
+  // Traveling headband shimmer during speaking/listening
+  const aura = motion.listenPulse;
+  if (aura > 0.06 && ink < 0.35 && ay < 0.28 && lum > 0.4) {
+    const wave = Math.exp(-(((ax - fc.glintSweep) * 7.5) ** 2));
+    lum = clamp01(lum + wave * aura * (0.15 + energy * 0.16));
+  }
+
+  return clamp01(lum);
+}
+
+/**
  * Pure TypeScript mathematical fallback portrait field (used in headless tests
  * and for the first millisecond before the reference PNG loads).
  */
@@ -1341,11 +1883,14 @@ function ensureSubBuffers(len: number) {
  * using 2x4 subpixel Serpentine Bill Atkinson Error Diffusion + Unsharp Contour Boost.
  */
 export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
-  const { cols, rows, sourceField } = params;
+  const { cols, rows, sourceField, spriteBank, viseme, mood, isSpeaking } = params;
   const cells = new Uint8Array(cols * rows);
   const lines: string[] = new Array(rows);
   const aspect = (cols * 0.53) / Math.max(1, rows);
-  const fc = sourceField ? buildReferenceFrameConstants(params) : null;
+  const hasBank = Boolean(spriteBank && spriteBank.length >= 12);
+  const fc = hasBank || sourceField ? buildReferenceFrameConstants(params) : null;
+  const poseBlend =
+    hasBank && fc ? resolveReferencePoseBlend(fc.motion, viseme, mood, isSpeaking) : null;
 
   const subW = cols * 2;
   const subH = rows * 4;
@@ -1353,8 +1898,17 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
   const raw = rawSubBuf;
   const work = workSubBuf;
 
-  // 1. Sample 2x4 subpixel luminance buffer directly from reference artwork / 2D field
-  if (sourceField && fc) {
+  // 1. Sample 2x4 subpixel luminance buffer directly from 12-pose sprite bank, single reference, or 2D fallback
+  if (spriteBank && poseBlend && fc && hasBank) {
+    for (let sy = 0; sy < subH; sy++) {
+      const uy = (sy + 0.5) / subH;
+      const rowOff = sy * subW;
+      for (let sx = 0; sx < subW; sx++) {
+        const ux = (sx + 0.5) / subW;
+        raw[rowOff + sx] = sampleSpriteBankWithExpression(ux, uy, fc, spriteBank, poseBlend);
+      }
+    }
+  } else if (sourceField && fc) {
     for (let sy = 0; sy < subH; sy++) {
       const uy = (sy + 0.5) / subH;
       const rowOff = sy * subW;

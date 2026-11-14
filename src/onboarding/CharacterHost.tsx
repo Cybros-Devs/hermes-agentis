@@ -9,6 +9,8 @@ import { isReducedMotionPreferred } from './trigger';
 if (typeof window !== 'undefined' && typeof Image !== 'undefined') {
   const preloadImg = new Image();
   preloadImg.src = '/assets/aistudio/image_9fdb5ec4.png';
+  const preloadSheet = new Image();
+  preloadSheet.src = '/assets/aistudio/image_f0b5dc2e.png';
 }
 
 interface CharacterHostProps {

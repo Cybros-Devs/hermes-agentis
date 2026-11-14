@@ -111,19 +111,23 @@ export function amplitudeToViseme(
   if (level < 0.07) return 'closed';
   if (level < 0.22) return 'small';
 
-  // When live FFT bands or spoken text are supplied, drive full 10-shape phoneme articulation
+  // When live FFT bands or spoken text are supplied, drive syllable-paced 10-shape phoneme articulation
   if (spokenText && spokenText.trim().length > 0) {
     const timeline = textToVisemeTimeline(spokenText);
-    const phoneme = timeline[Math.abs(tick) % timeline.length];
+    const syllableStep = Math.floor(Math.max(0, tick) / 3);
+    const phoneme = timeline[syllableStep % timeline.length];
 
-    // Preserve crisp bilabial M/B/P closures unless peak vowel energy demands wide opening
-    if (phoneme === 'mbp' && clamped < 0.85) {
+    // Keep bilabial M/B/P closures crisp on syllable onset, then release into voiced opening
+    if (phoneme === 'mbp' && (tick % 3 === 0 || clamped < 0.45)) {
       return 'mbp';
+    }
+    if (phoneme === 'mbp') {
+      return clamped > 0.68 ? 'mid' : 'small';
     }
 
     // Modulate phoneme by instantaneous audio energy so quiet moments tighten and peaks open
     if (clamped < 0.14 && phoneme !== 'fv') {
-      return tick % 3 === 0 ? 'rest' : 'small';
+      return syllableStep % 3 === 0 ? 'rest' : 'small';
     }
     if (bands && bands.length >= 10) {
       const low = ((bands[1] ?? 0) + (bands[2] ?? 0) + (bands[3] ?? 0)) / 3;
@@ -133,7 +137,7 @@ export function amplitudeToViseme(
       // Strong high-frequency fricative/sibilant energy boosts F/V, L/Th, or Wide/Ee
       if (high > mid * 1.18 && high > 0.28) {
         if (phoneme === 'fv' || phoneme === 'lth' || phoneme === 'ee') return phoneme;
-        return tick % 2 === 0 ? 'fv' : 'ee';
+        return syllableStep % 2 === 0 ? 'fv' : 'ee';
       }
       // Strong low vowel resonance biases Rounded O/Oo or Wide Open A/Ha
       if (low > high * 1.25 && clamped > 0.52) {

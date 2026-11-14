@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildPortraitBankFromSpriteSheet,
   buildPortraitSourceFromRgba,
   createPortraitAnimator,
   renderHalftonePortrait,
+  resolveReferencePoseBlend,
   samplePortraitLuminance,
   type PortraitParams,
 } from './asciiPortraitEngine';
@@ -347,5 +349,119 @@ test('createPortraitAnimator prevents 1-frame mouth teleportation and produces f
   assert.ok(maxMouthJump < 0.26, `Expected 2nd-order damped mouthOpen without teleport spikes, got ${maxMouthJump}`);
   assert.ok(gazeXSeries.some((g) => Math.abs(g) > 0.05), 'Expected subtle eye saccade motion during idle');
 });
+
+test('buildPortraitBankFromSpriteSheet extracts 12 aligned panels, strips corner labels, and renders distinct talking states', () => {
+  const w = 160;
+  const h = 120;
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  // Fill pure white sheet background
+  for (let i = 0; i < w * h; i++) {
+    rgba[i * 4] = 255;
+    rgba[i * 4 + 1] = 255;
+    rgba[i * 4 + 2] = 255;
+    rgba[i * 4 + 3] = 255;
+  }
+  // Draw 4x3 gray dividers
+  const vDivs = [40, 80, 120];
+  const hDivs = [40, 80];
+  for (const vx of vDivs) {
+    for (let y = 0; y < h; y++) {
+      const idx = (y * w + vx) * 4;
+      rgba[idx] = 170; rgba[idx + 1] = 170; rgba[idx + 2] = 170;
+    }
+  }
+  for (const hy of hDivs) {
+    for (let x = 0; x < w; x++) {
+      const idx = (hy * w + x) * 4;
+      rgba[idx] = 170; rgba[idx + 1] = 170; rgba[idx + 2] = 170;
+    }
+  }
+  // Populate each of 12 panels with a silhouette circle + panel-specific mouth/eye mark + corner label dot
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 4; c++) {
+      const panelIdx = r * 4 + c;
+      const x0 = c * 40 + 2;
+      const y0 = r * 40 + 2;
+      // Corner label ink dot at (x0+3, y0+3) + anti-aliased gray halo ring (lum ~215) inside label box
+      for (let dy = 1; dy <= 5; dy++) {
+        for (let dx = 1; dx <= 5; dx++) {
+          const idx = ((y0 + dy) * w + (x0 + dx)) * 4;
+          const isCore = dy >= 2 && dy <= 4 && dx >= 2 && dx <= 4;
+          const v = isCore ? 10 : 215;
+          rgba[idx] = v; rgba[idx + 1] = v; rgba[idx + 2] = v;
+        }
+      }
+      // Head outline ring centered in panel
+      for (let dy = 6; dy <= 32; dy++) {
+        for (let dx = 10; dx <= 30; dx++) {
+          const dist = Math.hypot(dx - 20, dy - 18);
+          const isOutline = Math.abs(dist - 10) < 1.3;
+          const isMouthMark = dy >= 22 && dy <= 22 + Math.floor(panelIdx / 3) && Math.abs(dx - 20) <= (panelIdx % 4) + 1;
+          if (isOutline || isMouthMark) {
+            const idx = ((y0 + dy) * w + (x0 + dx)) * 4;
+            rgba[idx] = 0; rgba[idx + 1] = 0; rgba[idx + 2] = 0;
+          }
+        }
+      }
+    }
+  }
+
+  const bank = buildPortraitBankFromSpriteSheet(rgba, w, h, 80);
+  assert.equal(bank.length, 12, 'Expected 12 extracted poses from 4x3 sprite sheet');
+  // Exterior corner + anti-aliased label ring of panel 0 should remain transparent/dark (0)
+  for (let py = 0; py < 12; py++) {
+    for (let px = 0; px < 14; px++) {
+      assert.equal(bank[0].baseLum[py * 80 + px], 0, `Expected label/halo pixel (${px},${py}) to be cleared`);
+    }
+  }
+
+  const anim = createPortraitAnimator();
+  const closedMotion = anim.step(
+    { time: 0, mood: 'neutral', viseme: 'closed', eyeState: 'open', energy: 0.05, isSpeaking: false, isListening: false },
+    0.05
+  );
+  const wideMotion = anim.step(
+    { time: 0.2, mood: 'speaking', viseme: 'wide', eyeState: 'open', energy: 0.92, isSpeaking: true, isListening: false },
+    0.06
+  );
+  const roundMotion = anim.step(
+    { time: 0.3, mood: 'speaking', viseme: 'round', eyeState: 'open', energy: 0.72, isSpeaking: true, isListening: false },
+    0.06
+  );
+  const blinkMotion = anim.step(
+    { time: 0.4, mood: 'neutral', viseme: 'closed', eyeState: 'blink', energy: 0.05, isSpeaking: false, isListening: false },
+    0.06
+  );
+
+  const poseClosed = resolveReferencePoseBlend(closedMotion, 'closed', 'neutral', false);
+  const poseWide = resolveReferencePoseBlend(wideMotion, 'wide', 'speaking', true);
+  const poseRound = resolveReferencePoseBlend(roundMotion, 'round', 'speaking', true);
+  const poseBlink = resolveReferencePoseBlend(blinkMotion, 'closed', 'neutral', false);
+
+  assert.equal(poseClosed.mouthIndexA, 0, 'Idle closed should anchor on panel 01 (index 0)');
+  assert.ok(poseWide.mouthIndexB === 3 || poseWide.mouthIndexA === 2, 'Wide speech should target open reference panels 03/04');
+  assert.equal(poseRound.mouthIndexB, 7, 'Rounded O/Oo should target reference panel 08 (index 7)');
+  assert.ok(poseBlink.eyeBlend > 0.2 && (poseBlink.eyeIndex === 5 || poseBlink.eyeIndex === 6 || poseBlink.eyeIndex === 10), 'Blink should blend dedicated blink panels (06/07/11)');
+
+  const frameClosed = renderHalftonePortrait({
+    ...BASE,
+    spriteBank: bank,
+    motion: closedMotion,
+    viseme: 'closed',
+    isSpeaking: false,
+  }).lines.join('\n');
+
+  const frameWide = renderHalftonePortrait({
+    ...BASE,
+    spriteBank: bank,
+    motion: wideMotion,
+    viseme: 'wide',
+    isSpeaking: true,
+    energy: 0.9,
+  }).lines.join('\n');
+
+  assert.notEqual(frameClosed, frameWide, 'Expected sprite-bank closed vs speaking frames to differ');
+});
+
 
 

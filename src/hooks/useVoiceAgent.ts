@@ -147,12 +147,11 @@ export function useVoiceAgent(onFinalTranscript: (transcript: string) => void) {
             return;
           }
           const t = elapsed / 1000;
-          const level = Math.max(
-            0.08,
-            Math.min(0.95, 0.45 + 0.35 * Math.sin(t * 14) + 0.15 * Math.cos(t * 23))
-          );
+          const phrase = 0.72 + 0.28 * Math.sin(t * 2.15 + 0.4);
+          const syllable = 0.52 + 0.34 * Math.sin(t * 11.4) + 0.14 * Math.cos(t * 17.8);
+          const level = Math.max(0.06, Math.min(0.96, syllable * phrase));
           const bands = Array.from({ length: 12 }, (_, idx) =>
-            Math.max(0.05, Math.min(1, level * (0.65 + 0.35 * Math.sin(t * 11 + idx * 0.7))))
+            Math.max(0.05, Math.min(1, level * (0.62 + 0.38 * Math.sin(t * 9.6 + idx * 0.72))))
           );
           setVoiceState((prev) => ({
             ...prev,
@@ -160,7 +159,7 @@ export function useVoiceAgent(onFinalTranscript: (transcript: string) => void) {
             outputLevel: level,
             frequencyBands: bands,
           }));
-        }, 45);
+        }, 42);
       };
 
       try {
