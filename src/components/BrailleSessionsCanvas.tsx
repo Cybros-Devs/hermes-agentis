@@ -268,7 +268,7 @@ export function BrailleSessionsCanvas({
       />
 
       {/* Flowing Braille Wave Horizon along lower floor */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[132px] opacity-60">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[112px] opacity-30 sm:opacity-60">
         <BrailleHorizonCanvas
           energy={activeSpeechEnergy}
           isActive={voiceState.isSpeaking || voiceState.isListening}
@@ -310,8 +310,8 @@ export function BrailleSessionsCanvas({
         </div>
       </div>
 
-      {/* Spatial Parallel Sessions Stage (scrolls vertically on mobile, free spatial drag on sm+) */}
-      <div className="relative flex-1 min-h-0 w-full overflow-y-auto sm:overflow-hidden cyber-scroll flex flex-col items-center gap-4 px-4 pb-6 sm:block sm:p-0">
+      {/* Spatial Parallel Sessions Stage (2-col mobile grid, free spatial drag on sm+) */}
+      <div className="relative z-10 flex-1 min-h-0 w-full overflow-y-auto sm:overflow-hidden cyber-scroll grid grid-cols-2 items-start justify-items-center gap-x-2.5 gap-y-5 px-3 pb-24 pt-1 sm:block sm:p-0">
         {/* Subtle Constellation Connection Filaments on sm+ */}
         <svg
           aria-hidden="true"

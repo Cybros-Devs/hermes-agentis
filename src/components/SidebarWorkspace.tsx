@@ -65,7 +65,7 @@ export function SidebarWorkspace({
               type="button"
               onClick={onCloseMobile}
               aria-label="Back to workspace"
-              className="lg:hidden p-1 -ml-1 rounded-md text-emerald-100/70 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
+              className="lg:hidden min-w-[36px] min-h-[36px] flex items-center justify-center -ml-1 rounded-lg text-emerald-100/75 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>

@@ -131,7 +131,7 @@ export function DuetOperationsPanel({
       </div>
 
       {/* Tab Content */}
-      <div className="p-3.5 space-y-2.5 max-h-[380px] overflow-y-auto cyber-scroll">
+      <div className="p-3 sm:p-3.5 space-y-2.5 lg:max-h-[420px] overflow-y-auto cyber-scroll">
         {activeTab === 'approvals' &&
           approvals.map((card) => {
             const currentDraft = draftEdits[card.id] ?? card.draft;

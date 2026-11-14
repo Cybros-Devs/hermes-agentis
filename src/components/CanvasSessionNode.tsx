@@ -129,7 +129,9 @@ export function CanvasSessionNode({
           zIndex: isDragged ? 40 : isChatOpen ? 30 : isSelected ? 20 : 10,
         } as React.CSSProperties
       }
-      className="relative sm:absolute sm:left-[var(--dot-x)] sm:top-[var(--dot-y)] sm:-translate-x-1/2 sm:-translate-y-1/2 flex flex-col items-center touch-none py-2 sm:py-0"
+      className={`relative sm:absolute sm:left-[var(--dot-x)] sm:top-[var(--dot-y)] sm:-translate-x-1/2 sm:-translate-y-1/2 flex flex-col items-center sm:touch-none py-1 sm:py-0 w-full sm:w-auto ${
+        isChatOpen ? 'col-span-2 sm:col-span-1' : ''
+      }`}
     >
       {/* Draggable / Clickable Anime Braille Character Sprite */}
       <button
@@ -217,7 +219,7 @@ export function CanvasSessionNode({
           data-testid={`session-chat-${session.channelId}`}
           onPointerDown={(e) => e.stopPropagation()}
           onWheelCapture={(e) => e.stopPropagation()}
-          className="mt-2 w-[264px] sm:w-[280px] rounded-xl bg-[#07120F]/94 border border-[#34D399]/35 backdrop-blur-md shadow-[0_14px_34px_rgba(0,0,0,0.58)] overflow-hidden flex flex-col"
+          className="mt-2 w-[min(280px,calc(100vw-2.5rem))] rounded-xl bg-[#07120F]/94 border border-[#34D399]/35 backdrop-blur-md shadow-[0_14px_34px_rgba(0,0,0,0.58)] overflow-hidden flex flex-col"
         >
           {/* Individual Window Header */}
           <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 border-b border-white/8 bg-white/[0.02]">
@@ -355,7 +357,9 @@ export function CanvasSessionNode({
         onSubmit={handleSubmit}
         onPointerDown={(e) => e.stopPropagation()}
         data-testid={`session-input-form-${session.channelId}`}
-        className={`mt-1.5 w-[224px] sm:w-[244px] flex items-center gap-1.5 rounded-full border px-1.5 py-1 bg-[#07120F]/92 backdrop-blur-md shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-all ${
+        className={`mt-1.5 ${
+          isChatOpen ? 'w-[min(320px,calc(100vw-2.25rem))] sm:w-[244px]' : 'w-full max-w-[172px] sm:w-[244px] sm:max-w-none'
+        } flex items-center gap-1 rounded-full border px-1.5 py-1 bg-[#07120F]/92 backdrop-blur-md shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-all ${
           isChatOpen || isSelected
             ? 'border-[#34D399]/65 shadow-[0_0_20px_rgba(52,211,153,0.16)]'
             : 'border-white/18 hover:border-[#34D399]/45 focus-within:border-[#4ADE80]'

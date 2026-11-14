@@ -881,7 +881,7 @@ export default function App() {
   );
 
   return (
-    <div className="h-screen min-h-[560px] emerald-ambient-bg text-[#ECF3F0] p-2 sm:p-3.5 xl:p-4 flex flex-col overflow-hidden">
+    <div className="h-[100dvh] min-h-[500px] emerald-ambient-bg text-[#ECF3F0] p-1.5 sm:p-3.5 xl:p-4 flex flex-col overflow-hidden">
       <main
         id="top"
         className="flex-1 min-h-0 w-full mx-auto grid grid-cols-1 lg:grid-cols-[clamp(272px,20vw,340px)_1fr] gap-3"
