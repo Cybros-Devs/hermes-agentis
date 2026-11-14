@@ -291,7 +291,7 @@ export function AsciiPortraitCanvas({
         data-testid="ascii-portrait-canvas"
         className={
           isStage
-            ? 'w-[240px] h-[220px] sm:w-[310px] sm:h-[284px] lg:w-[350px] lg:h-[321px] xl:w-[370px] xl:h-[340px] block'
+            ? 'block w-[clamp(230px,38vmin,540px)] aspect-[12/11]'
             : 'w-[216px] h-[198px] block'
         }
       />

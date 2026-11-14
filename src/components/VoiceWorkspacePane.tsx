@@ -10,6 +10,7 @@ import {
   Volume2,
   VolumeX,
   ArrowUp,
+  Brain,
   Check,
   X,
 } from 'lucide-react';
@@ -59,6 +60,9 @@ interface VoiceWorkspacePaneProps {
   onToggleMute: () => void;
   onStopSpeaking: () => void;
   onSubmitInput: (value: string, source: 'voice' | 'cli') => void;
+  /** Whether the agent's live activity trace is shown in the transcript. */
+  showThinking: boolean;
+  onToggleThinking: () => void;
 }
 
 export function VoiceWorkspacePane({
@@ -85,6 +89,8 @@ export function VoiceWorkspacePane({
   onToggleMute,
   onStopSpeaking,
   onSubmitInput,
+  showThinking,
+  onToggleThinking,
 }: VoiceWorkspacePaneProps) {
   const [tick, setTick] = useState(0);
   const [input, setInput] = useState('');
@@ -155,8 +161,15 @@ export function VoiceWorkspacePane({
   );
 
   const visibleMessages = useMemo(
-    () => entries.filter((e) => e.role === 'user' || e.role === 'hermes' || e.role === 'command'),
-    [entries]
+    () =>
+      entries.filter(
+        (e) =>
+          e.role === 'user' ||
+          e.role === 'hermes' ||
+          e.role === 'command' ||
+          (showThinking && e.role === 'activity')
+      ),
+    [entries, showThinking]
   );
 
   const pendingApprovals = useMemo(
@@ -279,6 +292,20 @@ export function VoiceWorkspacePane({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={onToggleThinking}
+            aria-pressed={showThinking}
+            aria-label={showThinking ? 'Hide agent thinking trace' : 'Show agent thinking trace'}
+            title={showThinking ? 'Hide thinking trace' : 'Show thinking trace'}
+            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors cursor-pointer ${
+              showThinking
+                ? 'border-[#34D399]/50 bg-[#34D399]/12 text-[#6EE7B7]'
+                : 'border-white/12 bg-white/[0.05] text-emerald-50/50 hover:text-white hover:border-white/25'
+            }`}
+          >
+            <Brain className="w-3.5 h-3.5" />
+          </button>
           <button
             type="button"
             onClick={onToggleMute}
@@ -519,6 +546,20 @@ export function VoiceWorkspacePane({
             >
               {visibleMessages.map((entry, idx) => {
                 const isUser = entry.role === 'user' || entry.role === 'command';
+                if (entry.role === 'activity') {
+                  return (
+                    <div
+                      key={entry.id}
+                      className="flex items-baseline gap-2 font-mono text-[11.5px] text-emerald-100/45"
+                    >
+                      <span aria-hidden="true" className="text-[#6EE7B7]/70 shrink-0">▸</span>
+                      <span className="truncate">{entry.text}</span>
+                      <span className="tabular-nums shrink-0 text-emerald-100/25">
+                        {entry.timestamp}
+                      </span>
+                    </div>
+                  );
+                }
                 if (isUser) {
                   return (
                     <div

@@ -103,7 +103,7 @@ export interface HermesGatewayStatus {
 export interface TerminalEntry {
   id: string;
   channelId: ChannelId;
-  role: 'user' | 'hermes' | 'system' | 'command';
+  role: 'user' | 'hermes' | 'system' | 'command' | 'activity';
   source: 'voice' | 'cli' | 'ui';
   text: string;
   timestamp: string;

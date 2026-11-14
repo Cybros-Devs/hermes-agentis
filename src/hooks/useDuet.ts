@@ -29,6 +29,13 @@ interface DuetItem {
   streaming?: boolean;
   run_id?: string | null;
   card?: DuetCard;
+  activity?: {
+    run_id: string;
+    status: string;
+    summary?: string;
+    error?: string;
+    steps?: { name: string; label?: string; status: string }[];
+  };
 }
 interface DuetTask {
   id: string;
@@ -76,8 +83,30 @@ function hhmm(epochMs: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** Compact one-line label for the agent's live work (activity items). */
+function activityText(item: DuetItem): string {
+  const a = item.activity;
+  if (!a) return '';
+  if (a.summary) return a.summary;
+  const running = a.steps?.find((s) => s.status === 'running');
+  const last = running ?? a.steps?.[a.steps.length - 1];
+  if (last) return `${last.label ?? last.name} — ${running ? 'running' : last.status}`;
+  return `run ${a.status}`;
+}
+
 function itemToEntry(item: DuetItem): TerminalEntry | null {
-  if (item.kind === 'card' || item.kind === 'activity') return null;
+  if (item.kind === 'card') return null;
+  if (item.kind === 'activity') {
+    return {
+      id: item.id,
+      channelId: item.channel_id || 'general',
+      role: 'activity',
+      source: 'ui',
+      text: activityText(item),
+      timestamp: hhmm(item.created_at),
+      createdAtMs: item.created_at,
+    };
+  }
   const role: TerminalEntry['role'] =
     item.kind === 'assistant' ? 'hermes' : item.kind === 'user' ? 'user' : 'system';
   return {

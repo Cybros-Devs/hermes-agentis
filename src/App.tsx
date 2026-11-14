@@ -193,6 +193,24 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duetConnected]);
 
+  const [showThinking, setShowThinking] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('duet.showThinking') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const handleToggleThinking = useCallback(() => {
+    setShowThinking((v) => {
+      try {
+        localStorage.setItem('duet.showThinking', v ? '0' : '1');
+      } catch {
+        // ignore
+      }
+      return !v;
+    });
+  }, []);
+
   useEffect(() => {
     let active = true;
     fetch('/api/hermes/gateway')
@@ -549,10 +567,10 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen min-h-[600px] emerald-ambient-bg text-[#ECF3F0] p-2.5 sm:p-4 pb-16 lg:pb-4 flex flex-col overflow-hidden">
+    <div className="h-screen min-h-[600px] emerald-ambient-bg text-[#ECF3F0] p-2.5 sm:p-4 xl:p-5 pb-16 lg:pb-4 flex flex-col overflow-hidden">
       <main
         id="top"
-        className="flex-1 min-h-0 max-w-[1440px] w-full mx-auto grid grid-cols-1 lg:grid-cols-[315px_1fr] gap-3"
+        className="flex-1 min-h-0 w-full mx-auto grid grid-cols-1 lg:grid-cols-[clamp(300px,21vw,420px)_1fr] gap-3"
       >
         {/* Left Sidebar Window: Tasks, Approvals, Halftone Thumb & Lanes */}
         <div
@@ -637,6 +655,8 @@ export default function App() {
               voice.stopSpeaking();
             }}
             onSubmitInput={(val, src) => processUserInput(val, src)}
+            showThinking={showThinking}
+            onToggleThinking={handleToggleThinking}
           />
         </div>
       </main>
