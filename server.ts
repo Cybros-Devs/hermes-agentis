@@ -169,17 +169,51 @@ interface StandaloneDuetChannel {
   name: string;
   session_id: string;
   topic?: string | null;
+  persona?: string | null;
   archived?: boolean;
   last_at?: number | null;
 }
 
+type StandaloneSessionStatus = "idle" | "thinking" | "running";
+
 const standaloneBootTime = Date.now();
 
 const standaloneChannels: StandaloneDuetChannel[] = [
-  { id: "general", name: "general", session_id: "duet-general", topic: "Primary Hermes Agent voice thread, daily check-ins, and morning brief" },
-  { id: "ops", name: "ops", session_id: "duet-ops", topic: "hermes gateway (:8642), cronjob_manage schedules, and payment gates" },
-  { id: "launch", name: "launch", session_id: "duet-launch", topic: "~/.hermes/skills/ workflows, save_page rebuilds, and QA checks" },
-  { id: "research", name: "research", session_id: "duet-research", topic: "Isolated background runs and persistent MEMORY.md synthesis" },
+  {
+    id: "general",
+    name: "general",
+    session_id: "hermes-general",
+    topic: "Primary Hermes Agent voice thread, daily check-ins, and morning brief",
+    persona: "Calm primary Hermes coordinator styled after the main cyber-bob operator.",
+  },
+  {
+    id: "ops",
+    name: "ops",
+    session_id: "hermes-ops",
+    topic: "hermes gateway (:8642), cronjob_manage schedules, and payment gates",
+    persona: "Steady ops & morning-brief keeper guarding cron schedules.",
+  },
+  {
+    id: "launch",
+    name: "launch",
+    session_id: "hermes-launch",
+    topic: "~/.hermes/skills/ workflows, save_page rebuilds, and QA checks",
+    persona: "High-energy release and save_page builder running fast launch turns.",
+  },
+  {
+    id: "research",
+    name: "research",
+    session_id: "hermes-research",
+    topic: "Isolated background runs and persistent MEMORY.md synthesis",
+    persona: "Quiet deep-research session focused on long-horizon synthesis.",
+  },
+  {
+    id: "daemon",
+    name: "daemon",
+    session_id: "hermes-daemon",
+    topic: "Background cron watcher & ambient signal daemon",
+    persona: "Stealthy background daemon monitoring cron watchers and ambient events.",
+  },
 ];
 
 const standalonePending: StandaloneDuetItem[] = [
@@ -265,13 +299,106 @@ const standaloneTasks: StandaloneDuetTask[] = [
 
 const standaloneItems: StandaloneDuetItem[] = [
   {
-    id: "init-welcome",
+    id: "init-welcome-general",
     kind: "assistant",
     created_at: standaloneBootTime - 60_000,
     channel_id: "general",
-    text: "Hermes Duet online. Two mcp__duet approval gates are waiting—tap Voice or type /help to begin.",
+    text: "Session hermes-general online (Cyber Bob). Two mcp__duet approval gates are waiting—tap Voice or type /help.",
+  },
+  {
+    id: "init-welcome-ops",
+    kind: "assistant",
+    created_at: standaloneBootTime - 58_000,
+    channel_id: "ops",
+    text: "Session hermes-ops online (Seraph). Monitoring :8642 gateway, cronjob_manage schedules, and $45.00 cap approval.",
+  },
+  {
+    id: "init-welcome-launch",
+    kind: "assistant",
+    created_at: standaloneBootTime - 56_000,
+    channel_id: "launch",
+    text: "Session hermes-launch online (Twintails). Tracking save_page rebuilds and QA parity checks cleanly.",
+  },
+  {
+    id: "init-welcome-research",
+    kind: "assistant",
+    created_at: standaloneBootTime - 54_000,
+    channel_id: "research",
+    text: "Session hermes-research online (Yume). Isolated MEMORY.md synthesis and ~/.hermes/skills/ index ready.",
+  },
+  {
+    id: "init-welcome-daemon",
+    kind: "assistant",
+    created_at: standaloneBootTime - 52_000,
+    channel_id: "daemon",
+    text: "Session hermes-daemon online (Neko). Silent watcher lane listening for cron triggers and ambient events.",
   },
 ];
+
+const standaloneSessionStatus = new Map<string, StandaloneSessionStatus>();
+
+function ensureStandaloneChannel(opts: {
+  channelId: string;
+  name?: string;
+  sessionId?: string;
+  topic?: string;
+  persona?: string;
+}): StandaloneDuetChannel {
+  const cleanId =
+    opts.channelId
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9-_]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "session";
+  let existing = standaloneChannels.find((c) => c.id === cleanId);
+  if (!existing) {
+    existing = {
+      id: cleanId,
+      name: (opts.name || cleanId).replace(/^#/, ""),
+      session_id: opts.sessionId?.trim() || `hermes-${cleanId}`,
+      topic: opts.topic?.trim() || `Isolated hermes-agent session #${cleanId}`,
+      persona: opts.persona?.trim() || "Focused hermes-agent sub-session running an independent context.",
+      last_at: Date.now(),
+    };
+    standaloneChannels.push(existing);
+  } else {
+    if (opts.name) existing.name = opts.name.replace(/^#/, "");
+    if (opts.sessionId?.trim()) existing.session_id = opts.sessionId.trim();
+    if (opts.topic?.trim()) existing.topic = opts.topic.trim();
+    if (opts.persona?.trim()) existing.persona = opts.persona.trim();
+  }
+  return existing;
+}
+
+function buildSessionSnapshot(ch: StandaloneDuetChannel) {
+  const chItems = standaloneItems.filter((it) => (it.channel_id || "general") === ch.id);
+  const turnCount = chItems.filter((it) => it.kind === "user").length;
+  const lastAssistant = [...chItems]
+    .reverse()
+    .find((it) => (it.kind === "assistant" || it.kind === "user") && it.text?.trim());
+  const latestTimestamp = chItems.reduce((acc, it) => Math.max(acc, it.created_at), ch.last_at ?? standaloneBootTime);
+  const hasRunningTask = standaloneTasks.some(
+    (t) => (t.channel_id || "general") === ch.id && t.status === "running"
+  );
+  const explicitStatus = standaloneSessionStatus.get(ch.id);
+  const status = explicitStatus ?? (hasRunningTask ? "running" : "idle");
+
+  return {
+    sessionId: ch.session_id,
+    channelId: ch.id,
+    name: ch.name,
+    persona: ch.persona || "Hermes Agent standalone session",
+    topic: ch.topic || `Hermes session #${ch.name}`,
+    status,
+    turnCount,
+    lastMessage: lastAssistant?.text?.trim() || ch.topic || "",
+    updatedAtMs: latestTimestamp,
+  };
+}
+
+function buildAllSessionSnapshots() {
+  return standaloneChannels.filter((c) => !c.archived).map(buildSessionSnapshot);
+}
 
 const sseClients = new Set<express.Response>();
 
@@ -398,6 +525,7 @@ async function createServer() {
     message: string;
     channelId?: string;
     sessionId?: string;
+    persona?: string;
     history?: Array<{ role?: string; text?: string }>;
     pendingApprovals?: Array<{ id?: string; title?: string }>;
     tasks?: Array<{ status?: string }>;
@@ -406,13 +534,18 @@ async function createServer() {
       message,
       channelId = "general",
       sessionId,
+      persona,
       history = [],
       pendingApprovals = [],
       tasks = [],
     } = params;
 
     const resolvedSessionId =
-      typeof sessionId === "string" && sessionId ? sessionId : `duet-${channelId || "general"}`;
+      typeof sessionId === "string" && sessionId ? sessionId : `hermes-${channelId || "general"}`;
+    const resolvedPersona =
+      typeof persona === "string" && persona.trim()
+        ? persona.trim()
+        : "Isolated Hermes Agent session running independent conversation context.";
 
     try {
       // 1. Prefer live local/Tailscale Hermes Agent Gateway (/v1/chat/completions) when reachable
@@ -421,7 +554,7 @@ async function createServer() {
           const gwMessages = [
             {
               role: "system",
-              content: `You are Hermes Agent inside Hermes Duet (session ${resolvedSessionId}, lane #${channelId || "general"}). Respond in 1-3 crisp spoken sentences.`,
+              content: `You are Hermes Agent inside Hermes Duet (isolated session ${resolvedSessionId}, lane #${channelId || "general"}). Persona: ${resolvedPersona}. Respond in 1-3 crisp spoken sentences.`,
             },
             ...(Array.isArray(history)
               ? history.slice(-6).map((h) => ({
@@ -470,12 +603,13 @@ async function createServer() {
       const ai = getGeminiClient();
 
       const systemInstruction = [
-        "You are Hermes Agent (NousResearch/hermes-agent) speaking through Hermes Duet (DevvGwardo/hermes-duet).",
-        "You appear on the user's Duet interface as a real-time audio-synced monochrome Braille portrait.",
+        "You are Hermes Agent (NousResearch/hermes-agent) speaking through an isolated Hermes Duet session (DevvGwardo/hermes-duet).",
+        "Each Braille shape on the canvas hosts its own separate hermes-agent session and isolated thread history.",
+        `Assigned session persona: ${resolvedPersona}`,
         "Speak concisely (1-3 crisp sentences, <= 55 words) because every reply is spoken aloud via TTS with live facial lip-sync and Braille text decoding.",
         "Maintain genuine Hermes Agent & Hermes Duet awareness: Gateway API server (:8642, /v1/runs, /v1/chat/completions), MCP bridge tools (mcp__duet__request_approval, mcp__duet__request_payment, mcp__duet__post_brief, mcp__duet__save_page), ~/.hermes/skills/, persistent MEMORY.md, and cronjob_manage schedules.",
         "If the user asks to approve or reject a pending card, reference /approve <id> or the Approve button; remember a chat 'yes' does not bypass the explicit approval card button.",
-        `Active lane: #${channelId || "general"} (session: ${resolvedSessionId}).`,
+        `Isolated session: ${resolvedSessionId} (lane #${channelId || "general"}).`,
         `Pending mcp__duet gates: ${JSON.stringify(pendingApprovals)}.`,
         `Active background runs: ${JSON.stringify(tasks)}.`,
       ].join("\n");
@@ -546,31 +680,31 @@ async function createServer() {
       const lower = String(message).toLowerCase();
       const pendingList = Array.isArray(pendingApprovals) ? pendingApprovals : [];
       const taskList = Array.isArray(tasks) ? tasks : [];
-      let reply = `Hermes lane duet-${channelId} active. Try /brief, /skills, /gateway, or /approve to drive Hermes Agent.`;
+      let reply = `Session ${resolvedSessionId} active in #${channelId}. Send a prompt or run /brief, /skills, or /gateway.`;
       let mood = "happy";
       let suggestedCommand = "";
 
       if (lower.includes("brief")) {
-        reply = `Post_brief queue ready: ${pendingList.length} mcp__duet gate${pendingList.length === 1 ? "" : "s"} waiting${pendingList[0]?.title ? `—top item is ${pendingList[0].title}` : ""}.`;
+        reply = `[${resolvedSessionId}] Post_brief queue ready: ${pendingList.length} mcp__duet gate${pendingList.length === 1 ? "" : "s"} waiting${pendingList[0]?.title ? `—top item is ${pendingList[0].title}` : ""}.`;
         mood = "focused";
         suggestedCommand = "/brief";
       } else if (lower.includes("skill")) {
-        reply = `Four skills loaded from ~/.hermes/skills/: duet-bridge, morning-brief, playwright-parity, and mail-triage.`;
+        reply = `[${resolvedSessionId}] Four skills loaded from ~/.hermes/skills/: duet-bridge, morning-brief, playwright-parity, and mail-triage.`;
         mood = "focused";
         suggestedCommand = "/skills";
       } else if (lower.includes("gateway") || lower.includes("mcp") || lower.includes("doctor")) {
-        reply = `Configure API_SERVER_ENABLED=true in ~/.hermes/.env and run hermes gateway on 127.0.0.1:8642 with mcp_servers.duet.`;
+        reply = `[${resolvedSessionId}] Gateway configured on ${HERMES_API_URL} with mcp_servers.duet bridge active.`;
         mood = "focused";
         suggestedCommand = "/gateway";
       } else if (lower.includes("task") || lower.includes("status")) {
         const running = taskList.filter((t) => t.status === "running").length;
-        reply = `Tracking ${taskList.length} isolated Hermes runs, with ${running} executing cleanly.`;
+        reply = `[${resolvedSessionId}] Tracking ${taskList.length} Hermes runs, with ${running} executing cleanly.`;
         mood = "focused";
         suggestedCommand = "/tasks";
       } else if (lower.includes("approve")) {
         reply = pendingList[0]?.title
-          ? `${pendingList[0].title} is queued behind mcp__duet. Run /approve ${pendingList[0].id} or tap Approve.`
-          : "All mcp__duet approval gates in this lane are clear.";
+          ? `[${resolvedSessionId}] ${pendingList[0].title} is queued behind mcp__duet. Run /approve ${pendingList[0].id} or tap Approve.`
+          : `[${resolvedSessionId}] All mcp__duet approval gates in this session are clear.`;
         mood = "happy";
         suggestedCommand = pendingList[0]?.id ? `/approve ${pendingList[0].id}` : "";
       }
@@ -591,6 +725,7 @@ async function createServer() {
       message,
       channelId,
       sessionId,
+      persona,
       history = [],
       pendingApprovals = [],
       tasks = [],
@@ -604,11 +739,112 @@ async function createServer() {
       message,
       channelId,
       sessionId,
+      persona,
       history,
       pendingApprovals,
       tasks,
     });
     res.status(200).json(result);
+  });
+
+  // Separate hermes-agent session registry endpoints
+  app.get("/api/hermes/sessions", (_req, res) => {
+    res.status(200).json({ sessions: buildAllSessionSnapshots() });
+  });
+
+  app.post("/api/hermes/sessions", (req, res) => {
+    const { channelId, name, sessionId, topic, persona } = (req.body ?? {}) as {
+      channelId?: string;
+      name?: string;
+      sessionId?: string;
+      topic?: string;
+      persona?: string;
+    };
+    const rawKey = channelId || name;
+    if (!rawKey || typeof rawKey !== "string") {
+      res.status(400).json({ error: "channelId or name is required." });
+      return;
+    }
+    const hadChannel = standaloneChannels.some(
+      (c) =>
+        c.id ===
+        rawKey
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9-_]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+    );
+    const channel = ensureStandaloneChannel({ channelId: rawKey, name, sessionId, topic, persona });
+
+    let welcomeItem: StandaloneDuetItem | null = null;
+    const hasItems = standaloneItems.some((it) => (it.channel_id || "general") === channel.id);
+    if (!hasItems) {
+      welcomeItem = {
+        id: `init-welcome-${channel.id}-${Date.now()}`,
+        kind: "assistant",
+        created_at: Date.now(),
+        channel_id: channel.id,
+        text: `Isolated session ${channel.session_id} ready (#${channel.name}). ${channel.topic}`,
+      };
+      standaloneItems.push(welcomeItem);
+    }
+
+    const snapshot = buildSessionSnapshot(channel);
+    if (!hadChannel) {
+      broadcastStandaloneEvent({ type: "channel", channel });
+    }
+    if (welcomeItem) {
+      broadcastStandaloneEvent({ type: "item", item: welcomeItem });
+    }
+    broadcastStandaloneEvent({ type: "session", session: snapshot });
+    res.status(200).json({ session: snapshot, channel, item: welcomeItem });
+  });
+
+  app.post("/api/hermes/sessions/:channelId/reset", (req, res) => {
+    const channelId = req.params.channelId;
+    const ch = ensureStandaloneChannel({ channelId });
+    for (let i = standaloneItems.length - 1; i >= 0; i--) {
+      if ((standaloneItems[i].channel_id || "general") === ch.id) {
+        standaloneItems.splice(i, 1);
+      }
+    }
+    standaloneSessionStatus.set(ch.id, "idle");
+    const resetItem: StandaloneDuetItem = {
+      id: `reset-${ch.id}-${Date.now()}`,
+      kind: "assistant",
+      created_at: Date.now(),
+      channel_id: ch.id,
+      text: `Fresh context opened for ${ch.session_id} (#${ch.name}). Prior messages in this shape were cleared.`,
+    };
+    standaloneItems.push(resetItem);
+    const snapshot = buildSessionSnapshot(ch);
+    broadcastStandaloneEvent({
+      type: "session_reset",
+      channelId: ch.id,
+      session: snapshot,
+      item: resetItem,
+    });
+    res.status(200).json({ ok: true, session: snapshot, item: resetItem });
+  });
+
+  app.delete("/api/hermes/sessions/:channelId", (req, res) => {
+    const channelId = req.params.channelId;
+    if (channelId === "general") {
+      res.status(400).json({ error: "Cannot delete primary general session." });
+      return;
+    }
+    const idx = standaloneChannels.findIndex((c) => c.id === channelId);
+    if (idx >= 0) {
+      standaloneChannels.splice(idx, 1);
+    }
+    for (let i = standaloneItems.length - 1; i >= 0; i--) {
+      if ((standaloneItems[i].channel_id || "general") === channelId) {
+        standaloneItems.splice(i, 1);
+      }
+    }
+    standaloneSessionStatus.delete(channelId);
+    broadcastStandaloneEvent({ type: "session_deleted", channelId });
+    res.status(200).json({ ok: true, channelId });
   });
 
   app.post("/api/hermes/tts", async (req, res) => {
@@ -774,11 +1010,22 @@ async function createServer() {
       pending: standalonePending,
       tasks: standaloneTasks,
       channels: standaloneChannels,
+      sessions: buildAllSessionSnapshots(),
     });
   });
 
   app.post("/api/duet/messages", async (req, res) => {
-    const { text, channel_id = "general" } = (req.body ?? {}) as { text?: string; channel_id?: string };
+    const {
+      text,
+      channel_id = "general",
+      session_id,
+      persona,
+    } = (req.body ?? {}) as {
+      text?: string;
+      channel_id?: string;
+      session_id?: string;
+      persona?: string;
+    };
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "text is required" });
       return;
@@ -798,51 +1045,72 @@ async function createServer() {
       // Fall through to standalone in-memory Duet run
     }
 
+    const channel = ensureStandaloneChannel({
+      channelId: channel_id,
+      sessionId: session_id,
+      persona,
+    });
+    channel.last_at = Date.now();
+
     const userItem: StandaloneDuetItem = {
       id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       kind: "user",
       created_at: Date.now(),
-      channel_id,
+      channel_id: channel.id,
       text,
     };
     standaloneItems.push(userItem);
+    standaloneSessionStatus.set(channel.id, "thinking");
     broadcastStandaloneEvent({ type: "item", item: userItem });
-    res.status(200).json({ item: userItem });
+    broadcastStandaloneEvent({ type: "session", session: buildSessionSnapshot(channel) });
+    res.status(200).json({ item: userItem, session: buildSessionSnapshot(channel) });
 
-    // Generate Hermes reply asynchronously and emit over SSE just like the real Duet server
+    // Generate Hermes reply asynchronously in this shape's isolated session
     void (async () => {
-      const history = standaloneItems
-        .filter((it) => it.kind === "user" || it.kind === "assistant")
-        .slice(-6)
-        .map((it) => ({
-          role: it.kind === "user" ? "user" : "hermes",
-          text: it.text ?? "",
-        }));
-      const pendingApprovals = standalonePending
-        .filter((p) => p.card && p.card.status === "pending" && p.card.type !== "brief")
-        .map((p) => ({ id: p.id, title: p.card?.title }));
+      try {
+        const history = standaloneItems
+          .filter(
+            (it) =>
+              (it.kind === "user" || it.kind === "assistant") &&
+              (it.channel_id || "general") === channel.id
+          )
+          .slice(-6)
+          .map((it) => ({
+            role: it.kind === "user" ? "user" : "hermes",
+            text: it.text ?? "",
+          }));
+        const pendingApprovals = standalonePending
+          .filter((p) => p.card && p.card.status === "pending" && p.card.type !== "brief")
+          .map((p) => ({ id: p.id, title: p.card?.title }));
 
-      const replyData = await generateHermesReply({
-        message: text,
-        channelId: channel_id,
-        sessionId: `duet-${channel_id}`,
-        history,
-        pendingApprovals,
-        tasks: standaloneTasks,
-      });
+        const replyData = await generateHermesReply({
+          message: text,
+          channelId: channel.id,
+          sessionId: channel.session_id,
+          persona: channel.persona ?? undefined,
+          history,
+          pendingApprovals,
+          tasks: standaloneTasks.filter((t) => (t.channel_id || "general") === channel.id),
+        });
 
-      const assistantItem: StandaloneDuetItem = {
-        id: `hermes-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        kind: "assistant",
-        created_at: Date.now(),
-        channel_id,
-        streaming: false,
-        text: replyData.suggestedCommand
-          ? `${replyData.reply}\n[Suggested: ${replyData.suggestedCommand}]`
-          : replyData.reply,
-      };
-      standaloneItems.push(assistantItem);
-      broadcastStandaloneEvent({ type: "item", item: assistantItem });
+        const assistantItem: StandaloneDuetItem = {
+          id: `hermes-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          kind: "assistant",
+          created_at: Date.now(),
+          channel_id: channel.id,
+          streaming: false,
+          text: replyData.suggestedCommand
+            ? `${replyData.reply}\n[Suggested: ${replyData.suggestedCommand}]`
+            : replyData.reply,
+        };
+        standaloneItems.push(assistantItem);
+        standaloneSessionStatus.set(channel.id, "idle");
+        broadcastStandaloneEvent({ type: "item", item: assistantItem });
+        broadcastStandaloneEvent({ type: "session", session: buildSessionSnapshot(channel) });
+      } catch {
+        standaloneSessionStatus.set(channel.id, "idle");
+        broadcastStandaloneEvent({ type: "session", session: buildSessionSnapshot(channel) });
+      }
     })();
   });
 

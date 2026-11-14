@@ -84,10 +84,10 @@ export function BrailleShapeCanvas({
     if (!ctx) return;
 
     const isPreview = variant === 'preview';
-    const cols = isPreview ? 18 : 30;
-    const rows = isPreview ? 9 : 15;
-    const width = isPreview ? 64 : 118;
-    const height = isPreview ? 56 : 104;
+    const cols = isPreview ? 20 : 34;
+    const rows = isPreview ? 10 : 17;
+    const width = isPreview ? 68 : 124;
+    const height = isPreview ? 58 : 108;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = width * dpr;
@@ -99,7 +99,7 @@ export function BrailleShapeCanvas({
     const dotW = cellW / 2;
     const dotH = cellH / 4;
     const dotRadius = Math.min(dotW, dotH) * (isPreview ? 0.44 : 0.43);
-    const dotDiameter = Math.max(1.05, dotRadius * 1.92);
+    const dotDiameter = Math.max(1.0, dotRadius * 1.9);
 
     const reducedMotion =
       typeof window !== 'undefined' &&
@@ -245,8 +245,8 @@ export function BrailleShapeCanvas({
       aria-hidden="true"
       className={
         variant === 'preview'
-          ? `block w-16 h-14 pointer-events-none ${className}`
-          : `block w-[118px] h-[104px] pointer-events-none ${className}`
+          ? `block w-[68px] h-[58px] pointer-events-none ${className}`
+          : `block w-[124px] h-[108px] pointer-events-none ${className}`
       }
     />
   );

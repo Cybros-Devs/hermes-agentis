@@ -84,7 +84,7 @@ test('renderBrailleShape is deterministic and responds to eye states and speakin
   assert.notEqual(openA.lines.join('\n'), speaking.lines.join('\n'));
 });
 
-test('evaluateShapeSdf keeps all 9 shapes bounded within [-1, 1] viewport with accurate orientation', () => {
+test('evaluateShapeSdf keeps all 9 anime shapes bounded within [-1, 1] viewport with accurate silhouettes', () => {
   for (const meta of BRAILLE_SHAPE_CATALOG) {
     assert.ok(evaluateShapeSdf(meta.kind, 0, 0) < 0, `${meta.kind} should contain center`);
     for (const [cx, cy] of [
@@ -100,14 +100,13 @@ test('evaluateShapeSdf keeps all 9 shapes bounded within [-1, 1] viewport with a
     }
   }
 
-  // Star top spike at (0, -0.68) is inside, upper corners (+/-0.55, -0.70) are outside
-  assert.ok(evaluateShapeSdf('star', 0, -0.68) < 0, 'star top spike should be inside');
-  assert.ok(evaluateShapeSdf('star', 0.55, -0.70) > 0, 'star top-right valley margin should be outside');
-  assert.ok(evaluateShapeSdf('star', -0.55, -0.70) > 0, 'star top-left valley margin should be outside');
+  // Twintails ('star') has flared side twintails and top ahoge sprout
+  assert.ok(evaluateShapeSdf('star', -0.68, 0.36) < 0, 'twintails left tail should be inside');
+  assert.ok(evaluateShapeSdf('star', 0.68, 0.36) < 0, 'twintails right tail should be inside');
+  assert.ok(evaluateShapeSdf('star', -0.80, -0.75) > 0, 'twintails upper-left margin should be outside');
 
-  // Triangle (Prism) points UP: top tip near (0, -0.55) is inside while upper shoulders (+/-0.55, -0.55) are outside,
-  // and lower base (+/-0.45, +0.42) is inside.
-  assert.ok(evaluateShapeSdf('triangle', 0, -0.55) < 0, 'triangle top apex should be inside');
-  assert.ok(evaluateShapeSdf('triangle', 0.55, -0.55) > 0, 'triangle upper shoulder should be outside');
-  assert.ok(evaluateShapeSdf('triangle', 0.45, 0.42) < 0, 'triangle lower base should be inside');
+  // Mecha ('triangle') has upward cyber fins on temples and center crest
+  assert.ok(evaluateShapeSdf('triangle', -0.56, -0.38) < 0, 'mecha left fin should be inside');
+  assert.ok(evaluateShapeSdf('triangle', 0.56, -0.38) < 0, 'mecha right fin should be inside');
+  assert.ok(evaluateShapeSdf('triangle', 0.85, 0.78) > 0, 'mecha lower-right corner should be outside');
 });

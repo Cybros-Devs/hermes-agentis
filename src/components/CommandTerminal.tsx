@@ -5,6 +5,7 @@ import { DecodedText } from './DecodedText';
 
 interface CommandTerminalProps {
   activeChannel: ChannelId;
+  activeSessionId?: string;
   entries: TerminalEntry[];
   isThinking: boolean;
   onSubmitInput: (value: string) => void;
@@ -22,17 +23,19 @@ const QUICK_COMMANDS = [
 
 export function CommandTerminal({
   activeChannel,
+  activeSessionId,
   entries,
   isThinking,
   onSubmitInput,
 }: CommandTerminalProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scopedEntries = entries.filter((entry) => entry.channelId === activeChannel);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [entries.length, isThinking]);
+  }, [scopedEntries.length, isThinking, activeChannel]);
 
   return (
     <section
@@ -43,9 +46,9 @@ export function CommandTerminal({
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-white/8 bg-black/20">
         <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/80">
           <Terminal className="w-3.5 h-3.5 text-[#34D399]" />
-          <span className="font-semibold text-white">hermes-duet</span>
+          <span className="font-semibold text-white">hermes-agent</span>
           <span className="text-emerald-100/35">·</span>
-          <span className="text-emerald-100/60">duet-{activeChannel}</span>
+          <span className="text-emerald-100/60">{activeSessionId || `hermes-${activeChannel}`}</span>
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto">
@@ -68,12 +71,12 @@ export function CommandTerminal({
         data-testid="terminal-stream"
         className="cyber-scroll flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs leading-relaxed"
       >
-        {entries.length === 0 ? (
+        {scopedEntries.length === 0 ? (
           <p className="text-emerald-100/45">
-            Terminal ready. Type a slash command (/help) in the prompt below.
+            Session {activeSessionId || `hermes-${activeChannel}`} ready. Type a slash command (/help) or prompt below.
           </p>
         ) : (
-          entries.map((entry) => {
+          scopedEntries.map((entry) => {
             const isUser = entry.role === 'user' || entry.role === 'command';
             const isSystem = entry.role === 'system';
 
