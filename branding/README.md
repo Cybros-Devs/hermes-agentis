@@ -20,6 +20,7 @@ Style: cyberpunk-terminal meets the Hermes Duet house style. Charcoal `#0e0e0e`,
 | `infographic.jpg` | dense-modules × cyberpunk-neon product overview, 16:9 (generated via agy) |
 | `infographic-b.png` | periodic-table × cyberpunk-neon — the 11 tested engines, 16:9 (rendered from SVG: `generate-infographic-b.py`) |
 | `analysis.md`, `structured-content.md`, `prompts/*.md`, `source.md` | Infographic process files (baoyu-infographic skill) + verified source facts |
+| `readme/` | README art set — `hero.jpg` (16:9), `character.jpg` (square), `phone.jpg` (16:9), all generated via agy; prompts in `prompts/readme-*.md` |
 | `v1/` | The complete v1.0 kit, archived (name: "Hermes Duet // Cyber Comms") |
 
 ## Committed choices
@@ -34,3 +35,6 @@ Style: cyberpunk-terminal meets the Hermes Duet house style. Charcoal `#0e0e0e`,
 
 - `infographic.jpg`: title, tagline, all 6 stats, ports, and the 11-engine list verified correct; one component label is garbled ("Ascii3DViewpozit" for Ascii3DViewport) and one label is clipped at the frame edge. Inherent drift of image-model text rendering — regenerating trades this defect for new random ones, so it ships as-is.
 - `infographic-b.png`: agy's image model timed out four times on this layout (full-detail and lean prompts; only low-res partials), so it is rendered programmatically from SVG (`generate-infographic-b.py`, resvg + Consolas) — pixel-exact engine names, exact palette, vision-verified defect-free. The lean prompt is kept at `prompts/infographic-b-lean.md` as process record.
+- `readme/hero.jpg`: composition, palette and no-text verified; the face renders as dot-stipple rather than distinct typographic glyphs — inherent agy drift, ships as-is.
+- `readme/character.jpg`: vision-verified on-spec (front-facing ASCII portrait in viewport panel, cyan waveform + cursor, flat colors, no text).
+- `readme/phone.jpg`: no text, flat palette, hard shadow verified; one subtle luminance vignette behind the phone survives after a targeted regeneration (v1 had a colored gold radial wash, v3 is monochrome only) — within drift tolerance, ships as-is.
