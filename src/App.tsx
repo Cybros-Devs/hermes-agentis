@@ -31,6 +31,11 @@ import {
 } from './utils/canvasSessions';
 import { INITIAL_CHANNELS, executeCliInput } from './utils/cliEngine';
 import {
+  deriveSessionFromPrompt,
+  pickNextShapeAndTint,
+  shouldStartNewHomeSession,
+} from './utils/homeSession';
+import {
   UI_PATCH_EVENT,
   applyUiPatch,
   hydrateUiConfigOnBoot,
@@ -122,6 +127,14 @@ export default function App() {
     }
     return 'home';
   });
+  const [homeSessionDraft, setHomeSessionDraft] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.search.includes('view=canvas') || window.location.search.includes('autostart=1')) {
+        return false;
+      }
+    }
+    return true;
+  });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [animateSpeechLine, setAnimateSpeechLine] = useState(false);
@@ -145,6 +158,9 @@ export default function App() {
 
   const stateRef = useRef({
     activeChannel,
+    channels,
+    panelView,
+    homeSessionDraft,
     approvals,
     tasks,
     brief,
@@ -154,6 +170,9 @@ export default function App() {
   });
   stateRef.current = {
     activeChannel,
+    channels,
+    panelView,
+    homeSessionDraft,
     approvals,
     tasks,
     brief,
@@ -176,7 +195,10 @@ export default function App() {
     const ch = channelId ?? stateRef.current.activeChannel;
     setAnimateSpeechLine(true);
     setLastSpokenByChannel((prev) => ({ ...prev, [ch]: line }));
-    if (ch === stateRef.current.activeChannel) {
+    if (
+      ch === stateRef.current.activeChannel &&
+      !(stateRef.current.homeSessionDraft && stateRef.current.panelView === 'home')
+    ) {
       setLastSpokenLineState(line);
     }
   }, []);
@@ -353,10 +375,15 @@ export default function App() {
     onUiPatch: (patch) => {
       applyAgentUiPatch(patch, 'hermes');
     },
+    onRunSettled: (channelId) => {
+      setChannelThinking(channelId, false);
+    },
     onAssistantComplete: (text, channelId) => {
       setChannelThinking(channelId, false);
       updateSpokenLine(text, channelId);
-      if (channelId === stateRef.current.activeChannel) {
+      const onHomeDraft =
+        stateRef.current.homeSessionDraft && stateRef.current.panelView === 'home';
+      if (channelId === stateRef.current.activeChannel && !onHomeDraft) {
         setMood('happy');
         setSpeakingChannel(channelId);
         void voiceRef.current?.speakText(text, 'happy');
@@ -446,6 +473,14 @@ export default function App() {
   }, [duetConnected, upsertEntry]);
 
   useEffect(() => {
+    if (homeSessionDraft && panelView === 'home') {
+      setLastSpokenLineState(
+        duet.initialLoading
+          ? 'Linking to Hermes Duet…'
+          : 'New Hermes Agent session ready — type or speak a prompt to begin.'
+      );
+      return;
+    }
     const scopedLatest = [...entries]
       .reverse()
       .find((e) => e.channelId === activeChannel && e.role === 'hermes' && e.text.trim().length > 0);
@@ -460,7 +495,15 @@ export default function App() {
         setLastSpokenLineState(`${cs.hermesSessionId} ready · ${cs.topic}`);
       }
     }
-  }, [activeChannel, entries, lastSpokenByChannel, canvasSessions, duet.initialLoading]);
+  }, [
+    activeChannel,
+    entries,
+    lastSpokenByChannel,
+    canvasSessions,
+    duet.initialLoading,
+    homeSessionDraft,
+    panelView,
+  ]);
 
   const [showThinking, setShowThinking] = useState<boolean>(() => {
     try {
@@ -566,96 +609,35 @@ export default function App() {
     [appendEntry, updateSpokenLine, duetActOnCard]
   );
 
-  const processUserInput = useCallback(
-    async (rawText: string, source: 'voice' | 'cli', targetChannelId?: ChannelId) => {
-      const trimmed = rawText.trim();
-      if (!trimmed) return;
+  const handleStartNewHomeSession = useCallback(() => {
+    voiceRef.current?.stopSpeaking();
+    setSpeakingChannel(null);
+    setSelectedItemId(null);
+    setHomeSessionDraft(true);
+    setPanelView('home');
+    setMobileSidebarOpen(false);
+    setMood('happy');
+    setLastSpokenLineState('New Hermes Agent session ready — type or speak a prompt to begin.');
+    window.setTimeout(() => {
+      document.getElementById('hermes-voice-input')?.focus();
+    }, 40);
+  }, []);
 
-      const { activeChannel: currentActive, approvals: appList, tasks: taskList, brief: briefList } =
-        stateRef.current;
-      const ch = targetChannelId ?? currentActive;
-
-      const isCommandInput = trimmed.startsWith('/');
-      if (!isCommandInput && duetConnected) {
-        // No local echo on the Duet path: the real item (POST response or SSE)
-        // is the single display copy, so transcript order stays chronological.
-      } else {
-        appendEntry({
-          channelId: ch,
-          role: isCommandInput ? 'command' : 'user',
-          source,
-          text: trimmed,
-        });
-      }
-
-      const result = executeCliInput(trimmed, {
-        activeChannel: ch,
-        approvals: appList,
-        tasks: taskList,
-        brief: briefList,
-        isMuted: voiceRef.current?.isMuted ?? false,
-        gatewayConnected: gatewayStatus?.connected,
-        gatewayUrl: gatewayStatus?.gatewayUrl,
-      });
-
-      if (result.type === 'handled') {
-        if (result.uiPatch) {
-          applyAgentUiPatch(result.uiPatch, 'cli');
-        }
-        if (result.clearTerminal) {
-          setEntries((prev) => prev.filter((e) => e.channelId !== ch));
-          setMood('neutral');
-          return;
-        }
-        if (result.switchChannel) {
-          setActiveChannel(result.switchChannel);
-        }
-        if (result.approveCardId) {
-          handleApproveCard(result.approveCardId);
-          return;
-        }
-        if (result.rejectCardId) {
-          handleRejectCard(result.rejectCardId);
-          return;
-        }
-        if (result.toggleMute) {
-          voiceRef.current?.toggleMute();
-        }
-        if (result.setMood) {
-          setMood(result.setMood);
-        } else if (ch === stateRef.current.activeChannel) {
-          setMood(result.mood);
-        }
-
-        appendEntry({
-          channelId: result.switchChannel ?? ch,
-          role: 'system',
-          source: 'cli',
-          text: result.output,
-        });
-
-        if (result.spokenText) {
-          updateSpokenLine(result.spokenText, result.switchChannel ?? ch);
-          appendEntry({
-            channelId: result.switchChannel ?? ch,
-            role: 'hermes',
-            source: 'cli',
-            mood: result.mood,
-            text: result.spokenText,
-          });
-          if ((result.switchChannel ?? ch) === stateRef.current.activeChannel) {
-            voiceRef.current?.speakText(result.spokenText, result.mood);
-          }
-        } else {
-          updateSpokenLine(result.output, result.switchChannel ?? ch);
-        }
-        return;
-      }
-
-      // Natural language prompt -> real Hermes Duet run inside this shape's isolated session.
+  const sendDirectChannelPrompt = useCallback(
+    async (
+      ch: ChannelId,
+      promptText: string,
+      source: 'voice' | 'cli',
+      meta?: { name?: string; topic?: string; sessionId?: string; persona?: string },
+      echoUserIfOffline = true
+    ) => {
+      const { approvals: appList, tasks: taskList, brief: briefList } = stateRef.current;
       const targetShape = stateRef.current.canvasSessions.find((s) => s.channelId === ch);
-      const targetHermesSessionId = targetShape?.hermesSessionId ?? createHermesSessionId(ch);
-      const targetPersona = targetShape?.agentPersona;
+      const targetHermesSessionId =
+        meta?.sessionId ?? targetShape?.hermesSessionId ?? createHermesSessionId(ch);
+      const targetPersona = meta?.persona ?? targetShape?.agentPersona;
+      const targetTopic = meta?.topic ?? targetShape?.topic;
+      const targetName = meta?.name ?? targetShape?.name ?? ch;
 
       setChannelThinking(ch, true);
       if (ch === stateRef.current.activeChannel) {
@@ -664,7 +646,9 @@ export default function App() {
 
       if (duetConnected) {
         try {
-          const { item } = await duetSendMessage(result.prompt, ch, {
+          const { item } = await duetSendMessage(promptText, ch, {
+            name: targetName,
+            topic: targetTopic,
             sessionId: targetHermesSessionId,
             persona: targetPersona,
             uiConfig: stateRef.current.uiConfig,
@@ -678,13 +662,14 @@ export default function App() {
           }
           return;
         } catch {
-          // Duet bridge hiccup: echo late, then fall through to the offline path.
-          appendEntry({
-            channelId: ch,
-            role: 'user',
-            source,
-            text: result.prompt,
-          });
+          if (echoUserIfOffline) {
+            appendEntry({
+              channelId: ch,
+              role: 'user',
+              source,
+              text: promptText,
+            });
+          }
         }
       }
 
@@ -705,7 +690,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
           body: JSON.stringify({
-            message: result.prompt,
+            message: promptText,
             channelId: ch,
             sessionId: targetHermesSessionId,
             persona: targetPersona,
@@ -767,7 +752,7 @@ export default function App() {
         if (err instanceof DOMException && err.name === 'AbortError' && chatAbortsRef.current.get(ch) !== controller) {
           return;
         }
-        const localIntentPatch = parseNaturalUiIntent(result.prompt, stateRef.current.uiConfig);
+        const localIntentPatch = parseNaturalUiIntent(promptText, stateRef.current.uiConfig);
         if (localIntentPatch) {
           const outcome = applyAgentUiPatch(localIntentPatch, 'hermes');
           const msg = `Updated UI directly: ${outcome.summary}.`;
@@ -786,7 +771,7 @@ export default function App() {
           }
           return;
         }
-        const fallback = buildLocalFallbackReply(result.prompt, appList, taskList, briefList);
+        const fallback = buildLocalFallbackReply(promptText, appList, taskList, briefList);
         updateSpokenLine(fallback.reply, ch);
         appendEntry({
           channelId: ch,
@@ -809,16 +794,277 @@ export default function App() {
     [
       appendEntry,
       applyAgentUiPatch,
-      handleApproveCard,
-      handleRejectCard,
-      updateSpokenLine,
       duetConnected,
       duetSendMessage,
       setChannelThinking,
+      updateSpokenLine,
       upsertEntry,
-      gatewayStatus,
     ]
   );
+
+  const startHomeSessionAndSend = useCallback(
+    async (promptText: string, source: 'voice' | 'cli') => {
+      const currentSessions = stateRef.current.canvasSessions;
+      const existingIds = new Set<string>([
+        ...currentSessions.map((s) => s.channelId),
+        ...stateRef.current.channels.map((c) => c.id),
+      ]);
+      const derived = deriveSessionFromPrompt(promptText, existingIds);
+      const visual = pickNextShapeAndTint(currentSessions);
+      const spot = findOpenCanvasSpot(currentSessions);
+
+      const provisionalSession: CanvasSession = {
+        id: `session-${derived.slug}-${Date.now().toString(36)}`,
+        channelId: derived.slug,
+        hermesSessionId: derived.hermesSessionId,
+        agentPersona: derived.persona,
+        name: derived.slug,
+        topic: derived.topic,
+        shape: visual.shape,
+        tint: visual.tint,
+        xPct: spot.xPct,
+        yPct: spot.yPct,
+        mood: 'thinking',
+        eyeStyle: visual.eyeStyle,
+        isCore: false,
+      };
+
+      syncedSessionsRef.current.add(derived.slug);
+      setHomeSessionDraft(false);
+      setCanvasSessions((prev) => [...prev, provisionalSession]);
+      setChannels((prev) =>
+        prev.some((c) => c.id === derived.slug)
+          ? prev
+          : [
+              ...prev,
+              {
+                id: derived.slug,
+                name: derived.slug,
+                sessionId: derived.hermesSessionId,
+                description: derived.topic,
+                persona: derived.persona,
+                unreadCount: 0,
+              },
+            ]
+      );
+      setActiveChannel(derived.slug);
+      setMood('thinking');
+      setChannelThinking(derived.slug, true);
+      setLastSpokenLineState(`Starting ${derived.hermesSessionId}…`);
+
+      let finalChannelId = derived.slug;
+      let finalSessionId = derived.hermesSessionId;
+
+      if (duetConnected) {
+        try {
+          const created = await createHermesSession({
+            channelId: derived.slug,
+            name: derived.slug,
+            sessionId: derived.hermesSessionId,
+            topic: derived.topic,
+            persona: derived.persona,
+            skipWelcome: true,
+            requireFresh: true,
+          });
+          if (created.resolvedChannelId && created.resolvedChannelId !== derived.slug) {
+            finalChannelId = created.resolvedChannelId;
+            syncedSessionsRef.current.add(finalChannelId);
+          }
+          if (created.upstream_session_id || created.session?.sessionId) {
+            finalSessionId =
+              created.upstream_session_id || created.session?.sessionId || finalSessionId;
+          }
+          if (finalChannelId !== derived.slug || finalSessionId !== derived.hermesSessionId) {
+            setCanvasSessions((prev) =>
+              prev.map((s) =>
+                s.id === provisionalSession.id
+                  ? {
+                      ...s,
+                      channelId: finalChannelId,
+                      name: finalChannelId,
+                      hermesSessionId: finalSessionId,
+                    }
+                  : s
+              )
+            );
+            setChannels((prev) =>
+              prev.map((c) =>
+                c.id === derived.slug
+                  ? { ...c, id: finalChannelId, name: finalChannelId, sessionId: finalSessionId }
+                  : c
+              )
+            );
+            setActiveChannel(finalChannelId);
+            if (finalChannelId !== derived.slug) {
+              setChannelThinking(derived.slug, false);
+              setChannelThinking(finalChannelId, true);
+            }
+          }
+        } catch {
+          // Proceed with local slug; duetSendMessage will retry or fall back cleanly
+        }
+      } else {
+        appendEntry({
+          channelId: finalChannelId,
+          role: 'user',
+          source,
+          text: promptText,
+        });
+      }
+
+      await sendDirectChannelPrompt(
+        finalChannelId,
+        promptText,
+        source,
+        {
+          name: finalChannelId,
+          topic: derived.topic,
+          sessionId: finalSessionId,
+          persona: derived.persona,
+        },
+        duetConnected
+      );
+    },
+    [
+      appendEntry,
+      createHermesSession,
+      duetConnected,
+      sendDirectChannelPrompt,
+      setChannelThinking,
+    ]
+  );
+
+  const processUserInput = useCallback(
+    async (rawText: string, source: 'voice' | 'cli', targetChannelId?: ChannelId) => {
+      const trimmed = rawText.trim();
+      if (!trimmed) return;
+
+      const {
+        activeChannel: currentActive,
+        approvals: appList,
+        tasks: taskList,
+        brief: briefList,
+      } = stateRef.current;
+      const ch = targetChannelId ?? currentActive;
+      const isCommandInput = trimmed.startsWith('/');
+
+      if (
+        !targetChannelId &&
+        shouldStartNewHomeSession({
+          homeSessionDraft: stateRef.current.homeSessionDraft,
+          panelView: stateRef.current.panelView,
+          rawText: trimmed,
+        })
+      ) {
+        await startHomeSessionAndSend(trimmed, source);
+        return;
+      }
+
+      if (!isCommandInput && duetConnected) {
+        // No local echo on the Duet path: the real item (POST response or SSE)
+        // is the single display copy, so transcript order stays chronological.
+      } else {
+        appendEntry({
+          channelId: ch,
+          role: isCommandInput ? 'command' : 'user',
+          source,
+          text: trimmed,
+        });
+      }
+
+      const result = executeCliInput(trimmed, {
+        activeChannel: ch,
+        availableChannels: stateRef.current.channels.map((c) => c.id),
+        approvals: appList,
+        tasks: taskList,
+        brief: briefList,
+        isMuted: voiceRef.current?.isMuted ?? false,
+        gatewayConnected: gatewayStatus?.connected,
+        gatewayUrl: gatewayStatus?.gatewayUrl,
+      });
+
+      if (result.type === 'handled') {
+        if (result.startNewSession) {
+          if (result.newSessionPrompt) {
+            setPanelView('home');
+            setMobileSidebarOpen(false);
+            await startHomeSessionAndSend(result.newSessionPrompt, source);
+          } else {
+            handleStartNewHomeSession();
+          }
+          return;
+        }
+        if (result.uiPatch) {
+          applyAgentUiPatch(result.uiPatch, 'cli');
+        }
+        if (result.clearTerminal) {
+          setEntries((prev) => prev.filter((e) => e.channelId !== ch));
+          setMood('neutral');
+          return;
+        }
+        if (result.switchChannel) {
+          setHomeSessionDraft(false);
+          setActiveChannel(result.switchChannel);
+        }
+        if (result.approveCardId) {
+          handleApproveCard(result.approveCardId);
+          return;
+        }
+        if (result.rejectCardId) {
+          handleRejectCard(result.rejectCardId);
+          return;
+        }
+        if (result.toggleMute) {
+          voiceRef.current?.toggleMute();
+        }
+        if (result.setMood) {
+          setMood(result.setMood);
+        } else if (ch === stateRef.current.activeChannel) {
+          setMood(result.mood);
+        }
+
+        appendEntry({
+          channelId: result.switchChannel ?? ch,
+          role: 'system',
+          source: 'cli',
+          text: result.output,
+        });
+
+        if (result.spokenText) {
+          updateSpokenLine(result.spokenText, result.switchChannel ?? ch);
+          appendEntry({
+            channelId: result.switchChannel ?? ch,
+            role: 'hermes',
+            source: 'cli',
+            mood: result.mood,
+            text: result.spokenText,
+          });
+          if ((result.switchChannel ?? ch) === stateRef.current.activeChannel) {
+            voiceRef.current?.speakText(result.spokenText, result.mood);
+          }
+        } else {
+          updateSpokenLine(result.output, result.switchChannel ?? ch);
+        }
+        return;
+      }
+
+      await sendDirectChannelPrompt(ch, result.prompt, source, undefined, true);
+    },
+    [
+      appendEntry,
+      applyAgentUiPatch,
+      duetConnected,
+      gatewayStatus,
+      handleApproveCard,
+      handleRejectCard,
+      handleStartNewHomeSession,
+      sendDirectChannelPrompt,
+      startHomeSessionAndSend,
+      updateSpokenLine,
+    ]
+  );
+
+
 
   const handleVoiceTranscript = useCallback(
     (transcript: string) => {
@@ -875,14 +1121,22 @@ export default function App() {
   );
 
   const handleSelectChannel = useCallback(
-    (id: ChannelId) => {
+    (id: ChannelId, opts?: { openThread?: boolean }) => {
+      setHomeSessionDraft(false);
       setActiveChannel(id);
-      appendEntry({
-        channelId: id,
-        role: 'system',
-        source: 'ui',
-        text: `Tuned active Hermes lane to #${id}.`,
-      });
+      if (opts?.openThread) {
+        setPanelView((prev) => (prev === 'cli' ? 'cli' : 'voice'));
+      }
+      const label = `Tuned active Hermes lane to #${id}.`;
+      const scoped = stateRef.current.entries.filter((e) => e.channelId === id);
+      if (scoped[scoped.length - 1]?.text !== label) {
+        appendEntry({
+          channelId: id,
+          role: 'system',
+          source: 'ui',
+          text: label,
+        });
+      }
     },
     [appendEntry]
   );
@@ -917,16 +1171,12 @@ export default function App() {
   );
 
   const handleNewTask = useCallback(() => {
-    const ch = stateRef.current.activeChannel;
-    setSelectedItemId(null);
-    setPanelView('voice');
-    setMobileSidebarOpen(false);
-    setMood('listening');
-    void handleResetCanvasSession(ch);
-  }, [handleResetCanvasSession]);
+    handleStartNewHomeSession();
+  }, [handleStartNewHomeSession]);
 
   const handleSelectCanvasSession = useCallback(
     (session: CanvasSession) => {
+      setHomeSessionDraft(false);
       setActiveChannel(session.channelId);
       setMood(session.mood);
       const latestHermes = [...stateRef.current.entries]
@@ -980,6 +1230,7 @@ export default function App() {
         isCore: false,
       };
       syncedSessionsRef.current.add(slug);
+      setHomeSessionDraft(false);
       setCanvasSessions((prev) => [...prev, nextSession]);
       setActiveChannel(slug);
       setMood('happy');
@@ -1061,6 +1312,7 @@ export default function App() {
 
   const handleOpenSessionThread = useCallback(
     (session: CanvasSession) => {
+      setHomeSessionDraft(false);
       setActiveChannel(session.channelId);
       setMood(session.mood);
       setPanelView('voice');
@@ -1101,7 +1353,7 @@ export default function App() {
               channels={channels}
               activeChannel={activeChannel}
               onSelectChannel={(id) => {
-                handleSelectChannel(id);
+                handleSelectChannel(id, { openThread: true });
                 setMobileSidebarOpen(false);
               }}
               approvals={approvals}
@@ -1115,12 +1367,14 @@ export default function App() {
               selectedItemId={selectedItemId}
               onSelectTask={(task) => {
                 setSelectedItemId(task.id);
-                handleToggleTaskStatus(task.id);
+                setHomeSessionDraft(false);
+                setActiveChannel(task.channelId);
                 setPanelView('voice');
                 setMobileSidebarOpen(false);
               }}
               onSelectApproval={(card) => {
                 setSelectedItemId(card.id);
+                setHomeSessionDraft(false);
                 setActiveChannel(card.channelId);
                 setPanelView('queue');
                 setMobileSidebarOpen(false);
@@ -1206,6 +1460,8 @@ export default function App() {
             onResetSession={handleResetCanvasSession}
             onRemoveCanvasSession={handleRemoveCanvasSession}
             onOpenSessionThread={handleOpenSessionThread}
+            homeSessionDraft={homeSessionDraft}
+            onStartNewSession={handleStartNewHomeSession}
             uiConfig={uiConfig}
             onOpenStudio={() => setCustomizerOpen(true)}
           />

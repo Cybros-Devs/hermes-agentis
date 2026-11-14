@@ -239,14 +239,14 @@ export function SidebarWorkspace({
         )}
       </div>
 
-      {/* Minimal Channel Switcher Footer */}
+      {/* Minimal Channel / Session Switcher Footer */}
       {channelsVisible && (
         <div
-          className={`py-2.5 pl-3.5 border-t border-white/8 flex items-center justify-between gap-2 font-mono text-[11px] ${
+          className={`py-2.5 pl-3.5 border-t border-white/8 flex items-end justify-between gap-2 font-mono text-[11px] ${
             sidebarPosition === 'right' ? 'pr-12' : 'pr-3.5'
           }`}
         >
-          <div className="flex items-center gap-2 overflow-x-auto cyber-scroll min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 min-w-0 max-h-[68px] overflow-y-auto cyber-scroll">
             {channels.map((ch) => {
               const active = ch.id === activeChannel;
               const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
@@ -254,12 +254,14 @@ export function SidebarWorkspace({
                 <button
                   key={ch.id}
                   type="button"
+                  data-testid={`sidebar-channel-${ch.id}`}
                   onClick={() => onSelectChannel(ch.id)}
-                  className={`transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                    active ? 'text-[#4ADE80] font-semibold' : 'text-emerald-100/45 hover:text-white'
+                  className={`transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
+                    active ? 'text-[#4ADE80] font-semibold' : 'text-emerald-100/50 hover:text-white'
                   }`}
                 >
-                  {label}
+                  {active && <span aria-hidden="true" className="w-1 h-1 rounded-full bg-[#4ADE80]" />}
+                  <span>{label}</span>
                 </button>
               );
             })}

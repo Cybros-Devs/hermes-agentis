@@ -210,6 +210,7 @@ export const INITIAL_TASKS: BackgroundTask[] = [
 
 export interface CliContext {
   activeChannel: ChannelId;
+  availableChannels?: ChannelId[];
   approvals: ApprovalCard[];
   tasks: BackgroundTask[];
   brief: BriefDecision[];
@@ -228,6 +229,8 @@ export type CliExecutionResult =
       mood: ExpressionMood;
       spokenText: string;
       switchChannel?: ChannelId;
+      startNewSession?: boolean;
+      newSessionPrompt?: string;
       approveCardId?: string;
       rejectCardId?: string;
       toggleMute?: boolean;
@@ -244,6 +247,7 @@ export type CliExecutionResult =
 
 export const AVAILABLE_COMMANDS = [
   '/help',
+  '/new',
   '/brief',
   '/tasks',
   '/skills',
@@ -310,9 +314,10 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'happy',
         spokenText:
-          'Hermes Agent command reference ready. Inspect skills, memory, cron routines, gateway health, or approve Duet gates.',
+          'Hermes Agent command reference ready. Start a new session, inspect skills, memory, cron routines, or approve Duet gates.',
         output: [
           'HERMES AGENT + DUET // COMMAND REFERENCE',
+          '  /new [prompt]        Start a fresh isolated Hermes Agent session on Home',
           '  /brief               Display ranked post_brief decisions',
           '  /tasks               List isolated background runs (start_task / save_page)',
           '  /skills              List loaded ~/.hermes/skills/ & mcp__duet tools',
@@ -320,7 +325,7 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
           '  /cron                List scheduled cronjob_manage & save_routine jobs',
           '  /sessions            Show active Hermes --resume session IDs per lane',
           '  /gateway | /doctor   Inspect hermes gateway (:8642) & MCP shim status',
-          '  /switch <channel>    Switch lane (general|ops|launch|research)',
+          '  /switch <channel>    Switch lane (general|ops|launch|research|...)',
           '  /resume <session>    Resume lane by session ID (e.g. duet-ops)',
           '  /approve <id>        Approve a pending mcp__duet gate card',
           '  /reject <id>         Dismiss a pending gate card',
@@ -331,6 +336,19 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
           '  /status              Report gateway mode, lane, and pending gates',
           '  /clear               Clear terminal feed',
         ].join('\n'),
+      };
+    }
+
+    case '/new': {
+      return {
+        type: 'handled',
+        mood: 'happy',
+        startNewSession: true,
+        newSessionPrompt: argStr || undefined,
+        spokenText: argStr ? '' : 'New Hermes Agent session armed on Home.',
+        output: argStr
+          ? `Starting fresh Hermes Agent session for: "${argStr}"`
+          : 'New Hermes Agent session armed on Home. Prompt anything to start.',
       };
     }
 
@@ -441,13 +459,16 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
 
     case '/switch':
     case '/resume': {
-      const normalized = argStr.replace(/^#/, '').replace(/^duet-/, '').toLowerCase() as ChannelId;
-      if (!VALID_CHANNELS.includes(normalized)) {
+      const normalized = argStr.replace(/^#/, '').replace(/^(duet|hermes)-/, '').toLowerCase() as ChannelId;
+      const validPool = ctx.availableChannels && ctx.availableChannels.length > 0
+        ? ctx.availableChannels
+        : VALID_CHANNELS;
+      if (!validPool.includes(normalized)) {
         return {
           type: 'handled',
           mood: 'alert',
-          spokenText: 'Unknown Hermes lane. Choose general, ops, launch, or research.',
-          output: `Unknown lane "${argStr}". Valid lanes: ${VALID_CHANNELS.join(', ')} (or session duet-<lane>).`,
+          spokenText: 'Unknown Hermes lane.',
+          output: `Unknown lane "${argStr}". Valid lanes: ${validPool.join(', ')} (or session duet-<lane>).`,
         };
       }
       return {

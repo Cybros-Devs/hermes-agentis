@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   PanelLeft,
   Mic,
@@ -17,6 +17,7 @@ import {
   ChevronRight,
   RefreshCw,
   SlidersHorizontal,
+  Plus,
 } from 'lucide-react';
 import type {
   ApprovalCard,
@@ -97,6 +98,8 @@ interface VoiceWorkspacePaneProps {
   onResetSession: (channelId: string) => void;
   onRemoveCanvasSession: (id: string) => void;
   onOpenSessionThread: (session: CanvasSession) => void;
+  homeSessionDraft?: boolean;
+  onStartNewSession?: () => void;
   uiConfig?: UiCustomizationConfig;
   onOpenStudio?: () => void;
 }
@@ -141,6 +144,8 @@ export function VoiceWorkspacePane({
   onResetSession,
   onRemoveCanvasSession,
   onOpenSessionThread,
+  homeSessionDraft = false,
+  onStartNewSession,
   uiConfig = DEFAULT_UI_CONFIG,
   onOpenStudio,
 }: VoiceWorkspacePaneProps) {
@@ -150,8 +155,13 @@ export function VoiceWorkspacePane({
   const [workingSeconds, setWorkingSeconds] = useState(0);
   const [portraitStatus, setPortraitStatus] = useState<PortraitAssetStatus>('loading');
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const isPinnedToBottomRef = useRef(true);
+  const lastScrollVisitRef = useRef('');
   const portraitWrapRef = useRef<HTMLDivElement | null>(null);
   const lookTargetRef = useRef<LookTarget | null>(null);
+
+  const isHomeOverview = panelView === 'home';
+  const isHomeNewDraft = isHomeOverview && homeSessionDraft;
 
   const activeCanvasSession = useMemo(
     () => canvasSessions.find((s) => s.channelId === activeChannel) ?? null,
@@ -160,9 +170,11 @@ export function VoiceWorkspacePane({
   const activeShapeMeta = activeCanvasSession ? getShapeMeta(activeCanvasSession.shape) : null;
   const activeHermesSessionId =
     activeCanvasSession?.hermesSessionId ?? `hermes-${activeChannel}`;
-  const activeIsThinking = Boolean(thinkingByChannel[activeChannel]);
-  const activeIsSpeaking =
+  const rawIsThinking = Boolean(thinkingByChannel[activeChannel]);
+  const rawIsSpeaking =
     voiceState.isSpeaking && (speakingChannel ?? activeChannel) === activeChannel;
+  const activeIsThinking = isHomeNewDraft ? false : rawIsThinking;
+  const activeIsSpeaking = isHomeNewDraft ? false : rawIsSpeaking;
 
   useEffect(() => {
     const intervalMs = activeIsSpeaking ? 42 : 120;
@@ -187,12 +199,47 @@ export function VoiceWorkspacePane({
     () => entries.filter((e) => e.channelId === activeChannel),
     [entries, activeChannel]
   );
+  const lastScopedTextLen = scopedEntries[scopedEntries.length - 1]?.text.length ?? 0;
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  useLayoutEffect(() => {
+    const visitKey = `${panelView}:${activeChannel}`;
+    const isNewVisit = lastScrollVisitRef.current !== visitKey;
+    lastScrollVisitRef.current = visitKey;
+
+    if (panelView !== 'voice') {
+      isPinnedToBottomRef.current = true;
+      return;
     }
-  }, [scopedEntries.length, voiceState.interimTranscript, activeIsThinking, activeChannel]);
+
+    const el = scrollRef.current;
+    if (!el) return;
+
+    if (isNewVisit) {
+      isPinnedToBottomRef.current = true;
+    }
+    if (!isPinnedToBottomRef.current) return;
+
+    const snapToBottom = () => {
+      if (scrollRef.current && isPinnedToBottomRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    };
+
+    snapToBottom();
+    const rafId = requestAnimationFrame(snapToBottom);
+    const timerId = window.setTimeout(snapToBottom, 60);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.clearTimeout(timerId);
+    };
+  }, [
+    panelView,
+    activeChannel,
+    scopedEntries.length,
+    lastScopedTextLen,
+    voiceState.interimTranscript,
+    activeIsThinking,
+  ]);
 
   const effectiveMood: ExpressionMood = activeIsThinking
     ? 'thinking'
@@ -327,7 +374,6 @@ export function VoiceWorkspacePane({
     lookTargetRef.current = null;
   };
 
-  const isHomeOverview = panelView === 'home';
   const effectivePortraitTint =
     uiConfig.portraitTintHex ??
     (uiConfig.accentPreset === 'emerald' ? null : uiConfig.accentSoftHex);
@@ -510,7 +556,7 @@ export function VoiceWorkspacePane({
                   viseme={viseme}
                   eyeState={eyeState}
                   energy={energy}
-                  isSpeaking={voiceState.isSpeaking}
+                  isSpeaking={activeIsSpeaking}
                   isListening={voiceState.isListening}
                   lookTargetRef={lookTargetRef}
                   tintHex={effectivePortraitTint}
@@ -538,7 +584,12 @@ export function VoiceWorkspacePane({
                 />
                 <span>{statusText}</span>
                 <span aria-hidden="true" className="text-emerald-100/30">·</span>
-                <span className="font-mono text-[11px] text-[#6EE7B7]/85">#{activeChannel}</span>
+                <span
+                  data-testid="home-session-badge"
+                  className="font-mono text-[11px] text-[#6EE7B7]/85"
+                >
+                  {isHomeNewDraft ? 'new session' : `#${activeChannel}`}
+                </span>
               </div>
 
               {/* Live Decoded Speech / Response Readout */}
@@ -554,8 +605,12 @@ export function VoiceWorkspacePane({
                   )}
                 </p>
 
-                {(activeIsThinking || activeIsSpeaking || visibleMessages.length > 0 || pendingApprovals.length > 0) && (
-                  <div className="flex items-center justify-center gap-4 text-xs text-emerald-100/55">
+                {(activeIsThinking ||
+                  activeIsSpeaking ||
+                  (!isHomeNewDraft && visibleMessages.length > 0) ||
+                  (!isHomeNewDraft && onStartNewSession) ||
+                  pendingApprovals.length > 0) && (
+                  <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-emerald-100/55">
                     {(activeIsThinking || activeIsSpeaking) && (
                       <button
                         type="button"
@@ -566,13 +621,24 @@ export function VoiceWorkspacePane({
                         <span>Stop</span>
                       </button>
                     )}
-                    {visibleMessages.length > 0 && (
+                    {!isHomeNewDraft && visibleMessages.length > 0 && (
                       <button
                         type="button"
                         onClick={() => onChangePanelView('voice')}
                         className="text-[#6EE7B7]/90 hover:text-white underline underline-offset-4 decoration-[#34D399]/35 transition-colors cursor-pointer"
                       >
                         Open thread ({visibleMessages.length})
+                      </button>
+                    )}
+                    {!isHomeNewDraft && onStartNewSession && (
+                      <button
+                        type="button"
+                        data-testid="home-new-session-btn"
+                        onClick={onStartNewSession}
+                        className="inline-flex items-center gap-1 hover:text-white underline underline-offset-4 decoration-white/20 transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>New session</span>
                       </button>
                     )}
                     {pendingApprovals.length > 0 && (
@@ -762,8 +828,13 @@ export function VoiceWorkspacePane({
             </div>
           ) : (
             <div
-              key="view-voice"
+              key={`view-voice-${activeChannel}`}
               ref={scrollRef}
+              onScroll={() => {
+                const el = scrollRef.current;
+                if (!el) return;
+                isPinnedToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+              }}
               data-testid="voice-transcript-stream"
               className="ui-view-enter transcript-fade-mask flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-14 lg:px-20 py-3 sm:py-4 space-y-4 sm:space-y-5"
             >
@@ -949,8 +1020,14 @@ export function VoiceWorkspacePane({
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  activeIsThinking || activeIsSpeaking
+                  isHomeNewDraft
+                    ? voiceState.isListening
+                      ? 'Listening for new session prompt...'
+                      : 'Start a new Hermes session or type /help'
+                    : activeIsThinking
                     ? `Working · ${workingSeconds}s`
+                    : activeIsSpeaking
+                    ? 'Speaking · type next prompt or tap Stop'
                     : voiceState.isListening
                     ? 'Listening...'
                     : `Steer #${activeChannel} or type /help`

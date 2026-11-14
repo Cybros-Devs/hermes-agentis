@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import {
   ArrowUp,
   AudioLines,
@@ -103,12 +103,24 @@ export function CanvasSessionNode({
       e.role === 'activity'
   );
 
-  // Auto-scroll this character's individual chat window when new messages arrive
-  useEffect(() => {
-    if (isChatOpen && chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-    }
-  }, [isChatOpen, visibleMessages.length, isThinking]);
+  const lastMsgLen = visibleMessages[visibleMessages.length - 1]?.text.length ?? 0;
+
+  // Auto-scroll this character's individual chat window to the bottom on open & new updates
+  useLayoutEffect(() => {
+    if (!isChatOpen || !chatScrollRef.current) return;
+    const snap = () => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    };
+    snap();
+    const rafId = requestAnimationFrame(snap);
+    const timerId = window.setTimeout(snap, 60);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.clearTimeout(timerId);
+    };
+  }, [isChatOpen, visibleMessages.length, lastMsgLen, isThinking]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

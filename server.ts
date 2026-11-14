@@ -141,22 +141,56 @@ async function duetFetch(pathname: string, init: RequestInit = {}, retried = fal
 // slug before proxying, and create the real lane on first use so every canvas
 // shape behaves as a genuine isolated hermes-agent lane (persona becomes the
 // channel's standing instructions).
-const duetChannelCache = new Map<string, string>(); // slug -> real channel id
+interface DuetUpstreamChannel {
+  id: string;
+  slug?: string;
+  name?: string;
+  session_id?: string;
+  topic?: string | null;
+  instructions?: string | null;
+  archived?: boolean;
+}
+
+const duetChannelCache = new Map<string, string>(); // normalized slug/id -> real channel id
+const duetChannelMetaCache = new Map<string, DuetUpstreamChannel>(); // real channel id -> upstream channel
 let duetChannelCacheAt = 0;
 
-async function refreshDuetChannelCache(): Promise<boolean> {
-  if (duetChannelCache.size > 0 && Date.now() - duetChannelCacheAt < 15_000) return true;
+function normalizeChannelKey(raw?: string | null): string {
+  return String(raw ?? "")
+    .replace(/^chan-/i, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function cacheUpstreamChannel(ch: DuetUpstreamChannel) {
+  if (!ch?.id) return;
+  duetChannelMetaCache.set(ch.id, ch);
+  if (ch.archived) return;
+  const keys = [
+    normalizeChannelKey(ch.id),
+    normalizeChannelKey(ch.slug),
+    normalizeChannelKey(ch.name),
+  ].filter(Boolean);
+  for (const k of keys) {
+    duetChannelCache.set(k, ch.id);
+  }
+}
+
+async function refreshDuetChannelCache(force = false): Promise<boolean> {
+  if (!force && duetChannelCache.size > 0 && Date.now() - duetChannelCacheAt < 15_000) return true;
   try {
-    const r = await duetFetch("/api/state");
+    const r = await duetFetch("/api/state", { signal: AbortSignal.timeout(4000) });
     if (!r.ok) return false;
     const snap = (await r.json().catch(() => null)) as {
-      channels?: Array<{ id: string; slug?: string; name?: string }>;
+      channels?: DuetUpstreamChannel[];
     } | null;
     if (!snap?.channels) return false;
     duetChannelCache.clear();
+    duetChannelMetaCache.clear();
     for (const ch of snap.channels) {
-      const slug = String(ch.slug || ch.name || ch.id).replace(/^chan-/, "").toLowerCase();
-      duetChannelCache.set(slug, ch.id);
+      cacheUpstreamChannel(ch);
     }
     duetChannelCacheAt = Date.now();
     return true;
@@ -165,54 +199,98 @@ async function refreshDuetChannelCache(): Promise<boolean> {
   }
 }
 
+function pickFreshChannelSlug(desiredSlug: string, extraTaken: Iterable<string> = []): string {
+  const taken = new Set<string>([
+    ...duetChannelCache.keys(),
+    ...Array.from(extraTaken, (s) => normalizeChannelKey(s)).filter(Boolean),
+  ]);
+  const base = normalizeChannelKey(desiredSlug) || "session";
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
+}
+
 /**
- * Resolve a local (slug) channel id to the real Duet channel id, creating the
- * upstream lane when it does not exist yet (persona/topic pulled from the
- * standalone registry). Returns the real id, or null when Duet is unreachable.
+ * Resolve or create the real Duet channel record for a local slug, optionally
+ * guaranteeing a brand-new non-colliding channel when `requireFresh` is true.
  */
-async function ensureDuetChannel(
+async function ensureDuetChannelRecord(
   localId: string,
-  meta?: { name?: string; topic?: string; persona?: string }
-): Promise<string | null> {
-  const slug = String(localId ?? "").replace(/^chan-/, "").toLowerCase() || "general";
+  meta?: { name?: string; topic?: string; persona?: string },
+  opts?: { requireFresh?: boolean }
+): Promise<{ channel: DuetUpstreamChannel; created: boolean } | null> {
+  const baseSlug = normalizeChannelKey(localId) || "general";
   try {
-    await refreshDuetChannelCache();
-    const hit = duetChannelCache.get(slug);
-    if (hit) return hit;
-    const standalone = standaloneChannels.find((c) => c.id === slug);
-    const name = meta?.name || standalone?.name || slug;
-    const topic = meta?.topic ?? standalone?.topic;
-    const persona = meta?.persona ?? standalone?.persona;
+    const refreshed = await refreshDuetChannelCache(Boolean(opts?.requireFresh));
+    if (!opts?.requireFresh) {
+      const hitId = duetChannelCache.get(baseSlug);
+      if (hitId) {
+        const hitMeta = duetChannelMetaCache.get(hitId) ?? { id: hitId, slug: baseSlug };
+        return { channel: hitMeta, created: false };
+      }
+    }
+
+    if (!refreshed && !(await loadDuetDeviceToken()) && !DUET_INTERNAL_TOKEN) {
+      return null;
+    }
+
+    const standalone = standaloneChannels.find((c) => c.id === baseSlug);
+    const targetSlug = opts?.requireFresh ? pickFreshChannelSlug(baseSlug) : baseSlug;
+    const rawName = (opts?.requireFresh ? targetSlug : meta?.name || standalone?.name || targetSlug).replace(/^#/, "");
+    const topic = meta?.topic ?? standalone?.topic ?? undefined;
+    const persona = meta?.persona ?? standalone?.persona ?? undefined;
+
     const createRes = await duetFetch("/api/channels", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(4500),
       body: JSON.stringify({
-        name,
+        name: rawName,
         ...(topic ? { topic } : {}),
         ...(persona ? { instructions: persona } : {}),
       }),
     });
     if (createRes.ok) {
       const created = (await createRes.json().catch(() => null)) as {
-        channel?: { id?: string };
+        channel?: DuetUpstreamChannel;
       } | null;
       if (created?.channel?.id) {
-        duetChannelCache.set(slug, created.channel.id);
+        cacheUpstreamChannel(created.channel);
+        duetChannelCache.set(targetSlug, created.channel.id);
         duetChannelCacheAt = Date.now();
-        return created.channel.id;
+        return { channel: created.channel, created: true };
       }
     } else {
-      // Creation refused (duplicate name, "already a general channel"): the lane
-      // exists upstream; refresh the cache and match once more before giving up.
+      // Creation refused (duplicate name, "already a general channel"): refresh
+      // cache and match existing upstream lane.
       duetChannelCacheAt = 0;
-      if (await refreshDuetChannelCache()) {
-        return duetChannelCache.get(slug) ?? null;
+      if (await refreshDuetChannelCache(true)) {
+        const hitId = duetChannelCache.get(targetSlug) ?? duetChannelCache.get(baseSlug);
+        if (hitId) {
+          return {
+            channel: duetChannelMetaCache.get(hitId) ?? { id: hitId, slug: baseSlug },
+            created: false,
+          };
+        }
       }
     }
   } catch {
     // Duet unreachable: caller falls back to standalone handling.
   }
   return null;
+}
+
+/**
+ * Resolve a local (slug) channel id to the real Duet channel id, creating the
+ * upstream lane when it does not exist yet.
+ */
+async function ensureDuetChannel(
+  localId: string,
+  meta?: { name?: string; topic?: string; persona?: string }
+): Promise<string | null> {
+  const resolved = await ensureDuetChannelRecord(localId, meta);
+  return resolved?.channel.id ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -671,7 +749,7 @@ async function createServer() {
                 user: resolvedSessionId,
               }),
             },
-            3000
+            12000
           );
           if (gwRes.ok) {
             const data = (await gwRes.json()) as {
@@ -929,41 +1007,76 @@ async function createServer() {
   });
 
   app.post("/api/hermes/sessions", async (req, res) => {
-    const { channelId, name, sessionId, topic, persona } = (req.body ?? {}) as {
+    const { channelId, name, sessionId, topic, persona, skipWelcome, requireFresh } = (req.body ?? {}) as {
       channelId?: string;
       name?: string;
       sessionId?: string;
       topic?: string;
       persona?: string;
+      skipWelcome?: boolean;
+      requireFresh?: boolean;
     };
     const rawKey = channelId || name;
     if (!rawKey || typeof rawKey !== "string") {
       res.status(400).json({ error: "channelId or name is required." });
       return;
     }
-    const hadChannel = standaloneChannels.some(
-      (c) =>
-        c.id ===
-        rawKey
-          .toLowerCase()
-          .trim()
-          .replace(/[^a-z0-9-_]+/g, "-")
-          .replace(/^-+|-+$/g, "")
-    );
-    const channel = ensureStandaloneChannel({ channelId: rawKey, name, sessionId, topic, persona });
 
-    // Linked mode: make this lane real upstream too — a canvas shape becomes a
-    // genuine Duet channel with its persona as standing instructions.
-    let upstreamChannelId: string | null = null;
-    try {
-      upstreamChannelId = await ensureDuetChannel(channel.id);
-    } catch {
-      upstreamChannelId = null;
+    const baseKey = normalizeChannelKey(rawKey) || "session";
+    const resolvedStandaloneKey = requireFresh
+      ? (() => {
+          const taken = new Set(standaloneChannels.map((c) => c.id));
+          if (!taken.has(baseKey)) return baseKey;
+          let n = 2;
+          while (taken.has(`${baseKey}-${n}`)) n++;
+          return `${baseKey}-${n}`;
+        })()
+      : baseKey;
+
+    // Linked mode first: make this lane real on upstream hermes-duet so it gets
+    // a genuine isolated hermes-agent session_id & standing instructions.
+    const upstreamResult = await ensureDuetChannelRecord(
+      resolvedStandaloneKey,
+      { name: name || resolvedStandaloneKey, topic, persona },
+      { requireFresh: Boolean(requireFresh) }
+    );
+
+    if (upstreamResult?.channel) {
+      const uc = upstreamResult.channel;
+      const canonicalSlug =
+        normalizeChannelKey(uc.slug || uc.id) || resolvedStandaloneKey;
+      const channel = ensureStandaloneChannel({
+        channelId: canonicalSlug,
+        name: uc.name || canonicalSlug,
+        sessionId: uc.session_id || sessionId || `hermes-${canonicalSlug}`,
+        topic: uc.topic ?? topic,
+        persona: uc.instructions ?? persona,
+      });
+      const snapshot = buildSessionSnapshot(channel);
+      res.status(200).json({
+        linked: true,
+        resolvedChannelId: canonicalSlug,
+        upstream_channel_id: uc.id,
+        upstream_session_id: uc.session_id ?? snapshot.sessionId,
+        session: snapshot,
+        channel,
+        item: null,
+      });
+      return;
     }
+
+    const hadChannel = standaloneChannels.some((c) => c.id === resolvedStandaloneKey);
+    const channel = ensureStandaloneChannel({
+      channelId: resolvedStandaloneKey,
+      name: name || resolvedStandaloneKey,
+      sessionId,
+      topic,
+      persona,
+    });
 
     let welcomeItem: StandaloneDuetItem | null = null;
     const hasItems = standaloneItems.some((it) => (it.channel_id || "general") === channel.id);
-    if (!hasItems) {
+    if (!hasItems && !skipWelcome) {
       welcomeItem = {
         id: `init-welcome-${channel.id}-${Date.now()}`,
         kind: "assistant",
@@ -982,7 +1095,14 @@ async function createServer() {
       broadcastStandaloneEvent({ type: "item", item: welcomeItem });
     }
     broadcastStandaloneEvent({ type: "session", session: snapshot });
-    res.status(200).json({ session: snapshot, channel, item: welcomeItem, upstream_channel_id: upstreamChannelId });
+    res.status(200).json({
+      linked: false,
+      resolvedChannelId: channel.id,
+      session: snapshot,
+      channel,
+      item: welcomeItem,
+      upstream_channel_id: null,
+    });
   });
 
   app.post("/api/hermes/sessions/:channelId/reset", (req, res) => {
@@ -1203,12 +1323,16 @@ async function createServer() {
     const {
       text,
       channel_id = "general",
+      name,
+      topic,
       session_id,
       persona,
       ui_config,
     } = (req.body ?? {}) as {
       text?: string;
       channel_id?: string;
+      name?: string;
+      topic?: string;
       session_id?: string;
       persona?: string;
       ui_config?: Partial<UiCustomizationConfig>;
@@ -1220,24 +1344,29 @@ async function createServer() {
 
     try {
       // Resolve the local slug ("ops") to the real Duet channel id, creating the
-      // lane upstream on first use so canvas shapes run as real agent lanes.
-      // The dot's persona rides along and becomes the channel's instructions.
+      // lane upstream on first use so Home & Canvas lanes run as real agent sessions.
+      // The session's topic and persona ride along as standing channel instructions.
+      const resolvedMeta =
+        name || topic || persona ? { name, topic, persona } : undefined;
       const upstreamChannelId =
-        (await ensureDuetChannel(channel_id, persona ? { persona } : undefined)) ?? channel_id;
+        (await ensureDuetChannel(channel_id, resolvedMeta)) ?? channel_id;
       const sendBody = JSON.stringify({ text, channel_id: upstreamChannelId });
       let r = await duetFetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10_000),
         body: sendBody,
       });
       if (r.status === 404 && upstreamChannelId === channel_id) {
         // Pre-resolution failed (Duet busy or cache cold): force one resolution
         // pass and retry before falling back to the standalone run.
-        const forced = await ensureDuetChannel(channel_id);
+        duetChannelCacheAt = 0;
+        const forced = await ensureDuetChannel(channel_id, resolvedMeta);
         if (forced && forced !== channel_id) {
           r = await duetFetch("/api/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(10_000),
             body: JSON.stringify({ text, channel_id: forced }),
           });
         }
@@ -1252,7 +1381,9 @@ async function createServer() {
 
     const channel = ensureStandaloneChannel({
       channelId: channel_id,
+      name,
       sessionId: session_id,
+      topic,
       persona,
     });
     channel.last_at = Date.now();

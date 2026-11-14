@@ -8,6 +8,7 @@ import type {
   TerminalEntry,
 } from '../types/hermes';
 import type { UiCustomizationConfig, UiCustomizationPatch } from '../utils/uiCustomization';
+import { isTerminalSettledItem, normalizeDuetChannelId } from '../utils/homeSession';
 
 /** Minimal shapes of the Duet server's shared types (snake_case, as served). */
 interface DuetCard {
@@ -86,6 +87,8 @@ export interface UseDuetOptions {
   patchEntryText: (id: string, text: string) => void;
   /** A complete assistant reply arrived (spoken line + TTS hook + scoped channelId). */
   onAssistantComplete: (text: string, channelId: string) => void;
+  /** Called when any run in a channel settles (reply finished, empty turn, or error activity). */
+  onRunSettled?: (channelId: string) => void;
   /** Called when an isolated session resets on the server. */
   onSessionReset?: (channelId: string) => void;
   /** An approval card settled (so the UI can react optimistically). */
@@ -110,12 +113,13 @@ function activityText(item: DuetItem): string {
   return `run ${a.status}`;
 }
 
-function itemToEntry(item: DuetItem): TerminalEntry | null {
+function itemToEntry(item: DuetItem, aliases?: ReadonlyMap<string, string>): TerminalEntry | null {
   if (item.kind === 'card') return null;
+  const resolvedChannel = normalizeDuetChannelId(item.channel_id, aliases);
   if (item.kind === 'activity') {
     return {
       id: item.id,
-      channelId: localChannelId(item.channel_id),
+      channelId: resolvedChannel,
       role: 'activity',
       source: 'ui',
       text: activityText(item),
@@ -127,7 +131,7 @@ function itemToEntry(item: DuetItem): TerminalEntry | null {
     item.kind === 'assistant' ? 'hermes' : item.kind === 'user' ? 'user' : 'system';
   return {
     id: item.id,
-    channelId: localChannelId(item.channel_id),
+    channelId: resolvedChannel,
     role,
     source: 'ui',
     text: item.text ?? '',
@@ -138,12 +142,12 @@ function itemToEntry(item: DuetItem): TerminalEntry | null {
 
 export { itemToEntry as duetItemToEntry };
 
-function pendingToApproval(item: DuetItem): ApprovalCard | null {
+function pendingToApproval(item: DuetItem, aliases?: ReadonlyMap<string, string>): ApprovalCard | null {
   const c = item.card;
   if (!c || (c.type !== 'approval' && c.type !== 'payment')) return null;
   return {
     id: item.id,
-    channelId: localChannelId(item.channel_id),
+    channelId: normalizeDuetChannelId(item.channel_id, aliases),
     title: c.title || 'Untitled request',
     actionType: c.type === 'payment' || c.action === 'pay' ? 'payment' : 'send_message',
     mcpTool:
@@ -181,7 +185,7 @@ function taskProgress(t: DuetTask): number {
   return 0;
 }
 
-function mapTask(t: DuetTask): BackgroundTask {
+function mapTask(t: DuetTask, aliases?: ReadonlyMap<string, string>): BackgroundTask {
   const status: BackgroundTask['status'] =
     t.status === 'running' || t.status === 'queued'
       ? 'running'
@@ -192,7 +196,7 @@ function mapTask(t: DuetTask): BackgroundTask {
   const lastStep = lastDone?.text ?? (t.steps ?? []).slice(-1)[0]?.text ?? (t.result ?? '').slice(0, 80) ?? t.status;
   return {
     id: t.id,
-    channelId: localChannelId(t.channel_id),
+    channelId: normalizeDuetChannelId(t.channel_id, aliases),
     title: t.title,
     status,
     progress: taskProgress(t),
@@ -202,7 +206,7 @@ function mapTask(t: DuetTask): BackgroundTask {
 }
 
 function mapChannel(ch: DuetChannel): Channel {
-  const id = localChannelId(ch.slug || ch.id);
+  const id = normalizeDuetChannelId(ch.slug || ch.id);
   return {
     id,
     name: ch.name,
@@ -213,15 +217,19 @@ function mapChannel(ch: DuetChannel): Channel {
   };
 }
 
-/**
- * Real Duet channels use ids like "chan-general"; the canvas dots and standalone
- * lanes key channels by slug ("general"). Normalize every channel id on ingest so
- * dots, transcript entries, and the active channel always agree. The server
- * resolves the slug back to the real channel id when proxying.
- */
-function localChannelId(id?: string | null): string {
-  const raw = (id ?? '').replace(/^chan-/, '').trim().toLowerCase();
-  return raw || 'general';
+function recordChannelAliases(aliases: Map<string, string>, ch: DuetChannel): string {
+  const canonical = normalizeDuetChannelId(ch.slug || ch.id);
+  if (ch.id) {
+    aliases.set(ch.id, canonical);
+    aliases.set(ch.id.toLowerCase(), canonical);
+    aliases.set(ch.id.replace(/^chan-/i, '').toLowerCase(), canonical);
+  }
+  if (ch.slug) {
+    aliases.set(ch.slug, canonical);
+    aliases.set(ch.slug.toLowerCase(), canonical);
+  }
+  aliases.set(canonical, canonical);
+  return canonical;
 }
 
 export function useDuet(opts: UseDuetOptions) {
@@ -244,13 +252,15 @@ export function useDuet(opts: UseDuetOptions) {
   const [brief, setBrief] = useState<BriefDecision[]>([]);
   const optsRef = useRef(opts);
   optsRef.current = opts;
+  /** Maps real upstream channel ids ("chan-abc") to canonical UI slugs. */
+  const channelAliasRef = useRef<Map<string, string>>(new Map());
   /** Item ids whose completion already triggered speech; replays stay silent. */
   const spokenItemIdsRef = useRef<Set<string>>(new Set());
 
   /** Track live per-channel state from a Duet item (linked-mode dot status). */
   const noteItemStats = useCallback((item: DuetItem) => {
     if (item.kind !== 'user' && item.kind !== 'assistant') return;
-    const ch = localChannelId(item.channel_id);
+    const ch = normalizeDuetChannelId(item.channel_id, channelAliasRef.current);
     const st = channelStatsRef.current.get(ch) ?? { lastIsUser: false, streaming: false, userCount: 0, updatedAtMs: 0 };
     if (item.kind === 'user') {
       st.userCount += 1;
@@ -267,7 +277,7 @@ export function useDuet(opts: UseDuetOptions) {
 
   const applyItem = useCallback((item: DuetItem, triggerSpeech = true) => {
     if (item.kind === 'card') {
-      const approval = pendingToApproval(item);
+      const approval = pendingToApproval(item, channelAliasRef.current);
       if (approval) {
         setApprovals((prev) => {
           const next = prev.filter((a) => a.id !== approval.id);
@@ -288,11 +298,14 @@ export function useDuet(opts: UseDuetOptions) {
       }
       return;
     }
-    const entry = itemToEntry(item);
+    const entry = itemToEntry(item, channelAliasRef.current);
     if (entry) {
       noteItemStats(item);
       setStatsTick((t) => t + 1);
       optsRef.current.upsertEntry(entry);
+      if (isTerminalSettledItem(item)) {
+        optsRef.current.onRunSettled?.(entry.channelId);
+      }
       if (
         triggerSpeech &&
         item.kind === 'assistant' &&
@@ -310,7 +323,7 @@ export function useDuet(opts: UseDuetOptions) {
         }
       }
     }
-  }, []);
+  }, [noteItemStats]);
 
   // Initial snapshot load.
   useEffect(() => {
@@ -321,6 +334,9 @@ export function useDuet(opts: UseDuetOptions) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const snap = (await res.json()) as DuetSnapshot;
         if (!active) return;
+        for (const ch of snap.channels ?? []) {
+          recordChannelAliases(channelAliasRef.current, ch);
+        }
         setChannels(
           (snap.channels ?? [])
             .filter((c) => !c.archived)
@@ -334,7 +350,7 @@ export function useDuet(opts: UseDuetOptions) {
         setLinked(!Array.isArray(snap.sessions));
         setApprovals(
           (snap.pending ?? [])
-            .map(pendingToApproval)
+            .map((p) => pendingToApproval(p, channelAliasRef.current))
             .filter((a): a is ApprovalCard => a !== null && a.status === 'pending')
         );
         setBrief(
@@ -342,14 +358,14 @@ export function useDuet(opts: UseDuetOptions) {
             .map(pendingToBrief)
             .filter((b): b is BriefDecision => b !== null && !b.resolved)
         );
-        setTasks((snap.tasks ?? []).map(mapTask));
+        setTasks((snap.tasks ?? []).map((t) => mapTask(t, channelAliasRef.current)));
         const entries = (snap.items ?? [])
           .map((item) => {
             if (item.kind === 'assistant' && item.id) {
               spokenItemIdsRef.current.add(item.id);
             }
             noteItemStats(item);
-            return itemToEntry(item);
+            return itemToEntry(item, channelAliasRef.current);
           })
           .filter((e): e is TerminalEntry => e !== null)
           .sort((a, b) => (a.createdAtMs ?? 0) - (b.createdAtMs ?? 0));
@@ -367,7 +383,7 @@ export function useDuet(opts: UseDuetOptions) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [noteItemStats]);
 
   // Live updates over the SSE passthrough.
   useEffect(() => {
@@ -387,10 +403,11 @@ export function useDuet(opts: UseDuetOptions) {
         } else if (data.type === 'task') {
           setTasks((prev) => {
             const next = prev.filter((t) => t.id !== data.task.id);
-            next.push(mapTask(data.task));
+            next.push(mapTask(data.task, channelAliasRef.current));
             return next;
           });
         } else if (data.type === 'channel') {
+          recordChannelAliases(channelAliasRef.current, data.channel);
           setChannels((prev) => {
             const mapped = mapChannel(data.channel);
             const next = prev.filter((c) => c.id !== mapped.id);
@@ -404,6 +421,7 @@ export function useDuet(opts: UseDuetOptions) {
             return next;
           });
         } else if (data.type === 'session_reset') {
+          channelStatsRef.current.delete(normalizeDuetChannelId(data.channelId, channelAliasRef.current));
           setSessions((prev) => {
             const next = prev.filter((s) => s.channelId !== data.session.channelId);
             next.push(data.session);
@@ -433,7 +451,13 @@ export function useDuet(opts: UseDuetOptions) {
     async (
       text: string,
       channelId: string,
-      sessionMeta?: { sessionId?: string; persona?: string; uiConfig?: Partial<UiCustomizationConfig> }
+      sessionMeta?: {
+        name?: string;
+        topic?: string;
+        sessionId?: string;
+        persona?: string;
+        uiConfig?: Partial<UiCustomizationConfig>;
+      }
     ) => {
       const res = await fetch('/api/duet/messages', {
         method: 'POST',
@@ -441,6 +465,8 @@ export function useDuet(opts: UseDuetOptions) {
         body: JSON.stringify({
           text,
           channel_id: channelId,
+          name: sessionMeta?.name,
+          topic: sessionMeta?.topic,
           session_id: sessionMeta?.sessionId,
           persona: sessionMeta?.persona,
           ui_config: sessionMeta?.uiConfig,
@@ -459,6 +485,8 @@ export function useDuet(opts: UseDuetOptions) {
       sessionId: string;
       topic: string;
       persona: string;
+      skipWelcome?: boolean;
+      requireFresh?: boolean;
     }) => {
       const res = await fetch('/api/hermes/sessions', {
         method: 'POST',
@@ -466,11 +494,31 @@ export function useDuet(opts: UseDuetOptions) {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`create session failed: HTTP ${res.status}`);
-      return (await res.json()) as {
+      const data = (await res.json()) as {
+        linked?: boolean;
+        resolvedChannelId?: string;
+        upstream_channel_id?: string | null;
+        upstream_session_id?: string;
         session?: HermesAgentSession;
         channel?: DuetChannel;
         item?: DuetItem | null;
       };
+      if (data.upstream_channel_id && data.resolvedChannelId) {
+        channelAliasRef.current.set(data.upstream_channel_id, data.resolvedChannelId);
+        channelAliasRef.current.set(
+          data.upstream_channel_id.replace(/^chan-/i, '').toLowerCase(),
+          data.resolvedChannelId
+        );
+      }
+      if (data.channel) {
+        const mapped = mapChannel(data.channel);
+        setChannels((prev) => {
+          const next = prev.filter((c) => c.id !== mapped.id);
+          next.push(mapped);
+          return next;
+        });
+      }
+      return data;
     },
     []
   );

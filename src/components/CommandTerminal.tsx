@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { Terminal } from 'lucide-react';
 import type { ChannelId, TerminalEntry } from '../types/hermes';
 import { DecodedText } from './DecodedText';
@@ -29,13 +29,32 @@ export function CommandTerminal({
   onSubmitInput,
 }: CommandTerminalProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const isPinnedRef = useRef(true);
+  const lastChannelRef = useRef(activeChannel);
   const scopedEntries = entries.filter((entry) => entry.channelId === activeChannel);
+  const lastEntryLen = scopedEntries[scopedEntries.length - 1]?.text.length ?? 0;
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [scopedEntries.length, isThinking, activeChannel]);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const switchedChannel = lastChannelRef.current !== activeChannel;
+    lastChannelRef.current = activeChannel;
+    if (switchedChannel) isPinnedRef.current = true;
+    if (!isPinnedRef.current) return;
+
+    const snap = () => {
+      if (scrollRef.current && isPinnedRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    };
+    snap();
+    const rafId = requestAnimationFrame(snap);
+    const timerId = window.setTimeout(snap, 60);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.clearTimeout(timerId);
+    };
+  }, [scopedEntries.length, lastEntryLen, isThinking, activeChannel]);
 
   return (
     <section
@@ -68,6 +87,11 @@ export function CommandTerminal({
       {/* Scrollable Output Stream */}
       <div
         ref={scrollRef}
+        onScroll={() => {
+          const el = scrollRef.current;
+          if (!el) return;
+          isPinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
+        }}
         data-testid="terminal-stream"
         className="cyber-scroll flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs leading-relaxed"
       >
