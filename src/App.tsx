@@ -17,8 +17,10 @@ import type {
 import type { BrailleShapeKind, BrailleShapeTint } from './utils/brailleShapesEngine';
 import {
   autoArrangeSessions,
+  createHermesSessionId,
   createSeedCanvasSessions,
   findOpenCanvasSpot,
+  normalizeCanvasSessions,
   slugifySessionName,
   type CanvasSession,
 } from './utils/canvasSessions';
@@ -87,8 +89,11 @@ export default function App() {
     try {
       const raw = localStorage.getItem(CANVAS_STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as CanvasSession[];
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        const parsed = JSON.parse(raw) as Partial<CanvasSession>[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const normalized = normalizeCanvasSessions(parsed);
+          if (normalized.length > 0) return normalized;
+        }
       }
     } catch {
       // fall back to seeded sessions
@@ -112,6 +117,9 @@ export default function App() {
   const [animateSpeechLine, setAnimateSpeechLine] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<HermesGatewayStatus | null>(null);
 
+  const [thinkingByChannel, setThinkingByChannel] = useState<Record<string, boolean>>({});
+  const [speakingChannel, setSpeakingChannel] = useState<ChannelId | null>(null);
+  const [lastSpokenByChannel, setLastSpokenByChannel] = useState<Record<string, string>>({});
   const [lastSpokenLine, setLastSpokenLineState] = useState<string>(
     'Linking to Hermes Duet…'
   );
@@ -138,9 +146,13 @@ export default function App() {
     stopSpeaking: () => void;
   } | null>(null);
 
-  const updateSpokenLine = useCallback((line: string) => {
+  const updateSpokenLine = useCallback((line: string, channelId?: ChannelId) => {
+    const ch = channelId ?? stateRef.current.activeChannel;
     setAnimateSpeechLine(true);
-    setLastSpokenLineState(line);
+    setLastSpokenByChannel((prev) => ({ ...prev, [ch]: line }));
+    if (ch === stateRef.current.activeChannel) {
+      setLastSpokenLineState(line);
+    }
   }, []);
 
   const upsertEntry = useCallback((entry: TerminalEntry) => {
@@ -178,18 +190,42 @@ export default function App() {
     []
   );
 
+  const setChannelThinking = useCallback((channelId: ChannelId, isThinking: boolean) => {
+    setThinkingByChannel((prev) => {
+      if (Boolean(prev[channelId]) === isThinking) return prev;
+      return { ...prev, [channelId]: isThinking };
+    });
+    if (channelId === stateRef.current.activeChannel) {
+      voiceRef.current?.setThinking(isThinking);
+    }
+  }, []);
+
   // The real engine: live Duet state, runs, approvals, and SSE updates.
   const duet = useDuet({
     upsertEntry,
     patchEntryText,
-    onAssistantComplete: (text) => {
-      setMood('happy');
-      updateSpokenLine(text);
-      voiceRef.current?.setThinking(false);
-      void voiceRef.current?.speakText(text, 'happy');
+    onAssistantComplete: (text, channelId) => {
+      setChannelThinking(channelId, false);
+      updateSpokenLine(text, channelId);
+      if (channelId === stateRef.current.activeChannel) {
+        setMood('happy');
+        setSpeakingChannel(channelId);
+        void voiceRef.current?.speakText(text, 'happy');
+      }
+    },
+    onSessionReset: (channelId) => {
+      setChannelThinking(channelId, false);
+      setEntries((prev) => prev.filter((e) => e.channelId !== channelId));
     },
   });
-  const { connected: duetConnected, sendMessage: duetSendMessage, actOnCard: duetActOnCard } = duet;
+  const {
+    connected: duetConnected,
+    sendMessage: duetSendMessage,
+    createHermesSession,
+    resetHermesSession,
+    deleteHermesSession,
+    actOnCard: duetActOnCard,
+  } = duet;
 
   // Persist Braille Canvas sessions locally
   useEffect(() => {
@@ -200,6 +236,25 @@ export default function App() {
     }
   }, [canvasSessions]);
 
+  // Sync any local custom canvas sessions to the server hermes-agent registry on link
+  const syncedSessionsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!duetConnected) return;
+    for (const cs of canvasSessions) {
+      if (syncedSessionsRef.current.has(cs.channelId)) continue;
+      syncedSessionsRef.current.add(cs.channelId);
+      if (!duet.sessions.some((s) => s.channelId === cs.channelId)) {
+        void createHermesSession({
+          channelId: cs.channelId,
+          name: cs.name,
+          sessionId: cs.hermesSessionId,
+          topic: cs.topic,
+          persona: cs.agentPersona,
+        }).catch(() => {});
+      }
+    }
+  }, [duetConnected, canvasSessions, duet.sessions, createHermesSession]);
+
   // Mirror Duet state locally + merge custom canvas sessions so new Braille sessions act as real lanes.
   useEffect(() => {
     const baseChannels = duet.channels.length > 0 ? duet.channels : INITIAL_CHANNELS;
@@ -209,8 +264,9 @@ export default function App() {
         merged.push({
           id: cs.channelId,
           name: cs.name,
-          sessionId: `duet-${cs.channelId}`,
+          sessionId: cs.hermesSessionId,
           description: cs.topic,
+          persona: cs.agentPersona,
           unreadCount: 0,
         });
       }
@@ -231,21 +287,27 @@ export default function App() {
       channelId: 'general',
       role: 'system',
       source: 'ui',
-      text: 'HERMES DUET LINK ACTIVE // live state, runs, and approval gates wired.',
+      text: 'HERMES DUET LINK ACTIVE // isolated hermes-agent sessions & approval gates wired.',
       timestamp: nowTime(),
     });
   }, [duetConnected, upsertEntry]);
 
   useEffect(() => {
-    if (!duetConnected) return;
-    if (lastSpokenLine !== 'Linking to Hermes Duet…') return;
-    const lastHermes = [...entries]
+    const scopedLatest = [...entries]
       .reverse()
-      .find((e) => e.role === 'hermes' && e.text.trim().length > 0);
-    if (lastHermes) {
-      setLastSpokenLineState(lastHermes.text.slice(0, 140));
+      .find((e) => e.channelId === activeChannel && e.role === 'hermes' && e.text.trim().length > 0);
+    const cached = lastSpokenByChannel[activeChannel];
+    if (cached) {
+      setLastSpokenLineState(cached);
+    } else if (scopedLatest) {
+      setLastSpokenLineState(scopedLatest.text.slice(0, 140));
+    } else {
+      const cs = canvasSessions.find((s) => s.channelId === activeChannel);
+      if (cs) {
+        setLastSpokenLineState(`${cs.hermesSessionId} ready · ${cs.topic}`);
+      }
     }
-  }, [duetConnected, entries, lastSpokenLine]);
+  }, [activeChannel, entries, lastSpokenByChannel, canvasSessions]);
 
   const [showThinking, setShowThinking] = useState<boolean>(() => {
     try {
@@ -431,15 +493,20 @@ export default function App() {
         return;
       }
 
-      // Natural language prompt -> real Hermes Duet run when linked.
-      // The assistant reply streams back over SSE -> onAssistantComplete handles
-      // the spoken line, mood, and TTS. No timeout race: long agent turns land.
-      voiceRef.current?.setThinking(true);
+      // Natural language prompt -> real Hermes Duet run inside this shape's isolated session.
+      const activeShape = stateRef.current.canvasSessions.find((s) => s.channelId === ch);
+      const activeHermesSessionId = activeShape?.hermesSessionId ?? createHermesSessionId(ch);
+      const activePersona = activeShape?.agentPersona;
+
+      setChannelThinking(ch, true);
       setMood('thinking');
 
       if (duetConnected) {
         try {
-          const { item } = await duetSendMessage(result.prompt, ch);
+          const { item } = await duetSendMessage(result.prompt, ch, {
+            sessionId: activeHermesSessionId,
+            persona: activePersona,
+          });
           if (item) {
             const entry = duetItemToEntry(item);
             if (entry) upsertEntry(entry);
@@ -456,13 +523,13 @@ export default function App() {
         }
       }
 
-      // Offline fallback: direct gateway chat with a 6s timeout guard.
+      // Offline fallback: direct gateway chat with a 6s timeout guard, strictly isolated by channelId.
       chatAbortRef.current?.abort();
       const controller = new AbortController();
       chatAbortRef.current = controller;
       const timeoutId = window.setTimeout(() => controller.abort(), 6000);
 
-      voiceRef.current?.setThinking(true);
+      setChannelThinking(ch, true);
       setMood('thinking');
 
       try {
@@ -473,15 +540,21 @@ export default function App() {
           body: JSON.stringify({
             message: result.prompt,
             channelId: ch,
-            sessionId: `duet-${ch}`,
+            sessionId: activeHermesSessionId,
+            persona: activePersona,
             history: stateRef.current.entries
-              .filter((e) => e.role === 'user' || e.role === 'hermes')
+              .filter(
+                (e) =>
+                  e.channelId === ch && (e.role === 'user' || e.role === 'hermes')
+              )
               .slice(-6)
               .map((e) => ({ role: e.role, text: e.text })),
             pendingApprovals: appList
               .filter((a) => a.status === 'pending')
               .map((a) => ({ id: a.id, title: a.title, destination: a.destination, mcpTool: a.mcpTool })),
-            tasks: taskList.map((t) => ({ id: t.id, title: t.title, status: t.status, progress: t.progress })),
+            tasks: taskList
+              .filter((t) => t.channelId === ch)
+              .map((t) => ({ id: t.id, title: t.title, status: t.status, progress: t.progress })),
           }),
         });
 
@@ -499,8 +572,8 @@ export default function App() {
 
         const reply = data.reply || 'Signal acknowledged.';
         const nextMood = data.mood || 'speaking';
-        setMood(nextMood);
-        updateSpokenLine(reply);
+        setChannelThinking(ch, false);
+        updateSpokenLine(reply, ch);
 
         appendEntry({
           channelId: ch,
@@ -510,18 +583,20 @@ export default function App() {
           text: data.suggestedCommand ? `${reply}\n[Suggested: ${data.suggestedCommand}]` : reply,
         });
 
-        voiceRef.current?.setThinking(false);
-        await voiceRef.current?.speakText(reply, nextMood);
+        if (ch === stateRef.current.activeChannel) {
+          setMood(nextMood);
+          setSpeakingChannel(ch);
+          await voiceRef.current?.speakText(reply, nextMood);
+        }
       } catch (err) {
         window.clearTimeout(timeoutId);
+        setChannelThinking(ch, false);
         // If user explicitly cancelled via Stop/New task while another controller replaced this one, skip fallback
         if (err instanceof DOMException && err.name === 'AbortError' && chatAbortRef.current !== controller) {
-          voiceRef.current?.setThinking(false);
           return;
         }
         const fallback = buildLocalFallbackReply(result.prompt, appList, taskList, briefList);
-        setMood(fallback.mood);
-        updateSpokenLine(fallback.reply);
+        updateSpokenLine(fallback.reply, ch);
         appendEntry({
           channelId: ch,
           role: 'hermes',
@@ -529,15 +604,28 @@ export default function App() {
           mood: fallback.mood,
           text: fallback.reply,
         });
-        voiceRef.current?.setThinking(false);
-        await voiceRef.current?.speakText(fallback.reply, fallback.mood);
+        if (ch === stateRef.current.activeChannel) {
+          setMood(fallback.mood);
+          setSpeakingChannel(ch);
+          await voiceRef.current?.speakText(fallback.reply, fallback.mood);
+        }
       } finally {
         if (chatAbortRef.current === controller) {
           chatAbortRef.current = null;
         }
       }
     },
-    [appendEntry, handleApproveCard, handleRejectCard, updateSpokenLine, duetConnected, duetSendMessage]
+    [
+      appendEntry,
+      handleApproveCard,
+      handleRejectCard,
+      updateSpokenLine,
+      duetConnected,
+      duetSendMessage,
+      setChannelThinking,
+      upsertEntry,
+      gatewayStatus,
+    ]
   );
 
   const handleVoiceTranscript = useCallback(
@@ -607,26 +695,43 @@ export default function App() {
     [appendEntry]
   );
 
+  const handleResetCanvasSession = useCallback(
+    async (channelId: string) => {
+      voiceRef.current?.stopSpeaking();
+      setChannelThinking(channelId, false);
+      const target = stateRef.current.canvasSessions.find((s) => s.channelId === channelId);
+      const sid = target?.hermesSessionId ?? createHermesSessionId(channelId);
+      setEntries((prev) => prev.filter((e) => e.channelId !== channelId));
+      const greeting = `Fresh context opened for ${sid} (#${channelId}). Prior messages in this shape were cleared.`;
+      updateSpokenLine(greeting, channelId);
+
+      if (duetConnected) {
+        try {
+          await resetHermesSession(channelId);
+          return;
+        } catch {
+          // Fall through to local reset message
+        }
+      }
+      appendEntry({
+        channelId,
+        role: 'hermes',
+        source: 'ui',
+        mood: 'happy',
+        text: greeting,
+      });
+    },
+    [appendEntry, duetConnected, resetHermesSession, setChannelThinking, updateSpokenLine]
+  );
+
   const handleNewTask = useCallback(() => {
-    voiceRef.current?.stopSpeaking();
+    const ch = stateRef.current.activeChannel;
     setSelectedItemId(null);
     setPanelView('voice');
     setMobileTab('voice');
     setMood('listening');
-    const greeting = 'Fresh Hermes Duet lane open. Speak or type a command to begin.';
-    updateSpokenLine(greeting);
-    setEntries([
-      {
-        id: `new-${Date.now()}`,
-        channelId: stateRef.current.activeChannel,
-        role: 'hermes',
-        source: 'ui',
-        timestamp: nowTime(),
-        mood: 'happy',
-        text: greeting,
-      },
-    ]);
-  }, [updateSpokenLine]);
+    void handleResetCanvasSession(ch);
+  }, [handleResetCanvasSession]);
 
   const handleSelectCanvasSession = useCallback(
     (session: CanvasSession) => {
@@ -636,7 +741,10 @@ export default function App() {
         .reverse()
         .find((e) => e.channelId === session.channelId && e.role === 'hermes' && e.text.trim());
       updateSpokenLine(
-        latestHermes ? latestHermes.text : `${session.name}: ${session.topic}`
+        latestHermes
+          ? latestHermes.text
+          : `${session.hermesSessionId} (${session.name}): ${session.topic}`,
+        session.channelId
       );
     },
     [updateSpokenLine]
@@ -652,6 +760,7 @@ export default function App() {
     (payload: {
       name: string;
       topic: string;
+      persona: string;
       shape: BrailleShapeKind;
       tint: BrailleShapeTint;
       eyeStyle: 'open' | 'sleepy';
@@ -661,10 +770,13 @@ export default function App() {
         payload.name,
         currentSessions.map((s) => s.channelId)
       );
+      const hermesSessionId = createHermesSessionId(slug);
       const spot = findOpenCanvasSpot(currentSessions);
       const nextSession: CanvasSession = {
         id: `session-${slug}-${Date.now().toString(36)}`,
         channelId: slug,
+        hermesSessionId,
+        agentPersona: payload.persona,
         name: slug,
         topic: payload.topic,
         shape: payload.shape,
@@ -675,20 +787,41 @@ export default function App() {
         eyeStyle: payload.eyeStyle,
         isCore: false,
       };
+      syncedSessionsRef.current.add(slug);
       setCanvasSessions((prev) => [...prev, nextSession]);
       setActiveChannel(slug);
       setMood('happy');
-      const msg = `Spawned #${slug} (${payload.shape}) onto the Braille canvas.`;
-      updateSpokenLine(msg);
-      appendEntry({
-        channelId: slug,
-        role: 'hermes',
-        source: 'ui',
-        mood: 'happy',
-        text: msg,
-      });
+
+      const msg = `Isolated session ${hermesSessionId} online (#${slug}). ${payload.topic}`;
+      updateSpokenLine(msg, slug);
+
+      if (duetConnected) {
+        void createHermesSession({
+          channelId: slug,
+          name: slug,
+          sessionId: hermesSessionId,
+          topic: payload.topic,
+          persona: payload.persona,
+        }).catch(() => {
+          appendEntry({
+            channelId: slug,
+            role: 'hermes',
+            source: 'ui',
+            mood: 'happy',
+            text: msg,
+          });
+        });
+      } else {
+        appendEntry({
+          channelId: slug,
+          role: 'hermes',
+          source: 'ui',
+          mood: 'happy',
+          text: msg,
+        });
+      }
     },
-    [appendEntry, updateSpokenLine]
+    [appendEntry, createHermesSession, duetConnected, updateSpokenLine]
   );
 
   const handleAutoArrangeCanvas = useCallback(() => {
@@ -704,7 +837,7 @@ export default function App() {
           const next = MOOD_CYCLE[(idx + 1) % MOOD_CYCLE.length];
           if (s.channelId === stateRef.current.activeChannel) {
             setMood(next);
-            updateSpokenLine(`#${s.name} expression shifted to ${next}.`);
+            updateSpokenLine(`#${s.name} expression shifted to ${next}.`, s.channelId);
           }
           return { ...s, mood: next };
         })
@@ -713,17 +846,26 @@ export default function App() {
     [updateSpokenLine]
   );
 
-  const handleRemoveCanvasSession = useCallback((id: string) => {
-    setCanvasSessions((prev) => {
-      if (prev.length <= 1) return prev;
-      const target = prev.find((s) => s.id === id);
-      const next = prev.filter((s) => s.id !== id);
-      if (target && target.channelId === stateRef.current.activeChannel && next[0]) {
-        setActiveChannel(next[0].channelId);
+  const handleRemoveCanvasSession = useCallback(
+    (id: string) => {
+      const target = stateRef.current.canvasSessions.find((s) => s.id === id);
+      setCanvasSessions((prev) => {
+        if (prev.length <= 1) return prev;
+        const next = prev.filter((s) => s.id !== id);
+        if (target && target.channelId === stateRef.current.activeChannel && next[0]) {
+          setActiveChannel(next[0].channelId);
+        }
+        return next;
+      });
+      if (target) {
+        setEntries((prev) => prev.filter((e) => e.channelId !== target.channelId));
+        if (duetConnected) {
+          void deleteHermesSession(target.channelId).catch(() => {});
+        }
       }
-      return next;
-    });
-  }, []);
+    },
+    [deleteHermesSession, duetConnected]
+  );
 
   const handleOpenSessionThread = useCallback(
     (session: CanvasSession) => {
@@ -830,17 +972,23 @@ export default function App() {
               const current = chatAbortRef.current;
               chatAbortRef.current = null;
               current?.abort();
+              setChannelThinking(activeChannel, false);
+              setSpeakingChannel(null);
               voice.stopSpeaking();
             }}
             onSubmitInput={(val, src) => processUserInput(val, src)}
             showThinking={showThinking}
             onToggleThinking={handleToggleThinking}
             canvasSessions={canvasSessions}
+            hermesSessions={duet.sessions}
+            thinkingByChannel={thinkingByChannel}
+            speakingChannel={voice.voiceState.isSpeaking ? speakingChannel : null}
             onSelectCanvasSession={handleSelectCanvasSession}
             onMoveCanvasSession={handleMoveCanvasSession}
             onAddCanvasSession={handleAddCanvasSession}
             onAutoArrangeCanvas={handleAutoArrangeCanvas}
             onCycleSessionMood={handleCycleSessionMood}
+            onResetSession={handleResetCanvasSession}
             onRemoveCanvasSession={handleRemoveCanvasSession}
             onOpenSessionThread={handleOpenSessionThread}
           />

@@ -14,6 +14,7 @@ import {
   Check,
   X,
   Shapes,
+  RotateCcw,
 } from 'lucide-react';
 import type {
   ApprovalCard,
@@ -22,6 +23,7 @@ import type {
   Channel,
   ChannelId,
   ExpressionMood,
+  HermesAgentSession,
   HermesGatewayStatus,
   TerminalEntry,
   VoiceState,
@@ -29,7 +31,7 @@ import type {
 import { amplitudeToViseme, resolveEyeState } from '../utils/asciiCharacter';
 import type { LookTarget } from '../utils/asciiPortraitEngine';
 import type { BrailleShapeKind, BrailleShapeTint } from '../utils/brailleShapesEngine';
-import type { CanvasSession } from '../utils/canvasSessions';
+import { getShapeMeta, type CanvasSession } from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
@@ -68,17 +70,22 @@ interface VoiceWorkspacePaneProps {
   showThinking: boolean;
   onToggleThinking: () => void;
   canvasSessions: CanvasSession[];
+  hermesSessions: HermesAgentSession[];
+  thinkingByChannel: Record<string, boolean>;
+  speakingChannel: ChannelId | null;
   onSelectCanvasSession: (session: CanvasSession) => void;
   onMoveCanvasSession: (id: string, xPct: number, yPct: number) => void;
   onAddCanvasSession: (payload: {
     name: string;
     topic: string;
+    persona: string;
     shape: BrailleShapeKind;
     tint: BrailleShapeTint;
     eyeStyle: 'open' | 'sleepy';
   }) => void;
   onAutoArrangeCanvas: () => void;
   onCycleSessionMood: (id: string) => void;
+  onResetSession: (channelId: string) => void;
   onRemoveCanvasSession: (id: string) => void;
   onOpenSessionThread: (session: CanvasSession) => void;
 }
@@ -110,11 +117,15 @@ export function VoiceWorkspacePane({
   showThinking,
   onToggleThinking,
   canvasSessions,
+  hermesSessions,
+  thinkingByChannel,
+  speakingChannel,
   onSelectCanvasSession,
   onMoveCanvasSession,
   onAddCanvasSession,
   onAutoArrangeCanvas,
   onCycleSessionMood,
+  onResetSession,
   onRemoveCanvasSession,
   onOpenSessionThread,
 }: VoiceWorkspacePaneProps) {
@@ -126,16 +137,27 @@ export function VoiceWorkspacePane({
   const portraitWrapRef = useRef<HTMLDivElement | null>(null);
   const lookTargetRef = useRef<LookTarget | null>(null);
 
+  const activeCanvasSession = useMemo(
+    () => canvasSessions.find((s) => s.channelId === activeChannel) ?? null,
+    [canvasSessions, activeChannel]
+  );
+  const activeShapeMeta = activeCanvasSession ? getShapeMeta(activeCanvasSession.shape) : null;
+  const activeHermesSessionId =
+    activeCanvasSession?.hermesSessionId ?? `hermes-${activeChannel}`;
+  const activeIsThinking = Boolean(thinkingByChannel[activeChannel]);
+  const activeIsSpeaking =
+    voiceState.isSpeaking && (speakingChannel ?? activeChannel) === activeChannel;
+
   useEffect(() => {
-    const intervalMs = voiceState.isSpeaking ? 65 : 220;
+    const intervalMs = activeIsSpeaking ? 65 : 220;
     const id = window.setInterval(() => {
       setTick((t) => (t + 1) % 10000);
     }, intervalMs);
     return () => window.clearInterval(id);
-  }, [voiceState.isSpeaking]);
+  }, [activeIsSpeaking]);
 
   useEffect(() => {
-    if (!voiceState.isThinking && !voiceState.isSpeaking) {
+    if (!activeIsThinking && !activeIsSpeaking) {
       setWorkingSeconds(0);
       return;
     }
@@ -143,17 +165,22 @@ export function VoiceWorkspacePane({
       setWorkingSeconds((s) => s + 1);
     }, 1000);
     return () => window.clearInterval(id);
-  }, [voiceState.isThinking, voiceState.isSpeaking]);
+  }, [activeIsThinking, activeIsSpeaking]);
+
+  const scopedEntries = useMemo(
+    () => entries.filter((e) => e.channelId === activeChannel),
+    [entries, activeChannel]
+  );
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [entries.length, voiceState.interimTranscript, voiceState.isThinking]);
+  }, [scopedEntries.length, voiceState.interimTranscript, activeIsThinking, activeChannel]);
 
-  const effectiveMood: ExpressionMood = voiceState.isThinking
+  const effectiveMood: ExpressionMood = activeIsThinking
     ? 'thinking'
-    : voiceState.isListening && !voiceState.isSpeaking
+    : voiceState.isListening && !activeIsSpeaking
     ? 'listening'
     : mood;
 
@@ -163,44 +190,49 @@ export function VoiceWorkspacePane({
         voiceState.outputLevel,
         effectiveMood,
         tick,
-        voiceState.isSpeaking,
+        activeIsSpeaking,
         voiceState.frequencyBands,
         lastSpokenLine
       ),
-    [voiceState.outputLevel, effectiveMood, tick, voiceState.isSpeaking, voiceState.frequencyBands, lastSpokenLine]
+    [voiceState.outputLevel, effectiveMood, tick, activeIsSpeaking, voiceState.frequencyBands, lastSpokenLine]
   );
 
   const eyeState = useMemo(
-    () => resolveEyeState(effectiveMood, tick, voiceState.isSpeaking),
-    [effectiveMood, tick, voiceState.isSpeaking]
+    () => resolveEyeState(effectiveMood, tick, activeIsSpeaking),
+    [effectiveMood, tick, activeIsSpeaking]
   );
 
-  const energy = voiceState.isSpeaking
+  const energy = activeIsSpeaking
     ? voiceState.outputLevel
     : voiceState.isListening
     ? Math.max(0.18, voiceState.inputLevel)
     : 0.08;
 
   const commandHistory = useMemo(
-    () => entries.filter((e) => e.role === 'user' || e.role === 'command').map((e) => e.text),
-    [entries]
+    () => scopedEntries.filter((e) => e.role === 'user' || e.role === 'command').map((e) => e.text),
+    [scopedEntries]
   );
 
   const visibleMessages = useMemo(
     () =>
-      entries.filter(
+      scopedEntries.filter(
         (e) =>
           e.role === 'user' ||
           e.role === 'hermes' ||
           e.role === 'command' ||
           (showThinking && e.role === 'activity')
       ),
-    [entries, showThinking]
+    [scopedEntries, showThinking]
   );
 
   const pendingApprovals = useMemo(
     () => approvals.filter((a) => a.status === 'pending'),
     [approvals]
+  );
+
+  const channelPendingApprovals = useMemo(
+    () => pendingApprovals.filter((a) => a.channelId === activeChannel),
+    [pendingApprovals, activeChannel]
   );
 
   const runningTask = useMemo(
@@ -245,9 +277,9 @@ export function VoiceWorkspacePane({
 
   const statusText = voiceState.isMuted
     ? 'Mute'
-    : voiceState.isThinking
+    : activeIsThinking
     ? 'Thinking'
-    : voiceState.isSpeaking
+    : activeIsSpeaking
     ? 'Speaking'
     : voiceState.isListening
     ? 'Listening'
@@ -470,9 +502,9 @@ export function VoiceWorkspacePane({
             <span
               aria-hidden="true"
               className={`inline-block w-2 h-2 rounded-full ${
-                voiceState.isSpeaking || voiceState.isListening
+                activeIsSpeaking || voiceState.isListening
                   ? 'bg-[#4ADE80]'
-                  : voiceState.isThinking
+                  : activeIsThinking
                   ? 'bg-amber-400'
                   : 'bg-emerald-200/45'
               }`}
@@ -482,7 +514,7 @@ export function VoiceWorkspacePane({
             <span className="font-mono text-[11px] text-emerald-100/60">{effectiveMood}</span>
             <span aria-hidden="true" className="text-emerald-100/35">·</span>
             <span className="font-mono text-[11px] text-[#6EE7B7]/80">
-              {gatewayStatus?.connected ? 'gateway :8642' : `duet-${activeChannel}`}
+              {gatewayStatus?.connected ? 'gateway :8642' : activeHermesSessionId}
             </span>
           </div>
 
@@ -492,15 +524,15 @@ export function VoiceWorkspacePane({
               data-testid="home-decoded-line"
               className="text-sm sm:text-[15.5px] leading-relaxed text-white/95"
             >
-              {voiceState.isThinking ? (
-                <DecodedText text="Routing your turn across Hermes Agent lane..." animate />
+              {activeIsThinking ? (
+                <DecodedText text={`Routing turn inside ${activeHermesSessionId}...`} animate />
               ) : (
                 <DecodedText text={lastSpokenLine} animate={animateSpeechLine} />
               )}
             </p>
 
             <div className="flex items-center justify-center gap-4 text-xs text-emerald-100/55">
-              {(voiceState.isThinking || voiceState.isSpeaking) && (
+              {(activeIsThinking || activeIsSpeaking) && (
                 <button
                   type="button"
                   onClick={onStopSpeaking}
@@ -530,6 +562,9 @@ export function VoiceWorkspacePane({
       ) : panelView === 'canvas' ? (
         <BrailleSessionsCanvas
           sessions={canvasSessions}
+          hermesSessions={hermesSessions}
+          thinkingByChannel={thinkingByChannel}
+          speakingChannel={speakingChannel}
           activeChannel={activeChannel}
           entries={entries}
           voiceState={voiceState}
@@ -540,6 +575,7 @@ export function VoiceWorkspacePane({
           onAddSession={onAddCanvasSession}
           onAutoArrange={onAutoArrangeCanvas}
           onCycleSessionMood={onCycleSessionMood}
+          onResetSession={onResetSession}
           onRemoveSession={onRemoveCanvasSession}
           onOpenSessionThread={onOpenSessionThread}
         />
@@ -556,26 +592,45 @@ export function VoiceWorkspacePane({
               viseme={viseme}
               eyeState={eyeState}
               energy={energy}
-              isSpeaking={voiceState.isSpeaking}
+              isSpeaking={activeIsSpeaking}
               isListening={voiceState.isListening}
               lookTargetRef={lookTargetRef}
               onClick={onCycleMood}
             />
 
-            <div className="flex items-center gap-2 mt-1 text-xs font-medium text-emerald-50/80">
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-1 px-4 text-xs font-medium text-emerald-50/80">
               <span
                 aria-hidden="true"
                 className={`inline-block w-2 h-2 rounded-full ${
-                  voiceState.isSpeaking || voiceState.isListening
+                  activeIsSpeaking || voiceState.isListening
                     ? 'bg-[#4ADE80]'
-                    : voiceState.isThinking
+                    : activeIsThinking
                     ? 'bg-amber-400'
                     : 'bg-emerald-200/40'
                 }`}
               />
               <span>{statusText}</span>
               <span aria-hidden="true" className="text-emerald-100/35">·</span>
-              <span className="font-mono text-[11px] text-emerald-100/55">{effectiveMood}</span>
+              <span className="font-mono text-[11px] text-[#6EE7B7]" data-testid="active-hermes-session-id">
+                {activeHermesSessionId}
+              </span>
+              {activeShapeMeta && (
+                <>
+                  <span aria-hidden="true" className="text-emerald-100/35">·</span>
+                  <span className="text-[11px] text-emerald-100/65">{activeShapeMeta.label}</span>
+                </>
+              )}
+              {panelView === 'voice' && (
+                <button
+                  type="button"
+                  onClick={() => onResetSession(activeChannel)}
+                  title="Reset isolated hermes-agent session context"
+                  className="ml-1 inline-flex items-center gap-1 text-[11px] text-emerald-100/55 hover:text-white underline underline-offset-4 decoration-white/20 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -602,8 +657,9 @@ export function VoiceWorkspacePane({
             <div className="flex-1 min-h-0 px-5 sm:px-8 py-3 overflow-hidden">
               <CommandTerminal
                 activeChannel={activeChannel}
+                activeSessionId={activeHermesSessionId}
                 entries={entries}
-                isThinking={voiceState.isThinking}
+                isThinking={activeIsThinking}
                 onSubmitInput={(val) => onSubmitInput(val, 'cli')}
               />
             </div>
@@ -666,25 +722,25 @@ export function VoiceWorkspacePane({
                 </div>
               )}
 
-              {pendingApprovals.length > 0 && !voiceState.isThinking && (
+              {channelPendingApprovals.length > 0 && !activeIsThinking && (
                 <div
-                  data-testid={`approval-card-${pendingApprovals[0].id}`}
+                  data-testid={`approval-card-${channelPendingApprovals[0].id}`}
                   className="rounded-xl bg-white/[0.05] border border-white/12 px-4 py-3 max-w-[68ch] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/55">
-                      <span className="text-[#6EE7B7]">{pendingApprovals[0].id}</span>
+                      <span className="text-[#6EE7B7]">{channelPendingApprovals[0].id}</span>
                       <span aria-hidden="true">·</span>
-                      <span>#{pendingApprovals[0].channelId}</span>
+                      <span>#{channelPendingApprovals[0].channelId}</span>
                     </div>
                     <p className="text-sm font-medium text-white truncate mt-0.5">
-                      {pendingApprovals[0].title}
+                      {channelPendingApprovals[0].title}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => onApproveCard(pendingApprovals[0].id)}
+                      onClick={() => onApproveCard(channelPendingApprovals[0].id)}
                       className="min-h-[36px] px-3.5 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs flex items-center gap-1.5 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
                     >
                       <Check className="w-3.5 h-3.5" />
@@ -692,7 +748,7 @@ export function VoiceWorkspacePane({
                     </button>
                     <button
                       type="button"
-                      onClick={() => onRejectCard(pendingApprovals[0].id)}
+                      onClick={() => onRejectCard(channelPendingApprovals[0].id)}
                       className="min-h-[36px] px-3 rounded-lg bg-white/[0.06] border border-white/12 text-emerald-50/80 hover:text-white text-xs flex items-center gap-1 cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -702,13 +758,13 @@ export function VoiceWorkspacePane({
                 </div>
               )}
 
-              {(voiceState.isThinking || voiceState.isSpeaking) && (
+              {(activeIsThinking || activeIsSpeaking) && (
                 <div className="space-y-2.5 pt-1">
                   <div className="flex items-center gap-2.5 text-sm font-medium text-emerald-50/90">
                     <span aria-hidden="true" className="text-[#6EE7B7]">
                       ❖
                     </span>
-                    <span>{voiceState.isThinking ? 'Thinking' : 'Speaking'}</span>
+                    <span>{activeIsThinking ? `Thinking (${activeHermesSessionId})` : 'Speaking'}</span>
                   </div>
                   <button
                     type="button"
@@ -730,7 +786,7 @@ export function VoiceWorkspacePane({
         <div className="pointer-events-none absolute inset-x-0 bottom-[74px] sm:bottom-[80px] h-[132px] sm:h-[150px] z-0 overflow-hidden opacity-85">
           <BrailleHorizonCanvas
             energy={energy}
-            isActive={voiceState.isSpeaking || voiceState.isListening}
+            isActive={activeIsSpeaking || voiceState.isListening}
             frequencyBands={voiceState.frequencyBands}
             lookTargetRef={lookTargetRef}
           />
@@ -748,14 +804,14 @@ export function VoiceWorkspacePane({
         <div className="flex items-center justify-between gap-2 text-[11.5px] text-emerald-100/65">
           <div className="flex items-center gap-2 min-w-0">
             <span className="shrink-0 sm:hidden">
-              {voiceState.isThinking || voiceState.isSpeaking
+              {activeIsThinking || activeIsSpeaking
                 ? `Working · ${workingSeconds}s`
                 : `#${activeChannel}`}
             </span>
-            <span className="hidden sm:inline shrink-0">
-              {voiceState.isThinking || voiceState.isSpeaking
+            <span className="hidden sm:inline shrink-0 font-mono text-[11px]">
+              {activeIsThinking || activeIsSpeaking
                 ? `Working · ${workingSeconds}s`
-                : `Hermes · #${activeChannel}`}
+                : `${activeHermesSessionId} · #${activeChannel}`}
             </span>
             <span aria-hidden="true" className="hidden sm:inline">·</span>
             <span className="hidden sm:inline truncate">

@@ -26,11 +26,26 @@ export type PhosphorTheme = 'gold' | 'cyan' | 'mono';
 
 export type ChannelId = string;
 
+export type HermesSessionRuntimeStatus = 'idle' | 'thinking' | 'speaking' | 'running';
+
+export interface HermesAgentSession {
+  sessionId: string;
+  channelId: ChannelId;
+  name: string;
+  persona: string;
+  topic: string;
+  status: HermesSessionRuntimeStatus;
+  turnCount: number;
+  lastMessage?: string;
+  updatedAtMs: number;
+}
+
 export interface Channel {
   id: ChannelId;
   name: string;
   sessionId: string;
   description: string;
+  persona?: string;
   unreadCount: number;
 }
 

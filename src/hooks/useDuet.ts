@@ -4,6 +4,7 @@ import type {
   BackgroundTask,
   BriefDecision,
   Channel,
+  HermesAgentSession,
   TerminalEntry,
 } from '../types/hermes';
 
@@ -52,6 +53,7 @@ interface DuetChannel {
   name: string;
   session_id: string;
   topic?: string | null;
+  persona?: string | null;
   archived?: boolean;
   last_at?: number | null;
 }
@@ -60,20 +62,26 @@ interface DuetSnapshot {
   pending: DuetItem[];
   tasks: DuetTask[];
   channels: DuetChannel[];
+  sessions?: HermesAgentSession[];
 }
 type DuetServerEvent =
   | { type: 'item'; item: DuetItem }
   | { type: 'delta'; item_id: string; text: string }
   | { type: 'task'; task: DuetTask }
-  | { type: 'channel'; channel: DuetChannel };
+  | { type: 'channel'; channel: DuetChannel }
+  | { type: 'session'; session: HermesAgentSession }
+  | { type: 'session_reset'; channelId: string; session: HermesAgentSession; item?: DuetItem }
+  | { type: 'session_deleted'; channelId: string };
 
 export interface UseDuetOptions {
   /** Upsert a transcript entry derived from a Duet item (by id). */
   upsertEntry: (entry: TerminalEntry) => void;
   /** Patch an entry's text while it streams. */
   patchEntryText: (id: string, text: string) => void;
-  /** A complete assistant reply arrived (spoken line + TTS hook). */
-  onAssistantComplete: (text: string) => void;
+  /** A complete assistant reply arrived (spoken line + TTS hook + scoped channelId). */
+  onAssistantComplete: (text: string, channelId: string) => void;
+  /** Called when an isolated session resets on the server. */
+  onSessionReset?: (channelId: string) => void;
   /** An approval card settled (so the UI can react optimistically). */
   onCardSettled?: (itemId: string, status: 'approved' | 'declined') => void;
 }
@@ -191,6 +199,7 @@ function mapChannel(ch: DuetChannel): Channel {
     name: ch.name,
     sessionId: ch.session_id,
     description: ch.topic ?? '',
+    persona: ch.persona ?? undefined,
     unreadCount: 0,
   };
 }
@@ -198,6 +207,7 @@ function mapChannel(ch: DuetChannel): Channel {
 export function useDuet(opts: UseDuetOptions) {
   const [connected, setConnected] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [sessions, setSessions] = useState<HermesAgentSession[]>([]);
   const [approvals, setApprovals] = useState<ApprovalCard[]>([]);
   const [tasks, setTasks] = useState<BackgroundTask[]>([]);
   const [brief, setBrief] = useState<BriefDecision[]>([]);
@@ -206,7 +216,7 @@ export function useDuet(opts: UseDuetOptions) {
   /** Item ids whose completion already triggered speech; replays stay silent. */
   const spokenItemIdsRef = useRef<Set<string>>(new Set());
 
-  const applyItem = useCallback((item: DuetItem) => {
+  const applyItem = useCallback((item: DuetItem, triggerSpeech = true) => {
     if (item.kind === 'card') {
       const approval = pendingToApproval(item);
       if (approval) {
@@ -233,14 +243,16 @@ export function useDuet(opts: UseDuetOptions) {
     if (entry) {
       optsRef.current.upsertEntry(entry);
       if (
+        triggerSpeech &&
         item.kind === 'assistant' &&
         !item.streaming &&
         item.text &&
-        item.text.trim().length > 0
+        item.text.trim().length > 0 &&
+        !item.id.startsWith('init-welcome-')
       ) {
         if (!spokenItemIdsRef.current.has(item.id)) {
           spokenItemIdsRef.current.add(item.id);
-          optsRef.current.onAssistantComplete(item.text.trim());
+          optsRef.current.onAssistantComplete(item.text.trim(), entry.channelId);
         }
       }
     }
@@ -260,6 +272,9 @@ export function useDuet(opts: UseDuetOptions) {
             .filter((c) => !c.archived)
             .map(mapChannel)
         );
+        if (Array.isArray(snap.sessions)) {
+          setSessions(snap.sessions);
+        }
         setApprovals(
           (snap.pending ?? [])
             .map(pendingToApproval)
@@ -272,7 +287,12 @@ export function useDuet(opts: UseDuetOptions) {
         );
         setTasks((snap.tasks ?? []).map(mapTask));
         const entries = (snap.items ?? [])
-          .map(itemToEntry)
+          .map((item) => {
+            if (item.kind === 'assistant' && item.id) {
+              spokenItemIdsRef.current.add(item.id);
+            }
+            return itemToEntry(item);
+          })
           .filter((e): e is TerminalEntry => e !== null)
           .sort((a, b) => (a.createdAtMs ?? 0) - (b.createdAtMs ?? 0));
         for (const e of entries) optsRef.current.upsertEntry(e);
@@ -298,35 +318,115 @@ export function useDuet(opts: UseDuetOptions) {
       setConnected(true);
       try {
         const data = JSON.parse(ev.data) as DuetServerEvent;
-        if (data.type === 'item') applyItem(data.item);
+        if (data.type === 'item') applyItem(data.item, true);
         else if (data.type === 'delta') {
           optsRef.current.patchEntryText(data.item_id, data.text);
-        } else if (data.type === 'task') setTasks((prev) => {
-          const next = prev.filter((t) => t.id !== data.task.id);
-          next.push(mapTask(data.task));
-          return next;
-        });
-        else if (data.type === 'channel') setChannels((prev) => {
-          const mapped = mapChannel(data.channel);
-          const next = prev.filter((c) => c.id !== mapped.id);
-          next.push(mapped);
-          return next;
-        });
+        } else if (data.type === 'task') {
+          setTasks((prev) => {
+            const next = prev.filter((t) => t.id !== data.task.id);
+            next.push(mapTask(data.task));
+            return next;
+          });
+        } else if (data.type === 'channel') {
+          setChannels((prev) => {
+            const mapped = mapChannel(data.channel);
+            const next = prev.filter((c) => c.id !== mapped.id);
+            next.push(mapped);
+            return next;
+          });
+        } else if (data.type === 'session') {
+          setSessions((prev) => {
+            const next = prev.filter((s) => s.channelId !== data.session.channelId);
+            next.push(data.session);
+            return next;
+          });
+        } else if (data.type === 'session_reset') {
+          setSessions((prev) => {
+            const next = prev.filter((s) => s.channelId !== data.session.channelId);
+            next.push(data.session);
+            return next;
+          });
+          optsRef.current.onSessionReset?.(data.channelId);
+          if (data.item) applyItem(data.item, false);
+        } else if (data.type === 'session_deleted') {
+          setSessions((prev) => prev.filter((s) => s.channelId !== data.channelId));
+          setChannels((prev) => prev.filter((c) => c.id !== data.channelId));
+        }
       } catch {
         // ignore malformed frames
       }
     };
-    return () => es.close();
+    const handleUnload = () => es.close();
+    window.addEventListener('beforeunload', handleUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      es.close();
+    };
   }, [applyItem]);
 
-  const sendMessage = useCallback(async (text: string, channelId: string) => {
-    const res = await fetch('/api/duet/messages', {
+  const sendMessage = useCallback(
+    async (
+      text: string,
+      channelId: string,
+      sessionMeta?: { sessionId?: string; persona?: string }
+    ) => {
+      const res = await fetch('/api/duet/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          channel_id: channelId,
+          session_id: sessionMeta?.sessionId,
+          persona: sessionMeta?.persona,
+        }),
+      });
+      if (!res.ok) throw new Error(`duet message failed: HTTP ${res.status}`);
+      return (await res.json()) as { item?: DuetItem; session?: HermesAgentSession };
+    },
+    []
+  );
+
+  const createHermesSession = useCallback(
+    async (payload: {
+      channelId: string;
+      name: string;
+      sessionId: string;
+      topic: string;
+      persona: string;
+    }) => {
+      const res = await fetch('/api/hermes/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`create session failed: HTTP ${res.status}`);
+      return (await res.json()) as {
+        session?: HermesAgentSession;
+        channel?: DuetChannel;
+        item?: DuetItem | null;
+      };
+    },
+    []
+  );
+
+  const resetHermesSession = useCallback(async (channelId: string) => {
+    const res = await fetch(`/api/hermes/sessions/${encodeURIComponent(channelId)}/reset`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, channel_id: channelId }),
     });
-    if (!res.ok) throw new Error(`duet message failed: HTTP ${res.status}`);
-    return (await res.json()) as { item?: DuetItem };
+    if (!res.ok) throw new Error(`reset session failed: HTTP ${res.status}`);
+    return (await res.json()) as {
+      ok: boolean;
+      session?: HermesAgentSession;
+      item?: DuetItem;
+    };
+  }, []);
+
+  const deleteHermesSession = useCallback(async (channelId: string) => {
+    const res = await fetch(`/api/hermes/sessions/${encodeURIComponent(channelId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(`delete session failed: HTTP ${res.status}`);
+    return res.json();
   }, []);
 
   const actOnCard = useCallback(async (cardId: string, action: 'approve' | 'decline', value?: string) => {
@@ -340,7 +440,31 @@ export function useDuet(opts: UseDuetOptions) {
   }, []);
 
   return useMemo(
-    () => ({ connected, channels, approvals, tasks, brief, sendMessage, actOnCard }),
-    [connected, channels, approvals, tasks, brief, sendMessage, actOnCard]
+    () => ({
+      connected,
+      channels,
+      sessions,
+      approvals,
+      tasks,
+      brief,
+      sendMessage,
+      createHermesSession,
+      resetHermesSession,
+      deleteHermesSession,
+      actOnCard,
+    }),
+    [
+      connected,
+      channels,
+      sessions,
+      approvals,
+      tasks,
+      brief,
+      sendMessage,
+      createHermesSession,
+      resetHermesSession,
+      deleteHermesSession,
+      actOnCard,
+    ]
   );
 }

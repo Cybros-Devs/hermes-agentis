@@ -8,6 +8,8 @@ import {
 export interface CanvasSession {
   id: string;
   channelId: ChannelId;
+  hermesSessionId: string;
+  agentPersona: string;
   name: string;
   topic: string;
   shape: BrailleShapeKind;
@@ -26,6 +28,30 @@ export const CANVAS_BOUNDS = {
   minY: 18,
   maxY: 74,
 } as const;
+
+const VALID_SHAPES = new Set<BrailleShapeKind>(BRAILLE_SHAPE_CATALOG.map((m) => m.kind));
+const VALID_MOODS = new Set<ExpressionMood>([
+  'neutral',
+  'listening',
+  'thinking',
+  'speaking',
+  'happy',
+  'focused',
+  'alert',
+]);
+
+export function createHermesSessionId(channelId: string): string {
+  const clean = channelId
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-_]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `hermes-${clean || 'session'}`;
+}
+
+export function getShapeMeta(kind: BrailleShapeKind) {
+  return BRAILLE_SHAPE_CATALOG.find((s) => s.kind === kind) ?? BRAILLE_SHAPE_CATALOG[0];
+}
 
 export function clampCanvasPosition(xPct: number, yPct: number): { xPct: number; yPct: number } {
   return {
@@ -121,6 +147,60 @@ const DEFAULT_SHAPE_PRESETS: Record<
   memory: { shape: 'cloud', tint: 'orange', xPct: 72, yPct: 33, eyeStyle: 'open', mood: 'happy' },
 };
 
+export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): CanvasSession[] {
+  const seenChannels = new Set<string>();
+  const normalized: CanvasSession[] = [];
+
+  for (let i = 0; i < rawList.length; i++) {
+    const item = rawList[i];
+    if (!item || typeof item !== 'object') continue;
+    const baseName = String(item.name || item.channelId || `session-${i + 1}`).replace(/^#/, '');
+    const channelId =
+      typeof item.channelId === 'string' && item.channelId.trim()
+        ? item.channelId.trim()
+        : slugifySessionName(baseName, seenChannels);
+    if (seenChannels.has(channelId)) continue;
+    seenChannels.add(channelId);
+
+    const shape: BrailleShapeKind =
+      item.shape && VALID_SHAPES.has(item.shape) ? item.shape : 'clover';
+    const meta = getShapeMeta(shape);
+    const pos = clampCanvasPosition(
+      typeof item.xPct === 'number' && Number.isFinite(item.xPct) ? item.xPct : 50,
+      typeof item.yPct === 'number' && Number.isFinite(item.yPct) ? item.yPct : 46
+    );
+    const mood: ExpressionMood =
+      item.mood && VALID_MOODS.has(item.mood) ? item.mood : 'happy';
+
+    normalized.push({
+      id: typeof item.id === 'string' && item.id ? item.id : `session-${channelId}`,
+      channelId,
+      hermesSessionId:
+        typeof item.hermesSessionId === 'string' && item.hermesSessionId.trim()
+          ? item.hermesSessionId.trim()
+          : createHermesSessionId(channelId),
+      agentPersona:
+        typeof item.agentPersona === 'string' && item.agentPersona.trim()
+          ? item.agentPersona.trim()
+          : meta.defaultAgentPersona,
+      name: baseName,
+      topic:
+        typeof item.topic === 'string' && item.topic.trim()
+          ? item.topic.trim()
+          : meta.tagline,
+      shape,
+      tint: item.tint ?? meta.defaultTint,
+      xPct: pos.xPct,
+      yPct: pos.yPct,
+      mood,
+      eyeStyle: item.eyeStyle === 'sleepy' ? 'sleepy' : item.eyeStyle === 'open' ? 'open' : meta.defaultEyeStyle,
+      isCore: Boolean(item.isCore),
+    });
+  }
+
+  return normalized;
+}
+
 export function createSeedCanvasSessions(channels: Channel[]): CanvasSession[] {
   const seen = new Set<string>();
   const seeded: CanvasSession[] = [];
@@ -128,6 +208,8 @@ export function createSeedCanvasSessions(channels: Channel[]): CanvasSession[] {
   channels.forEach((ch, idx) => {
     const preset = DEFAULT_SHAPE_PRESETS[ch.id];
     const fallbackMeta = BRAILLE_SHAPE_CATALOG[idx % BRAILLE_SHAPE_CATALOG.length];
+    const shape = preset?.shape ?? fallbackMeta.kind;
+    const shapeMeta = getShapeMeta(shape);
     const pos = preset
       ? clampCanvasPosition(preset.xPct, preset.yPct)
       : findOpenCanvasSpot(seeded);
@@ -136,24 +218,29 @@ export function createSeedCanvasSessions(channels: Channel[]): CanvasSession[] {
     seeded.push({
       id: `session-${ch.id}`,
       channelId: ch.id,
+      hermesSessionId: createHermesSessionId(ch.id),
+      agentPersona: ch.persona || shapeMeta.defaultAgentPersona,
       name: ch.name.replace(/^#/, ''),
       topic: ch.description || `Hermes session #${ch.name}`,
-      shape: preset?.shape ?? fallbackMeta.kind,
-      tint: preset?.tint ?? fallbackMeta.defaultTint,
+      shape,
+      tint: preset?.tint ?? shapeMeta.defaultTint,
       xPct: pos.xPct,
       yPct: pos.yPct,
       mood: preset?.mood ?? 'happy',
-      eyeStyle: preset?.eyeStyle ?? fallbackMeta.defaultEyeStyle,
+      eyeStyle: preset?.eyeStyle ?? shapeMeta.defaultEyeStyle,
       isCore: true,
     });
   });
 
-  // Add one floating background companion (Phantom) if not already present so the canvas opens rich
+  // Add one floating background companion (Neko daemon) if not already present so the canvas opens rich
   if (!seen.has('daemon') && seeded.length > 0 && seeded.length < 5) {
     const p = DEFAULT_SHAPE_PRESETS.daemon;
+    const daemonMeta = getShapeMeta(p.shape);
     seeded.push({
       id: 'session-daemon',
       channelId: 'daemon',
+      hermesSessionId: createHermesSessionId('daemon'),
+      agentPersona: daemonMeta.defaultAgentPersona,
       name: 'daemon',
       topic: 'Background cron watcher & ambient signal daemon',
       shape: p.shape,

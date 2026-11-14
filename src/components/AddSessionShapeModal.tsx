@@ -14,6 +14,7 @@ interface AddSessionShapeModalProps {
   onCreate: (payload: {
     name: string;
     topic: string;
+    persona: string;
     shape: BrailleShapeKind;
     tint: BrailleShapeTint;
     eyeStyle: 'open' | 'sleepy';
@@ -27,11 +28,14 @@ export function AddSessionShapeModal({
   onClose,
   onCreate,
 }: AddSessionShapeModalProps) {
-  const [selectedShape, setSelectedShape] = useState<BrailleShapeKind>('ghost');
-  const [selectedTint, setSelectedTint] = useState<BrailleShapeTint>('lavender');
-  const [eyeStyle, setEyeStyle] = useState<'open' | 'sleepy'>('open');
+  const defaultMeta = BRAILLE_SHAPE_CATALOG[2]; // Neko default
+  const [selectedShape, setSelectedShape] = useState<BrailleShapeKind>(defaultMeta.kind);
+  const [selectedTint, setSelectedTint] = useState<BrailleShapeTint>(defaultMeta.defaultTint);
+  const [eyeStyle, setEyeStyle] = useState<'open' | 'sleepy'>(defaultMeta.defaultEyeStyle);
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
+  const [persona, setPersona] = useState(defaultMeta.defaultAgentPersona);
+  const [personaEdited, setPersonaEdited] = useState(false);
   const [error, setError] = useState('');
 
   if (!open) return null;
@@ -45,6 +49,9 @@ export function AddSessionShapeModal({
     if (meta) {
       setSelectedTint(meta.defaultTint);
       setEyeStyle(meta.defaultEyeStyle);
+      if (!personaEdited) {
+        setPersona(meta.defaultAgentPersona);
+      }
     }
   };
 
@@ -52,18 +59,21 @@ export function AddSessionShapeModal({
     e.preventDefault();
     const cleaned = name.trim();
     if (!cleaned) {
-      setError('Enter a session name so Hermes can route messages to it.');
+      setError('Enter a session name so hermes-agent can isolate its thread.');
       return;
     }
     onCreate({
       name: cleaned,
       topic: topic.trim() || activeMeta.tagline,
+      persona: persona.trim() || activeMeta.defaultAgentPersona,
       shape: selectedShape,
       tint: selectedTint,
       eyeStyle,
     });
     setName('');
     setTopic('');
+    setPersona(activeMeta.defaultAgentPersona);
+    setPersonaEdited(false);
     setError('');
     onClose();
   };
@@ -88,10 +98,10 @@ export function AddSessionShapeModal({
               id="add-braille-session-title"
               className="text-base font-semibold text-white"
             >
-              Add Braille Session
+              Spawn Hermes Agent Session
             </h2>
             <p className="text-xs text-emerald-100/60 mt-0.5">
-              Choose a character silhouette to spawn onto the canvas
+              Choose an anime character silhouette to launch an isolated hermes-agent session
             </p>
           </div>
 
@@ -105,11 +115,11 @@ export function AddSessionShapeModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-5 max-h-[82vh] overflow-y-auto cyber-scroll">
-          {/* 9 Dots-inspired Braille Shape Picker */}
+        <form onSubmit={handleSubmit} className="p-5 space-y-4 max-h-[82vh] overflow-y-auto cyber-scroll">
+          {/* 9 Anime Character Braille Picker */}
           <div className="space-y-2">
             <span className="block text-xs font-medium text-emerald-50/85">
-              Character Shape
+              Anime Character Silhouette
             </span>
             <div className="grid grid-cols-3 gap-2.5">
               {BRAILLE_SHAPE_CATALOG.map((meta) => {
@@ -121,8 +131,8 @@ export function AddSessionShapeModal({
                     type="button"
                     onClick={() => handleSelectShape(meta.kind)}
                     aria-pressed={isSelected}
-                    aria-label={`Select ${meta.label} shape`}
-                    className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 transition-all cursor-pointer ${
+                    aria-label={`Select ${meta.label} (${meta.animeTitle})`}
+                    className={`flex flex-col items-center justify-center gap-1 rounded-xl border px-2.5 py-2 transition-all cursor-pointer ${
                       isSelected
                         ? 'border-[#34D399] bg-[#34D399]/12'
                         : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]'
@@ -135,9 +145,9 @@ export function AddSessionShapeModal({
                       mood="happy"
                       eyeStyle={isSelected ? eyeStyle : meta.defaultEyeStyle}
                     />
-                    <div className="text-center">
+                    <div className="text-center leading-tight">
                       <div className="text-xs font-semibold text-white">{meta.label}</div>
-                      <div className="text-[11px] text-emerald-100/50 truncate max-w-[14ch]">
+                      <div className="text-[11px] text-emerald-100/55 whitespace-nowrap">
                         {meta.tagline}
                       </div>
                     </div>
@@ -153,7 +163,7 @@ export function AddSessionShapeModal({
               <span className="block text-xs font-medium text-emerald-50/85">
                 Phosphor Tint
               </span>
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto py-0.5">
                 {TINT_KEYS.map((tintKey) => {
                   const palette = BRAILLE_TINT_PALETTE[tintKey];
                   const active = tintKey === selectedTint;
@@ -206,7 +216,7 @@ export function AddSessionShapeModal({
             </div>
           </div>
 
-          {/* Session Identity */}
+          {/* Session Identity & Isolated hermes-agent Persona */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label htmlFor="canvas-session-name" className="block text-xs font-medium text-emerald-50/85">
@@ -220,7 +230,7 @@ export function AddSessionShapeModal({
                   setName(e.target.value);
                   if (error) setError('');
                 }}
-                placeholder="e.g. design-critique"
+                placeholder="e.g. kitsune-lab"
                 autoFocus
                 className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-2 text-sm text-white placeholder:text-emerald-100/35 focus:outline-none"
               />
@@ -239,6 +249,23 @@ export function AddSessionShapeModal({
                 className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-2 text-sm text-white placeholder:text-emerald-100/35 focus:outline-none"
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="canvas-session-persona" className="block text-xs font-medium text-emerald-50/85">
+              hermes-agent System Persona
+            </label>
+            <input
+              id="canvas-session-persona"
+              type="text"
+              value={persona}
+              onChange={(e) => {
+                setPersona(e.target.value);
+                setPersonaEdited(true);
+              }}
+              placeholder={activeMeta.defaultAgentPersona}
+              className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-2 text-xs font-mono text-emerald-50/90 placeholder:text-emerald-100/35 focus:outline-none"
+            />
           </div>
 
           {error && (
@@ -260,7 +287,7 @@ export function AddSessionShapeModal({
               className="px-4 py-2 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add to Canvas</span>
+              <span>Spawn Session</span>
             </button>
           </div>
         </form>
