@@ -99,10 +99,16 @@ export function Ascii3DViewport({
     const cellW = width / COLS;
     const cellH = height / ROWS;
     const startTime = performance.now();
+    let lastDraw = startTime;
+    let smoothEnergy = stateRef.current.energy;
+    let rafId = 0;
 
-    const drawFrame = () => {
+    const drawFrame = (now: number) => {
       const s = stateRef.current;
-      const elapsed = (performance.now() - startTime) / 1000;
+      const dt = Math.min(0.08, Math.max(0.01, (now - lastDraw) / 1000));
+      lastDraw = now;
+      smoothEnergy += (s.energy - smoothEnergy) * (1 - Math.exp(-14 * dt));
+      const elapsed = (now - startTime) / 1000;
       const orbitOffset = s.autoOrbit ? Math.sin(elapsed * 0.65) * 0.24 : 0;
       const effectiveYaw = s.yaw + orbitOffset;
       const effectivePitch = s.pitch + (s.autoOrbit ? Math.cos(elapsed * 0.5) * 0.06 : 0);
@@ -117,7 +123,7 @@ export function Ascii3DViewport({
         mood: s.mood,
         viseme: s.viseme,
         eyeState: s.eyeState,
-        energy: s.energy,
+        energy: smoothEnergy,
         bands: s.bands,
         isSpeaking: s.isSpeaking,
         isListening: s.isListening,
@@ -244,9 +250,15 @@ export function Ascii3DViewport({
       ctx.globalAlpha = 1;
     };
 
-    drawFrame();
-    const timer = window.setInterval(drawFrame, 42);
-    return () => window.clearInterval(timer);
+    drawFrame(startTime);
+    const loop = (now: number) => {
+      if (now - lastDraw >= 32) {
+        drawFrame(now);
+      }
+      rafId = window.requestAnimationFrame(loop);
+    };
+    rafId = window.requestAnimationFrame(loop);
+    return () => window.cancelAnimationFrame(rafId);
   }, []);
 
   return (

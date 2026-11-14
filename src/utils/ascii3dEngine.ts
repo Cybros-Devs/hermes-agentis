@@ -173,6 +173,8 @@ interface FramePrecompute {
   breathY: number;
   cTilt: number;
   sTilt: number;
+  cYaw: number;
+  sYaw: number;
   cTalkX: number;
   sTalkX: number;
   mouthRx: number;
@@ -232,6 +234,10 @@ function buildFramePrecompute(params: Ascii3DParams): FramePrecompute {
   const moodTilt = mood === 'thinking' ? 0.14 : mood === 'happy' ? -0.05 : 0;
   const tilt = moodTilt + talkTilt * 0.5;
   const talkX = isSpeaking ? Math.sin(time * 9.0) * 0.03 * energy : 0;
+  const headYaw =
+    (mood === 'thinking' ? -0.18 : mood === 'listening' ? 0.12 : 0) +
+    Math.sin(time * 0.78) * 0.11 +
+    (isSpeaking ? Math.sin(time * 1.65) * 0.08 : 0);
   const mouth = getMouthOpening(viseme, energy);
   const browTilt = mood === 'alert' || mood === 'focused' ? -0.25 : mood === 'happy' ? 0.19 : 0;
   const wingFlap = 0.34 + Math.sin(time * (isSpeaking ? 5.4 : 2.3)) * (0.065 + energy * 0.09);
@@ -260,6 +266,8 @@ function buildFramePrecompute(params: Ascii3DParams): FramePrecompute {
     breathY,
     cTilt: Math.cos(tilt),
     sTilt: Math.sin(tilt),
+    cYaw: Math.cos(headYaw),
+    sYaw: Math.sin(headYaw),
     cTalkX: Math.cos(talkX),
     sTalkX: Math.sin(talkX),
     mouthRx: mouth.rx,
@@ -404,43 +412,47 @@ function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, ex
 
   // Stage 2: Remaining assemblies only if their conservative bound < current minD
   if ((evaluated & 1) === 0 && bHead < minD) {
-    const cranium = sdEllipsoid(px, py - 0.13, pz, 0.61, 0.68, 0.58);
-    const chin = sdEllipsoid(px, py + 0.26, pz - 0.09, 0.39, 0.43, 0.45);
+    const hpx = px * fc.cYaw + pz * fc.sYaw;
+    const hpz = -px * fc.sYaw + pz * fc.cYaw;
+    const hax = hpx < 0 ? -hpx : hpx;
+
+    const cranium = sdEllipsoid(hpx, py - 0.13, hpz, 0.61, 0.68, 0.58);
+    const chin = sdEllipsoid(hpx, py + 0.26, hpz - 0.09, 0.39, 0.43, 0.45);
     let headDist = smin(cranium, chin, 0.22);
-    const nose = sdCapsule(px, py, pz, 0, 0.07, 0.54, 0, -0.09, 0.62, 0.048);
+    const nose = sdCapsule(hpx, py, hpz, 0, 0.07, 0.54, 0, -0.09, 0.62, 0.048);
     headDist = smin(headDist, nose, 0.05);
-    const eyeSocket = sdEllipsoid(ax - 0.22, py - 0.08, pz - 0.56, 0.135, 0.125, 0.08);
+    const eyeSocket = sdEllipsoid(hax - 0.22, py - 0.08, hpz - 0.56, 0.135, 0.125, 0.08);
     headDist = Math.max(headDist, -eyeSocket * 0.65);
-    const smileBend = fc.isSmile ? px * px * 0.42 : 0;
-    const mouthCavity = sdEllipsoid(px, py + 0.27 - smileBend, pz - 0.49, fc.mouthRx, fc.mouthRy, 0.16);
+    const smileBend = fc.isSmile ? hpx * hpx * 0.42 : 0;
+    const mouthCavity = sdEllipsoid(hpx, py + 0.27 - smileBend, hpz - 0.49, fc.mouthRx, fc.mouthRy, 0.16);
     headDist = Math.max(headDist, -mouthCavity);
     if (headDist < minD) { minD = headDist; mat = MAT_BODY; }
 
     if (fc.mouthOpen) {
-      const vocalCore = sdEllipsoid(px, py + 0.27, pz - 0.43, fc.mouthRx * 0.76, fc.mouthRy * 0.78, 0.09);
+      const vocalCore = sdEllipsoid(hpx, py + 0.27, hpz - 0.43, fc.mouthRx * 0.76, fc.mouthRy * 0.78, 0.09);
       if (vocalCore < minD) { minD = vocalCore; mat = MAT_MOUTH; }
     }
 
-    const hairBack = sdEllipsoid(px, py - 0.16, pz + 0.14, 0.71, 0.77, 0.64);
-    const faceWindow = sdEllipsoid(px, py + 0.01, pz - 0.36, 0.52, 0.56, 0.48);
+    const hairBack = sdEllipsoid(hpx, py - 0.16, hpz + 0.14, 0.71, 0.77, 0.64);
+    const faceWindow = sdEllipsoid(hpx, py + 0.01, hpz - 0.36, 0.52, 0.56, 0.48);
     const hairShell = Math.max(hairBack, -faceWindow);
-    const bangL = sdCapsule(px, py, pz, -0.22, 0.72, 0.33, -0.56, -0.2, 0.36, 0.125);
-    const bangR = sdCapsule(px, py, pz, 0.22, 0.72, 0.33, 0.56, -0.2, 0.36, 0.125);
-    const bangC = sdCapsule(px, py, pz, 0.04, 0.76, 0.44, -0.06, 0.41, 0.52, 0.085);
+    const bangL = sdCapsule(hpx, py, hpz, -0.22, 0.72, 0.33, -0.56, -0.2, 0.36, 0.125);
+    const bangR = sdCapsule(hpx, py, hpz, 0.22, 0.72, 0.33, 0.56, -0.2, 0.36, 0.125);
+    const bangC = sdCapsule(hpx, py, hpz, 0.04, 0.76, 0.44, -0.06, 0.41, 0.52, 0.085);
     const hairDist = smin(Math.min(hairShell, Math.min(bangL, bangR)), bangC, 0.07);
     if (hairDist < minD) { minD = hairDist; mat = MAT_HAIR; }
 
-    const eyeDist = sdEllipsoid(ax - 0.22 - fc.eyeGazeX, py - 0.08, pz - 0.53, 0.115, fc.eyeScaleY, 0.09);
+    const eyeDist = sdEllipsoid(hax - 0.22 - fc.eyeGazeX, py - 0.08, hpz - 0.53, 0.115, fc.eyeScaleY, 0.09);
     if (eyeDist < minD) { minD = eyeDist; mat = MAT_EYE; }
 
-    const bx0 = ax - 0.22;
+    const bx0 = hax - 0.22;
     const by0 = py - 0.26;
-    const browDist = sdBox(bx0 * fc.cBrow - by0 * fc.sBrow, bx0 * fc.sBrow + by0 * fc.cBrow, pz - 0.54, 0.125, 0.024, 0.042);
+    const browDist = sdBox(bx0 * fc.cBrow - by0 * fc.sBrow, bx0 * fc.sBrow + by0 * fc.cBrow, hpz - 0.54, 0.125, 0.024, 0.042);
     if (browDist < minD) { minD = browDist; mat = MAT_HAIR; }
 
-    const vx0 = px;
+    const vx0 = hpx;
     const vy0 = py - 0.54;
-    const visorDist = sdBox((vx0 - vy0) * 0.7071, (vx0 + vy0) * 0.7071, pz - 0.53, 0.085, 0.085, 0.052);
+    const visorDist = sdBox((vx0 - vy0) * 0.7071, (vx0 + vy0) * 0.7071, hpz - 0.53, 0.085, 0.085, 0.052);
     if (visorDist < minD) { minD = visorDist; mat = MAT_VISOR; }
   }
 

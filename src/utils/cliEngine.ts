@@ -5,32 +5,108 @@ import type {
   Channel,
   ChannelId,
   ExpressionMood,
+  HermesCronJob,
+  HermesMemoryItem,
+  HermesSkill,
 } from '../types/hermes';
 
 export const INITIAL_CHANNELS: Channel[] = [
   {
     id: 'general',
     name: '#general',
-    description: 'Morning briefs, check-ins, and primary Hermes voice link',
+    sessionId: 'duet-general',
+    description: 'Primary Hermes Agent voice thread, daily check-ins, and morning brief',
     unreadCount: 0,
   },
   {
     id: 'ops',
     name: '#ops',
-    description: 'Host automation, daemon health, and approval gates',
+    sessionId: 'duet-ops',
+    description: 'hermes gateway (:8642), cronjob_manage schedules, and payment gates',
     unreadCount: 1,
   },
   {
     id: 'launch',
     name: '#launch',
-    description: 'Release checklist, landing deliverables, and QA sweeps',
+    sessionId: 'duet-launch',
+    description: '~/.hermes/skills/ workflows, save_page rebuilds, and QA checks',
     unreadCount: 2,
   },
   {
     id: 'research',
     name: '#research',
-    description: 'Background synthesis lanes and standing briefings',
+    sessionId: 'duet-research',
+    description: 'Isolated background runs and persistent MEMORY.md synthesis',
     unreadCount: 0,
+  },
+];
+
+export const INITIAL_HERMES_SKILLS: HermesSkill[] = [
+  {
+    name: 'duet-bridge',
+    source: '~/.hermes/skills/duet-bridge/SKILL.md',
+    summary: 'Human-in-the-loop request_approval, request_payment, post_brief, and save_page via mcp__duet__*',
+    enabled: true,
+  },
+  {
+    name: 'morning-brief',
+    source: '~/.hermes/skills/morning-brief/SKILL.md',
+    summary: 'Rebuilds standing brief 30m ahead of schedule and ranks top 5 open decisions',
+    enabled: true,
+  },
+  {
+    name: 'playwright-parity',
+    source: '~/.hermes/skills/playwright-parity/SKILL.md',
+    summary: 'Browser verification & responsive snapshot diffs posted back via update_task',
+    enabled: true,
+  },
+  {
+    name: 'mail-triage',
+    source: '~/.hermes/skills/mail-triage/SKILL.md',
+    summary: 'Drafts replies and holds outbound sends behind mcp__duet__request_approval',
+    enabled: true,
+  },
+];
+
+export const INITIAL_HERMES_MEMORY: HermesMemoryItem[] = [
+  {
+    key: 'gateway.endpoint',
+    scope: 'host',
+    value: 'http://127.0.0.1:8642 (API_SERVER_ENABLED=true, OpenAI /v1/runs)',
+  },
+  {
+    key: 'mcp.duet_shim',
+    scope: 'duet',
+    value: '~/.hermes/config.yaml -> mcp_servers.duet (tools: {}, mcp__duet__*)',
+  },
+  {
+    key: 'brief.cadence',
+    scope: 'preference',
+    value: 'Standing pages refresh 07:30 local; post_brief delivers at 08:00 local',
+  },
+];
+
+export const INITIAL_HERMES_CRON: HermesCronJob[] = [
+  {
+    id: 'cron-standing-pages',
+    schedule: '30 7 * * *',
+    channelId: 'launch',
+    mode: 'agent',
+    summary: 'Rebuild save_page deliverables 30m prior to morning brief',
+  },
+  {
+    id: 'cron-morning-brief',
+    schedule: '0 8 * * *',
+    channelId: 'general',
+    mode: 'agent',
+    summary: 'Run post_brief across #general, #ops, and #launch lanes',
+  },
+  {
+    id: 'cron-downloads-watch',
+    schedule: '*/30 9-18 * * 1-5',
+    channelId: 'ops',
+    mode: 'no-agent',
+    summary: 'Watch ~/Downloads and enqueue invoice PDFs for review',
   },
 ];
 
@@ -38,24 +114,24 @@ export const INITIAL_BRIEF_DECISIONS: BriefDecision[] = [
   {
     id: 'brief-1',
     priority: 'high',
-    title: 'Approve staging release notes & customer changelog',
-    detail: 'Hermes drafted the v2.4 release email for 184 beta subscribers. Ready for review in #launch.',
+    title: 'Approve Mail MCP release dispatch via mcp__duet__request_approval',
+    detail: 'Hermes Agent prepared the v2.4 Duet release note for 184 subscribers in lane duet-general.',
     suggestedCommand: '/approve card-1',
     resolved: false,
   },
   {
     id: 'brief-2',
     priority: 'medium',
-    title: 'Renew edge inference API quota before 18:00 PST',
-    detail: 'Usage crossed 82% of monthly burst allocation; virtual cap authorization queued.',
+    title: 'Authorize single-use spend cap via mcp__duet__request_payment',
+    detail: 'Itemized compute overflow ($45.00 / DUET_MAX_TRANSACTION_LIMIT $500) queued in lane duet-ops.',
     suggestedCommand: '/approve card-2',
     resolved: false,
   },
   {
     id: 'brief-3',
     priority: 'low',
-    title: 'Archive 14 stale PR preview environments',
-    detail: 'Background cleanup task detected idle sandboxes older than 72 hours.',
+    title: 'Review standing morning-brief.html diff from save_page run',
+    detail: '07:30 scheduled rebuild logged 2 changed tasks in #launch.',
     suggestedCommand: '/tasks',
     resolved: false,
   },
@@ -65,23 +141,27 @@ export const INITIAL_APPROVALS: ApprovalCard[] = [
   {
     id: 'card-1',
     channelId: 'general',
-    title: 'Send Release Dispatch to Beta Cohort',
+    title: 'Send Release Dispatch via Mail MCP',
     actionType: 'send_message',
-    destination: 'postmark://beta-list (184 recipients)',
-    summary: 'Dispatches the v2.4 Hermes Duet changelog and voice-link patch notes.',
+    mcpTool: 'mcp__duet__request_approval',
+    runId: 'run-duet-781',
+    destination: 'mail://beta-cohort (184 recipients)',
+    summary: 'Dispatches the v2.4 Hermes Agent voice link & Duet MCP changelog.',
     draft:
-      'Hermes Duet v2.4 is live: real-time voice lanes, tighter approval gating, and zero-latency brief summaries are now active on your host.',
+      'Hermes Duet v2.4 is live: direct Hermes Gateway (/v1/runs) voice link, mcp__duet approval gating, and live Braille decoding are now active.',
     status: 'pending',
     createdAt: '08:05',
   },
   {
     id: 'card-2',
     channelId: 'ops',
-    title: 'Authorize Inference Burst Cap',
+    title: 'Authorize Inference Burst Virtual Cap',
     actionType: 'payment',
-    destination: 'compute.gateway.local // Monthly Quota',
-    summary: 'Itemized ceiling for edge GPU overflow ($45.00 max, single-use cap).',
-    draft: 'Authorize $45.00 single-use virtual limit for Compute Gateway burst tier.',
+    mcpTool: 'mcp__duet__request_payment',
+    runId: 'run-duet-784',
+    destination: 'nous://inference-gateway (Single-use cap)',
+    summary: 'Itemized receipt: $45.00 overflow ceiling (under $500.00 DUET_MAX_TRANSACTION_LIMIT).',
+    draft: 'Authorize $45.00 single-use virtual card for local Hermes inference overflow.',
     amountCents: 4500,
     status: 'pending',
     createdAt: '08:12',
@@ -92,28 +172,31 @@ export const INITIAL_TASKS: BackgroundTask[] = [
   {
     id: 'task-101',
     channelId: 'launch',
-    title: 'Compile Playwright visual parity report',
+    sessionId: 'duet-run-409',
+    title: 'Rebuild standing morning-brief.html (save_page)',
     status: 'running',
     progress: 72,
-    lastStep: 'Capturing mobile viewport snapshots & diffing baseline',
+    lastStep: 'Streaming update_task delta across Playwright parity lane',
     updatedAt: '14:21',
   },
   {
     id: 'task-102',
     channelId: 'research',
-    title: 'Synthesize weekly competitor MCP connectors',
+    sessionId: 'duet-run-398',
+    title: 'Index ~/.hermes/skills/ & MCP connectors',
     status: 'completed',
     progress: 100,
-    lastStep: 'Delivered summary table to #research',
+    lastStep: 'Synced 4 skills and mcp_servers.duet capabilities to #research',
     updatedAt: '13:45',
   },
   {
     id: 'task-103',
     channelId: 'ops',
-    title: 'Audit ~/Downloads inbox watcher rules',
+    sessionId: 'duet-run-402',
+    title: 'Audit ~/Downloads watcher rule (cronjob_manage)',
     status: 'paused',
     progress: 40,
-    lastStep: 'Waiting on confirmation to move invoice PDFs',
+    lastStep: 'Waiting on confirmation to route invoice PDFs into #ops',
     updatedAt: '12:10',
   },
 ];
@@ -124,6 +207,11 @@ export interface CliContext {
   tasks: BackgroundTask[];
   brief: BriefDecision[];
   isMuted: boolean;
+  skills?: HermesSkill[];
+  memory?: HermesMemoryItem[];
+  cronJobs?: HermesCronJob[];
+  gatewayConnected?: boolean;
+  gatewayUrl?: string;
 }
 
 export type CliExecutionResult =
@@ -139,7 +227,7 @@ export type CliExecutionResult =
       clearTerminal?: boolean;
       setMood?: ExpressionMood;
       setShader?: 'solid' | 'wire' | 'depth' | 'holo' | 'norm';
-      setDitherStyle?: 'floyd' | 'bayer' | 'braille';
+      setDitherStyle?: 'braille';
     }
   | {
       type: 'chat';
@@ -150,8 +238,15 @@ export const AVAILABLE_COMMANDS = [
   '/help',
   '/brief',
   '/tasks',
+  '/skills',
+  '/memory',
+  '/cron',
+  '/sessions',
+  '/gateway',
+  '/doctor',
   '/channels',
   '/switch',
+  '/resume',
   '/approve',
   '/reject',
   '/mood',
@@ -174,15 +269,15 @@ const VALID_MOODS: ExpressionMood[] = [
 const VALID_CHANNELS: ChannelId[] = ['general', 'ops', 'launch', 'research'];
 
 /**
- * Pure parser and local executor for Hermes Duet slash commands.
- * Natural-language prompts (not starting with `/`) are routed to the live Gemini agent.
+ * Pure parser and local executor for Hermes Agent + Hermes Duet slash commands.
+ * Natural-language prompts (not starting with `/`) route to the active Hermes Agent lane.
  */
 export function executeCliInput(rawInput: string, ctx: CliContext): CliExecutionResult {
   const trimmed = rawInput.trim();
   if (!trimmed) {
     return {
       type: 'handled',
-      output: 'Empty input. Type /help for commands or speak naturally to Hermes.',
+      output: 'Empty input. Type /help for Hermes Agent commands or speak naturally.',
       mood: 'neutral',
       spokenText: '',
     };
@@ -195,25 +290,33 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
   const [cmdRaw, ...args] = trimmed.split(/\s+/);
   const cmd = cmdRaw.toLowerCase();
   const argStr = args.join(' ').trim();
+  const skills = ctx.skills ?? INITIAL_HERMES_SKILLS;
+  const memory = ctx.memory ?? INITIAL_HERMES_MEMORY;
+  const cronJobs = ctx.cronJobs ?? INITIAL_HERMES_CRON;
 
   switch (cmd) {
     case '/help': {
       return {
         type: 'handled',
         mood: 'happy',
-        spokenText: 'Command reference loaded. You can inspect the morning brief, switch channels, approve cards, or speak naturally.',
+        spokenText:
+          'Hermes Agent command reference ready. Inspect skills, memory, cron routines, gateway health, or approve Duet gates.',
         output: [
-          'HERMES DUET // COMMAND LINE REFERENCE',
-          '  /brief               Display today’s prioritized morning brief',
-          '  /tasks               List active & completed background lanes',
-          '  /channels            List available Hermes channels',
-          '  /switch <channel>    Switch active channel (general|ops|launch|research)',
-          '  /approve <id>        Approve a pending gate card (e.g. /approve card-1)',
+          'HERMES AGENT + DUET // COMMAND REFERENCE',
+          '  /brief               Display ranked post_brief decisions',
+          '  /tasks               List isolated background runs (start_task / save_page)',
+          '  /skills              List loaded ~/.hermes/skills/ & mcp__duet tools',
+          '  /memory              Inspect persistent MEMORY.md agent context',
+          '  /cron                List scheduled cronjob_manage & save_routine jobs',
+          '  /sessions            Show active Hermes --resume session IDs per lane',
+          '  /gateway | /doctor   Inspect hermes gateway (:8642) & MCP shim status',
+          '  /switch <channel>    Switch lane (general|ops|launch|research)',
+          '  /resume <session>    Resume lane by session ID (e.g. duet-ops)',
+          '  /approve <id>        Approve a pending mcp__duet gate card',
           '  /reject <id>         Dismiss a pending gate card',
-          '  /mood <state>        Test ASCII expression (neutral|happy|focused|alert|thinking)',
-          '  /style <mode>        Switch halftone dither style (floyd|bayer|braille)',
+          '  /mood <state>        Shift portrait (neutral|happy|focused|alert|thinking)',
           '  /mute                Toggle Hermes voice audio output',
-          '  /status              Report link, lane, and pending approval counts',
+          '  /status              Report gateway mode, lane, and pending gates',
           '  /clear               Clear terminal feed',
         ].join('\n'),
       };
@@ -229,54 +332,118 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'focused',
         spokenText: `Morning brief has ${pending.length} open decisions. Top priority: ${pending[0]?.title ?? 'all clear'}.`,
-        output: ['MORNING BRIEF // PRIORITY QUEUE', ...lines].join('\n'),
+        output: ['HERMES DUET // POST_BRIEF QUEUE', ...lines].join('\n'),
       };
     }
 
     case '/tasks': {
       const lines = ctx.tasks.map(
         (t) =>
-          `  [${t.id}] ${t.status.toUpperCase().padEnd(9)} ${String(t.progress).padStart(3)}% · #${t.channelId} · ${t.title}`
+          `  [${t.id}] ${t.status.toUpperCase().padEnd(9)} ${String(t.progress).padStart(3)}% · #${t.channelId} (${t.sessionId ?? 'lane'}) · ${t.title}`
       );
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `Tracking ${ctx.tasks.length} background tasks across your Hermes lanes.`,
-        output: ['BACKGROUND LANES // ACTIVE TASKS', ...lines].join('\n'),
+        spokenText: `Tracking ${ctx.tasks.length} background Hermes runs across your Duet lanes.`,
+        output: ['HERMES RUNS // START_TASK & SAVE_PAGE', ...lines].join('\n'),
       };
     }
 
-    case '/channels': {
+    case '/skills': {
+      const lines = skills.map(
+        (s) => `  ${s.enabled ? '[ON]' : '[--]'} ${s.name.padEnd(18)} ${s.source}\n       ${s.summary}`
+      );
       return {
         type: 'handled',
-        mood: 'neutral',
-        spokenText: `Currently tuned to channel ${ctx.activeChannel}.`,
+        mood: 'focused',
+        spokenText: `${skills.filter((s) => s.enabled).length} Hermes Agent skills active, including duet-bridge and morning-brief.`,
         output: [
-          `ACTIVE CHANNEL: #${ctx.activeChannel}`,
-          '  #general   Morning briefs, check-ins, primary voice link',
-          '  #ops       Host automation, daemon health, approval gates',
-          '  #launch    Release checklist, deliverables, QA sweeps',
-          '  #research  Background synthesis lanes and briefings',
+          'HERMES AGENT // ~/.hermes/skills/ & mcp__duet__*',
+          ...lines,
         ].join('\n'),
       };
     }
 
-    case '/switch': {
-      const target = argStr.replace(/^#/, '').toLowerCase() as ChannelId;
-      if (!VALID_CHANNELS.includes(target)) {
+    case '/memory': {
+      const lines = memory.map(
+        (m) => `  [${m.scope.toUpperCase()}] ${m.key}: ${m.value}`
+      );
+      return {
+        type: 'handled',
+        mood: 'focused',
+        spokenText: `Loaded ${memory.length} persistent Hermes Agent memory entries.`,
+        output: ['HERMES AGENT // PERSISTENT MEMORY (MEMORY.md)', ...lines].join('\n'),
+      };
+    }
+
+    case '/cron': {
+      const lines = cronJobs.map(
+        (c) =>
+          `  [${c.schedule.padEnd(17)}] #${c.channelId.padEnd(8)} (${c.mode}) · ${c.summary}`
+      );
+      return {
+        type: 'handled',
+        mood: 'focused',
+        spokenText: `${cronJobs.length} scheduled cronjob_manage routines active.`,
+        output: ['HERMES AGENT // CRONJOB_MANAGE SCHEDULES', ...lines].join('\n'),
+      };
+    }
+
+    case '/channels':
+    case '/sessions':
+    case '/lanes': {
+      const lines = INITIAL_CHANNELS.map(
+        (ch) =>
+          `  #${ch.id.padEnd(9)} session=${ch.sessionId.padEnd(14)} ${ch.id === ctx.activeChannel ? '[ACTIVE] ' : ''}${ch.description}`
+      );
+      return {
+        type: 'handled',
+        mood: 'neutral',
+        spokenText: `Active Hermes session is duet-${ctx.activeChannel}.`,
+        output: [
+          `ACTIVE SESSION: hermes --resume duet-${ctx.activeChannel}`,
+          ...lines,
+        ].join('\n'),
+      };
+    }
+
+    case '/gateway':
+    case '/doctor': {
+      const url = ctx.gatewayUrl || 'http://127.0.0.1:8642';
+      const connected = Boolean(ctx.gatewayConnected);
+      return {
+        type: 'handled',
+        mood: connected ? 'happy' : 'focused',
+        spokenText: connected
+          ? 'Hermes Gateway is connected and mcp__duet tools are online.'
+          : 'Hermes Gateway at 127.0.0.1:8642 is in standalone Duet mode. Start hermes gateway with API_SERVER_ENABLED=true to bind.',
+        output: [
+          'HERMES DUET DOCTOR // GATEWAY & MCP CHECK',
+          `  hermes-agent API Server : ${url} (${connected ? 'CONNECTED' : 'STANDALONE FALLBACK'})`,
+          '  Runs Endpoint           : POST /v1/runs · GET /v1/runs/{id}/events',
+          '  MCP Bridge (~/.hermes)  : mcp_servers.duet -> server/mcp-shim.ts (tools: {})',
+          '  Active Session Lane     : duet-' + ctx.activeChannel,
+        ].join('\n'),
+      };
+    }
+
+    case '/switch':
+    case '/resume': {
+      const normalized = argStr.replace(/^#/, '').replace(/^duet-/, '').toLowerCase() as ChannelId;
+      if (!VALID_CHANNELS.includes(normalized)) {
         return {
           type: 'handled',
           mood: 'alert',
-          spokenText: 'Unknown channel. Choose general, ops, launch, or research.',
-          output: `Unknown channel "${argStr}". Valid options: ${VALID_CHANNELS.join(', ')}.`,
+          spokenText: 'Unknown Hermes lane. Choose general, ops, launch, or research.',
+          output: `Unknown lane "${argStr}". Valid lanes: ${VALID_CHANNELS.join(', ')} (or session duet-<lane>).`,
         };
       }
       return {
         type: 'handled',
         mood: 'happy',
-        switchChannel: target,
-        spokenText: `Switched comms lane to ${target}.`,
-        output: `Switched active Hermes lane to #${target}.`,
+        switchChannel: normalized,
+        spokenText: `Resumed Hermes lane duet-${normalized}.`,
+        output: `Resumed Hermes session duet-${normalized} (#${normalized}).`,
       };
     }
 
@@ -287,7 +454,7 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         return {
           type: 'handled',
           mood: 'alert',
-          spokenText: 'No matching approval card found.',
+          spokenText: 'No matching mcp__duet approval card found.',
           output: `No approval card found matching "${argStr || 'pending'}".`,
         };
       }
@@ -303,8 +470,8 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'happy',
         approveCardId: card.id,
-        spokenText: `Approved ${card.title}. Executing action on ${card.destination}.`,
-        output: `APPROVED [${card.id}]: ${card.title} -> ${card.destination}`,
+        spokenText: `Approved ${card.title}. Resuming Hermes run on ${card.destination}.`,
+        output: `APPROVED [${card.id}] (${card.mcpTool ?? 'mcp__duet__request_approval'}): ${card.title} -> ${card.destination}`,
       };
     }
 
@@ -323,7 +490,7 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'neutral',
         rejectCardId: card.id,
-        spokenText: `Held ${card.title}. No external action taken.`,
+        spokenText: `Held ${card.title}. No outbound MCP action executed.`,
         output: `DISMISSED [${card.id}]: ${card.title} (held locally)`,
       };
     }
@@ -343,26 +510,26 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         mood: nextMood,
         setMood: nextMood,
         spokenText: `Expression matrix shifted to ${nextMood}.`,
-        output: `ASCII expression set to "${nextMood}".`,
+        output: `Braille portrait expression set to "${nextMood}".`,
       };
     }
 
     case '/style': {
       const mode = argStr.toLowerCase();
-      if (mode !== 'floyd' && mode !== 'bayer' && mode !== 'braille') {
+      if (mode && mode !== 'braille') {
         return {
           type: 'handled',
           mood: 'alert',
-          spokenText: 'Invalid dither style. Choose floyd, bayer, or braille.',
-          output: 'Valid halftone dither styles: floyd, bayer, braille.',
+          spokenText: 'Only braille halftone portrait mode is active.',
+          output: 'Valid halftone portrait style: braille.',
         };
       }
       return {
         type: 'handled',
         mood: 'focused',
-        setDitherStyle: mode,
-        spokenText: `Halftone portrait dither switched to ${mode}.`,
-        output: `Monochrome halftone dither set to "${mode.toUpperCase()}".`,
+        setDitherStyle: 'braille',
+        spokenText: 'Braille halftone portrait mode is active.',
+        output: 'Monochrome halftone portrait mode: "BRAILLE".',
       };
     }
 
@@ -401,10 +568,11 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `Link nominal. ${pendingCount} approvals waiting and ${runningCount} background tasks running.`,
+        spokenText: `Hermes lane duet-${ctx.activeChannel} active. ${pendingCount} MCP gates pending and ${runningCount} background runs active.`,
         output: [
-          `CHANNEL: #${ctx.activeChannel}`,
-          `PENDING APPROVALS: ${pendingCount}`,
+          `SESSION LANE: duet-${ctx.activeChannel} (#${ctx.activeChannel})`,
+          `GATEWAY: ${ctx.gatewayConnected ? 'HERMES API SERVER (:8642)' : 'STANDALONE DUET MODE'}`,
+          `PENDING MCP GATES: ${pendingCount}`,
           `RUNNING TASKS: ${runningCount}`,
           `VOICE AUDIO: ${ctx.isMuted ? 'MUTED' : 'ACTIVE'}`,
         ].join('\n'),
@@ -425,8 +593,8 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
       return {
         type: 'handled',
         mood: 'alert',
-        spokenText: `Unrecognized command ${cmd}. Type slash help for available commands.`,
-        output: `Unknown command "${cmd}". Type /help to list available commands.`,
+        spokenText: `Unrecognized command ${cmd}. Type slash help for Hermes Agent commands.`,
+        output: `Unknown command "${cmd}". Type /help to list available Hermes Agent + Duet commands.`,
       };
     }
   }

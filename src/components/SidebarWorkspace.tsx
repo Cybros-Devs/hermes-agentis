@@ -1,4 +1,4 @@
-import { Plus, MoreHorizontal } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import type {
   ApprovalCard,
   BackgroundTask,
@@ -7,7 +7,6 @@ import type {
   ChannelId,
   ExpressionMood,
 } from '../types/hermes';
-import type { DitherStyle } from '../utils/asciiPortraitEngine';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 
 interface SidebarWorkspaceProps {
@@ -19,7 +18,6 @@ interface SidebarWorkspaceProps {
   tasks: BackgroundTask[];
   lastSpokenLine: string;
   mood: ExpressionMood;
-  ditherStyle: DitherStyle;
   frequencyBands: number[];
   isSpeaking: boolean;
   isListening: boolean;
@@ -28,7 +26,6 @@ interface SidebarWorkspaceProps {
   onSelectApproval: (card: ApprovalCard) => void;
   onSelectBrief: (item: BriefDecision) => void;
   onNewTask: () => void;
-  onCycleDitherStyle: () => void;
   onOpenQueue: () => void;
 }
 
@@ -41,7 +38,6 @@ export function SidebarWorkspace({
   tasks,
   lastSpokenLine,
   mood,
-  ditherStyle,
   frequencyBands,
   isSpeaking,
   isListening,
@@ -50,7 +46,6 @@ export function SidebarWorkspace({
   onSelectApproval,
   onSelectBrief,
   onNewTask,
-  onCycleDitherStyle,
   onOpenQueue,
 }: SidebarWorkspaceProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
@@ -58,7 +53,7 @@ export function SidebarWorkspace({
   return (
     <aside
       aria-label="Hermes Tasks and Lanes"
-      className="flex flex-col h-full rounded-2xl bg-[#0A1613]/72 backdrop-blur-2xl border border-white/12 overflow-hidden select-none shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+      className="flex flex-col h-full rounded-2xl bg-[#0A1613]/92 border border-white/12 overflow-hidden select-none shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
     >
       {/* Window Chrome + New Task */}
       <div className="flex items-center justify-between px-4 pt-3.5 pb-3">
@@ -93,7 +88,6 @@ export function SidebarWorkspace({
             energy={0.1}
             isSpeaking={false}
             isListening={false}
-            ditherStyle={ditherStyle}
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
@@ -260,18 +254,9 @@ export function SidebarWorkspace({
                 );
               })}
             </div>
-            <span className="font-mono text-[11px] text-emerald-100/50">{ditherStyle}</span>
           </div>
 
-          <button
-            type="button"
-            onClick={onCycleDitherStyle}
-            aria-label="Cycle halftone ASCII dither style"
-            title="Cycle halftone dither style (Braille / Floyd / Bayer)"
-            className="p-1.5 rounded-md text-emerald-100/60 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
+          <span className="font-mono text-[11px] text-emerald-100/45">braille</span>
         </div>
       </div>
     </aside>

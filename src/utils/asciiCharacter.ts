@@ -45,23 +45,35 @@ export function amplitudeToViseme(
   }
 
   const clamped = Math.max(0, Math.min(1, amplitude));
-  // Add subtle syllable cadence modulation so held tones still articulate naturally
-  const syllableMod = (Math.sin(tick * 0.75) + 1) * 0.12;
+  // Richer syllable cadence across A/H (small), O/Oh (round), mid, and E/I (wide)
+  const syllableWave = Math.sin(tick * 0.85);
+  const syllableMod = (syllableWave + 1) * 0.11;
   const level = Math.min(1, clamped + syllableMod);
 
-  if (level < 0.08) return 'closed';
-  if (level < 0.24) return 'small';
-  if (level < 0.48) return tick % 5 === 0 ? 'round' : 'mid';
-  if (level < 0.72) return tick % 4 === 0 ? 'round' : 'wide';
-  return 'wide';
+  if (level < 0.07) return 'closed';
+  if (level < 0.22) return 'small';
+  if (level < 0.44) {
+    if (tick % 4 === 0) return 'round';
+    if (tick % 3 === 0) return 'small';
+    return 'mid';
+  }
+  if (level < 0.72) {
+    if (tick % 5 === 0) return 'round';
+    if (tick % 3 === 1) return 'wide';
+    return 'mid';
+  }
+  return tick % 6 === 0 ? 'round' : 'wide';
 }
 
 /**
  * Resolves the character's eye state from mood, speaking state, and animation tick.
  */
 export function resolveEyeState(mood: ExpressionMood, tick: number, isSpeaking: boolean): EyeState {
-  // Natural periodic blink every ~58 frames (~2.4s at 24fps)
+  // 4-step blinking rhythm: open -> half -> blink -> half -> open
   const blinkCycle = tick % 64;
+  if (blinkCycle === 60 || blinkCycle === 63) {
+    return 'half';
+  }
   if (blinkCycle === 61 || blinkCycle === 62) {
     return 'blink';
   }

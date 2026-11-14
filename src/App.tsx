@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioLines, Layers, ListTodo, Terminal as TerminalIcon } from 'lucide-react';
+import { Sparkles, Layers, ListTodo, Terminal as TerminalIcon } from 'lucide-react';
 import { SidebarWorkspace } from './components/SidebarWorkspace';
 import { VoiceWorkspacePane, type WorkspacePanelView } from './components/VoiceWorkspacePane';
 import { useVoiceAgent } from './hooks/useVoiceAgent';
@@ -9,9 +9,9 @@ import type {
   BriefDecision,
   ChannelId,
   ExpressionMood,
+  HermesGatewayStatus,
   TerminalEntry,
 } from './types/hermes';
-import type { DitherStyle } from './utils/asciiPortraitEngine';
 import {
   INITIAL_APPROVALS,
   INITIAL_BRIEF_DECISIONS,
@@ -21,7 +21,6 @@ import {
 } from './utils/cliEngine';
 
 const MOOD_CYCLE: ExpressionMood[] = ['neutral', 'happy', 'focused', 'thinking', 'alert'];
-const DITHER_CYCLE: DitherStyle[] = ['braille', 'floyd', 'bayer'];
 
 function nowTime(): string {
   const d = new Date();
@@ -70,7 +69,7 @@ function buildLocalFallbackReply(
   };
 }
 
-type MobileTab = 'voice' | 'tasks' | 'queue' | 'cli';
+type MobileTab = 'home' | 'voice' | 'tasks' | 'queue' | 'cli';
 
 export default function App() {
   const [activeChannel, setActiveChannel] = useState<ChannelId>('general');
@@ -78,14 +77,39 @@ export default function App() {
   const [brief, setBrief] = useState<BriefDecision[]>(INITIAL_BRIEF_DECISIONS);
   const [tasks, setTasks] = useState<BackgroundTask[]>(INITIAL_TASKS);
   const [mood, setMood] = useState<ExpressionMood>('happy');
-  const [ditherStyle, setDitherStyle] = useState<DitherStyle>('braille');
-  const [panelView, setPanelView] = useState<WorkspacePanelView>('voice');
-  const [mobileTab, setMobileTab] = useState<MobileTab>('voice');
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-
-  const [lastSpokenLine, setLastSpokenLine] = useState<string>(
-    'Good morning. Two approval gates are queued and Playwright parity is at 72%.'
+  const [panelView, setPanelView] = useState<WorkspacePanelView>(() =>
+    typeof window !== 'undefined' && window.location.search.includes('autostart=1')
+      ? 'voice'
+      : 'home'
   );
+  const [mobileTab, setMobileTab] = useState<MobileTab>('home');
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [animateSpeechLine, setAnimateSpeechLine] = useState(false);
+  const [gatewayStatus, setGatewayStatus] = useState<HermesGatewayStatus | null>(null);
+
+  const [lastSpokenLine, setLastSpokenLineState] = useState<string>(
+    'Hermes Agent session duet-general active. Two mcp__duet gates await sign-off and save_page is at 72%.'
+  );
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/hermes/gateway')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: HermesGatewayStatus | null) => {
+        if (active && data) setGatewayStatus(data);
+      })
+      .catch(() => {
+        // Standalone fallback remains active cleanly
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const updateSpokenLine = useCallback((line: string) => {
+    setAnimateSpeechLine(true);
+    setLastSpokenLineState(line);
+  }, []);
 
   const [entries, setEntries] = useState<TerminalEntry[]>([
     {
@@ -94,7 +118,7 @@ export default function App() {
       role: 'system',
       source: 'cli',
       timestamp: '08:00',
-      text: 'HERMES DUET // MONOCHROME VOICE & CLI READY. Type /help or tap Mic to talk.',
+      text: 'HERMES AGENT + DUET // SESSION duet-general READY. Run /skills, /gateway, /brief, or tap Mic.',
     },
     {
       id: 'init-2',
@@ -102,7 +126,7 @@ export default function App() {
       role: 'user',
       source: 'voice',
       timestamp: '08:04',
-      text: 'Sync my Hermes Duet lanes and summarize what needs my sign-off before standup.',
+      text: 'Sync my Hermes Agent lanes and check which mcp__duet gates need sign-off.',
     },
     {
       id: 'init-3',
@@ -111,7 +135,7 @@ export default function App() {
       source: 'voice',
       timestamp: '08:05',
       mood: 'happy',
-      text: 'I have two approval gates ready—your v2.4 beta dispatch and compute quota cap—and your Playwright parity lane is running cleanly at 72%.',
+      text: 'Two mcp__duet approval gates are waiting—your Mail MCP v2.4 dispatch and single-use inference quota cap—and your standing morning-brief.html run is at 72%.',
     },
   ]);
 
@@ -151,10 +175,12 @@ export default function App() {
   const handleApproveCard = useCallback(
     (id: string, editedDraft?: string) => {
       let approvedTitle = '';
+      let approvedRunId: string | undefined;
       setApprovals((prev) =>
         prev.map((c) => {
           if (c.id === id) {
             approvedTitle = c.title;
+            approvedRunId = c.runId;
             return {
               ...c,
               status: 'approved',
@@ -170,9 +196,19 @@ export default function App() {
         )
       );
       if (approvedTitle) {
-        const msg = `Approved ${approvedTitle}. Dispatching payload cleanly.`;
+        void fetch('/api/hermes/runs/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            runId: approvedRunId,
+            decision: 'approve',
+            draft: editedDraft,
+          }),
+        }).catch(() => {});
+
+        const msg = `Approved ${approvedTitle}. Resuming Hermes run with updated payload.`;
         setMood('happy');
-        setLastSpokenLine(msg);
+        updateSpokenLine(msg);
         appendEntry({
           channelId: stateRef.current.activeChannel,
           role: 'hermes',
@@ -183,25 +219,36 @@ export default function App() {
         voiceRef.current?.speakText(msg, 'happy');
       }
     },
-    [appendEntry]
+    [appendEntry, updateSpokenLine]
   );
 
   const handleRejectCard = useCallback(
     (id: string) => {
       let rejectedTitle = '';
+      let rejectedRunId: string | undefined;
       setApprovals((prev) =>
         prev.map((c) => {
           if (c.id === id) {
             rejectedTitle = c.title;
+            rejectedRunId = c.runId;
             return { ...c, status: 'rejected' };
           }
           return c;
         })
       );
       if (rejectedTitle) {
-        const msg = `Held ${rejectedTitle}. No outbound action was sent.`;
+        void fetch('/api/hermes/runs/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            runId: rejectedRunId,
+            decision: 'reject',
+          }),
+        }).catch(() => {});
+
+        const msg = `Held ${rejectedTitle}. No outbound MCP action was sent.`;
         setMood('neutral');
-        setLastSpokenLine(msg);
+        updateSpokenLine(msg);
         appendEntry({
           channelId: stateRef.current.activeChannel,
           role: 'hermes',
@@ -212,7 +259,7 @@ export default function App() {
         voiceRef.current?.speakText(msg, 'neutral');
       }
     },
-    [appendEntry]
+    [appendEntry, updateSpokenLine]
   );
 
   const processUserInput = useCallback(
@@ -236,6 +283,8 @@ export default function App() {
         tasks: taskList,
         brief: briefList,
         isMuted: voiceRef.current?.isMuted ?? false,
+        gatewayConnected: gatewayStatus?.connected,
+        gatewayUrl: gatewayStatus?.gatewayUrl,
       });
 
       if (result.type === 'handled') {
@@ -258,9 +307,6 @@ export default function App() {
         if (result.toggleMute) {
           voiceRef.current?.toggleMute();
         }
-        if (result.setDitherStyle) {
-          setDitherStyle(result.setDitherStyle);
-        }
         if (result.setMood) {
           setMood(result.setMood);
         } else {
@@ -275,7 +321,7 @@ export default function App() {
         });
 
         if (result.spokenText) {
-          setLastSpokenLine(result.spokenText);
+          updateSpokenLine(result.spokenText);
           appendEntry({
             channelId: result.switchChannel ?? ch,
             role: 'hermes',
@@ -284,6 +330,8 @@ export default function App() {
             text: result.spokenText,
           });
           voiceRef.current?.speakText(result.spokenText, result.mood);
+        } else {
+          updateSpokenLine(result.output);
         }
         return;
       }
@@ -305,13 +353,14 @@ export default function App() {
           body: JSON.stringify({
             message: result.prompt,
             channelId: ch,
+            sessionId: `duet-${ch}`,
             history: stateRef.current.entries
               .filter((e) => e.role === 'user' || e.role === 'hermes')
               .slice(-6)
               .map((e) => ({ role: e.role, text: e.text })),
             pendingApprovals: appList
               .filter((a) => a.status === 'pending')
-              .map((a) => ({ id: a.id, title: a.title, destination: a.destination })),
+              .map((a) => ({ id: a.id, title: a.title, destination: a.destination, mcpTool: a.mcpTool })),
             tasks: taskList.map((t) => ({ id: t.id, title: t.title, status: t.status, progress: t.progress })),
           }),
         });
@@ -331,7 +380,7 @@ export default function App() {
         const reply = data.reply || 'Signal acknowledged.';
         const nextMood = data.mood || 'speaking';
         setMood(nextMood);
-        setLastSpokenLine(reply);
+        updateSpokenLine(reply);
 
         appendEntry({
           channelId: ch,
@@ -352,7 +401,7 @@ export default function App() {
         }
         const fallback = buildLocalFallbackReply(result.prompt, appList, taskList, briefList);
         setMood(fallback.mood);
-        setLastSpokenLine(fallback.reply);
+        updateSpokenLine(fallback.reply);
         appendEntry({
           channelId: ch,
           role: 'hermes',
@@ -368,7 +417,7 @@ export default function App() {
         }
       }
     },
-    [appendEntry, handleApproveCard, handleRejectCard]
+    [appendEntry, handleApproveCard, handleRejectCard, updateSpokenLine]
   );
 
   const handleVoiceTranscript = useCallback(
@@ -395,19 +444,10 @@ export default function App() {
     setMood((current) => {
       const idx = MOOD_CYCLE.indexOf(current);
       const next = MOOD_CYCLE[(idx + 1) % MOOD_CYCLE.length];
-      setLastSpokenLine(`Expression shifted to ${next}.`);
+      updateSpokenLine(`Expression shifted to ${next}.`);
       return next;
     });
-  }, []);
-
-  const handleCycleDitherStyle = useCallback(() => {
-    setDitherStyle((current) => {
-      const idx = DITHER_CYCLE.indexOf(current);
-      const next = DITHER_CYCLE[(idx + 1) % DITHER_CYCLE.length];
-      setLastSpokenLine(`Halftone ASCII dither switched to ${next.toUpperCase()}.`);
-      return next;
-    });
-  }, []);
+  }, [updateSpokenLine]);
 
   const handleToggleTaskStatus = useCallback((id: string) => {
     setTasks((prev) =>
@@ -454,7 +494,7 @@ export default function App() {
     setMobileTab('voice');
     setMood('listening');
     const greeting = 'Fresh Hermes Duet lane open. Speak or type a command to begin.';
-    setLastSpokenLine(greeting);
+    updateSpokenLine(greeting);
     setEntries([
       {
         id: `new-${Date.now()}`,
@@ -466,11 +506,12 @@ export default function App() {
         text: greeting,
       },
     ]);
-  }, []);
+  }, [updateSpokenLine]);
 
   const handleMobileTabChange = (tab: MobileTab) => {
     setMobileTab(tab);
-    if (tab === 'voice') setPanelView('voice');
+    if (tab === 'home') setPanelView('home');
+    else if (tab === 'voice') setPanelView('voice');
     else if (tab === 'queue') setPanelView('queue');
     else if (tab === 'cli') setPanelView('cli');
   };
@@ -496,7 +537,6 @@ export default function App() {
             tasks={tasks}
             lastSpokenLine={lastSpokenLine}
             mood={mood}
-            ditherStyle={ditherStyle}
             frequencyBands={voice.voiceState.frequencyBands}
             isSpeaking={voice.voiceState.isSpeaking}
             isListening={voice.voiceState.isListening}
@@ -520,15 +560,14 @@ export default function App() {
               handleRunBriefCommand(item.suggestedCommand, item.id);
             }}
             onNewTask={handleNewTask}
-            onCycleDitherStyle={handleCycleDitherStyle}
             onOpenQueue={() => {
-              setPanelView((prev) => (prev === 'queue' ? 'voice' : 'queue'));
-              setMobileTab('voice');
+              setPanelView((prev) => (prev === 'queue' ? 'home' : 'queue'));
+              setMobileTab('home');
             }}
           />
         </div>
 
-        {/* Right Cyan-Framed Voice & Interactive CLI Workspace */}
+        {/* Right Emerald-Framed Voice, Character Overview & Interactive CLI Workspace */}
         <div
           className={`${
             mobileTab !== 'tasks' ? 'flex' : 'hidden'
@@ -540,20 +579,19 @@ export default function App() {
             onSelectChannel={handleSelectChannel}
             mood={mood}
             onCycleMood={handleCycleMood}
-            ditherStyle={ditherStyle}
-            onCycleDitherStyle={handleCycleDitherStyle}
             panelView={panelView}
             onChangePanelView={(view) => {
               setPanelView(view);
-              if (view === 'queue') setMobileTab('queue');
-              else if (view === 'cli') setMobileTab('cli');
-              else setMobileTab('voice');
+              setMobileTab(view);
             }}
             voiceState={voice.voiceState}
+            lastSpokenLine={lastSpokenLine}
+            animateSpeechLine={animateSpeechLine}
             entries={entries}
             approvals={approvals}
             brief={brief}
             tasks={tasks}
+            gatewayStatus={gatewayStatus}
             onApproveCard={handleApproveCard}
             onRejectCard={handleRejectCard}
             onRunBriefCommand={handleRunBriefCommand}
@@ -578,13 +616,13 @@ export default function App() {
       >
         <button
           type="button"
-          onClick={() => handleMobileTabChange('voice')}
+          onClick={() => handleMobileTabChange('home')}
           className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer ${
-            mobileTab === 'voice' ? 'text-[#4ADE80]' : 'text-emerald-100/55'
+            mobileTab === 'home' || mobileTab === 'voice' ? 'text-[#4ADE80]' : 'text-emerald-100/55'
           }`}
         >
-          <AudioLines className="w-4 h-4" />
-          <span>Voice</span>
+          <Sparkles className="w-4 h-4" />
+          <span>Home</span>
         </button>
         <button
           type="button"

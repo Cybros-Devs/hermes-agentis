@@ -86,4 +86,38 @@ test('executeCliInput handles /style halftone dither modes', () => {
   }
 });
 
+test('executeCliInput handles Hermes Agent /skills, /memory, /cron, /gateway, and /resume', () => {
+  const skills = executeCliInput('/skills', baseCtx);
+  assert.equal(skills.type, 'handled');
+  if (skills.type === 'handled') {
+    assert.match(skills.output, /duet-bridge/);
+    assert.match(skills.output, /mcp__duet__/);
+  }
+
+  const mem = executeCliInput('/memory', baseCtx);
+  assert.equal(mem.type, 'handled');
+  if (mem.type === 'handled') {
+    assert.match(mem.output, /8642/);
+  }
+
+  const cron = executeCliInput('/cron', baseCtx);
+  assert.equal(cron.type, 'handled');
+  if (cron.type === 'handled') {
+    assert.match(cron.output, /cronjob_manage/i);
+  }
+
+  const gw = executeCliInput('/gateway', baseCtx);
+  assert.equal(gw.type, 'handled');
+  if (gw.type === 'handled') {
+    assert.match(gw.output, /\/v1\/runs/);
+  }
+
+  const resume = executeCliInput('/resume duet-ops', baseCtx);
+  assert.equal(resume.type, 'handled');
+  if (resume.type === 'handled') {
+    assert.equal(resume.switchChannel, 'ops');
+  }
+});
+
+
 

@@ -6,7 +6,13 @@ import type {
   BriefDecision,
   Channel,
   ChannelId,
+  HermesGatewayStatus,
 } from '../types/hermes';
+import {
+  INITIAL_HERMES_CRON,
+  INITIAL_HERMES_MEMORY,
+  INITIAL_HERMES_SKILLS,
+} from '../utils/cliEngine';
 
 interface DuetOperationsPanelProps {
   channels: Channel[];
@@ -19,9 +25,10 @@ interface DuetOperationsPanelProps {
   onRunBriefCommand: (command: string, briefId: string) => void;
   tasks: BackgroundTask[];
   onToggleTaskStatus: (id: string) => void;
+  gatewayStatus?: HermesGatewayStatus | null;
 }
 
-type OpsTab = 'approvals' | 'brief' | 'tasks';
+type OpsTab = 'approvals' | 'brief' | 'tasks' | 'runtime';
 
 export function DuetOperationsPanel({
   channels,
@@ -34,6 +41,7 @@ export function DuetOperationsPanel({
   onRunBriefCommand,
   tasks,
   onToggleTaskStatus,
+  gatewayStatus,
 }: DuetOperationsPanelProps) {
   const [activeTab, setActiveTab] = useState<OpsTab>('approvals');
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
@@ -47,7 +55,7 @@ export function DuetOperationsPanel({
       aria-label="Hermes Duet Operations"
       className="flex flex-col rounded-xl bg-[#0B1714]/80 border border-white/10 overflow-hidden"
     >
-      {/* Channel Strip */}
+      {/* Channel & Session Lane Strip */}
       <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/8 bg-black/20 overflow-x-auto">
         <div className="flex items-center gap-1.5">
           {channels.map((ch) => {
@@ -69,10 +77,13 @@ export function DuetOperationsPanel({
             );
           })}
         </div>
+        <span className="font-mono text-[11px] text-emerald-100/45 whitespace-nowrap shrink-0">
+          session: duet-{activeChannel}
+        </span>
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex items-center gap-1 p-2 border-b border-white/8 bg-black/15">
+      <div className="flex items-center gap-1 p-2 border-b border-white/8 bg-black/15 overflow-x-auto">
         <button
           type="button"
           onClick={() => setActiveTab('approvals')}
@@ -82,7 +93,7 @@ export function DuetOperationsPanel({
               : 'text-emerald-100/55 hover:text-white'
           }`}
         >
-          Approvals ({pendingApprovals})
+          MCP Gates ({pendingApprovals})
         </button>
         <button
           type="button"
@@ -93,7 +104,7 @@ export function DuetOperationsPanel({
               : 'text-emerald-100/55 hover:text-white'
           }`}
         >
-          Morning Brief ({openBriefCount})
+          post_brief ({openBriefCount})
         </button>
         <button
           type="button"
@@ -104,7 +115,18 @@ export function DuetOperationsPanel({
               : 'text-emerald-100/55 hover:text-white'
           }`}
         >
-          Tasks ({runningTasksCount})
+          Runs ({runningTasksCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('runtime')}
+          className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+            activeTab === 'runtime'
+              ? 'bg-[#34D399]/15 text-[#6EE7B7] border border-[#34D399]/35'
+              : 'text-emerald-100/55 hover:text-white'
+          }`}
+        >
+          Hermes Agent
         </button>
       </div>
 
@@ -122,10 +144,16 @@ export function DuetOperationsPanel({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2 text-[11px] font-mono text-emerald-100/55">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-emerald-100/55">
                       <span>{card.id}</span>
                       <span aria-hidden="true">·</span>
                       <span>#{card.channelId}</span>
+                      {card.mcpTool && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="text-[#6EE7B7]/85">{card.mcpTool}</span>
+                        </>
+                      )}
                       <span aria-hidden="true">·</span>
                       <span>{card.createdAt}</span>
                     </div>
@@ -147,6 +175,9 @@ export function DuetOperationsPanel({
                 <p className="text-xs text-emerald-50/80">{card.summary}</p>
                 <p className="font-mono text-[11px] text-[#6EE7B7] truncate">
                   Target: {card.destination}
+                  {typeof card.amountCents === 'number'
+                    ? ` · Cap $${(card.amountCents / 100).toFixed(2)}`
+                    : ''}
                 </p>
 
                 {isPending ? (
@@ -170,7 +201,7 @@ export function DuetOperationsPanel({
                         className="flex-1 min-h-[40px] rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
                       >
                         <Check className="w-4 h-4" />
-                        <span>Approve</span>
+                        <span>Approve &amp; Resume Run</span>
                       </button>
                       <button
                         type="button"
@@ -243,7 +274,7 @@ export function DuetOperationsPanel({
                   <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/55">
                     <span>{task.id}</span>
                     <span aria-hidden="true">·</span>
-                    <span>#{task.channelId}</span>
+                    <span>{task.sessionId ?? `duet-${task.channelId}`}</span>
                     <span aria-hidden="true">·</span>
                     <span>{task.updatedAt}</span>
                   </div>
@@ -290,6 +321,69 @@ export function DuetOperationsPanel({
               </div>
             </div>
           ))}
+
+        {activeTab === 'runtime' && (
+          <div className="space-y-3">
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2">
+              <div className="flex items-center justify-between gap-2 font-mono text-xs">
+                <span className="text-white font-semibold">Hermes Agent Gateway</span>
+                <span className={gatewayStatus?.connected ? 'text-[#4ADE80]' : 'text-[#6EE7B7]'}>
+                  {gatewayStatus?.connected ? 'CONNECTED (:8642)' : 'STANDALONE DUET MODE'}
+                </span>
+              </div>
+              <p className="text-xs text-emerald-100/65 leading-relaxed">
+                Start <code className="font-mono text-[#6EE7B7]">hermes gateway</code> with{' '}
+                <code className="font-mono text-[#6EE7B7]">API_SERVER_ENABLED=true</code> in{' '}
+                <code className="font-mono text-white/80">~/.hermes/.env</code> and register{' '}
+                <code className="font-mono text-[#6EE7B7]">mcp_servers.duet</code> in{' '}
+                <code className="font-mono text-white/80">~/.hermes/config.yaml</code>.
+              </p>
+              <pre className="rounded-lg bg-black/40 border border-white/10 p-2.5 font-mono text-[11px] leading-relaxed text-emerald-50/85 overflow-x-auto">
+{`mcp_servers:
+  duet:
+    command: /usr/local/bin/bun
+    args: ["/path/to/hermes-duet/server/mcp-shim.ts"]
+    tools: {}`}
+              </pre>
+            </div>
+
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2">
+              <h3 className="font-mono text-xs font-semibold text-white">
+                Loaded Skills (~/.hermes/skills/)
+              </h3>
+              <div className="space-y-1.5">
+                {INITIAL_HERMES_SKILLS.map((skill) => (
+                  <div key={skill.name} className="text-xs border-b border-white/6 last:border-0 pb-1.5 last:pb-0">
+                    <div className="flex items-center justify-between font-mono text-[11px]">
+                      <span className="text-[#6EE7B7] font-semibold">{skill.name}</span>
+                      <span className="text-emerald-100/45">{skill.source}</span>
+                    </div>
+                    <p className="text-emerald-100/65 mt-0.5">{skill.summary}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2">
+              <h3 className="font-mono text-xs font-semibold text-white">
+                Cron Routines (cronjob_manage) &amp; MEMORY.md
+              </h3>
+              <div className="space-y-1.5 font-mono text-[11px] text-emerald-50/80">
+                {INITIAL_HERMES_CRON.map((job) => (
+                  <div key={job.id} className="flex items-start justify-between gap-2">
+                    <span className="text-[#6EE7B7] shrink-0">{job.schedule}</span>
+                    <span className="text-emerald-100/70 text-right">{job.summary}</span>
+                  </div>
+                ))}
+                {INITIAL_HERMES_MEMORY.map((mem) => (
+                  <div key={mem.key} className="pt-1 border-t border-white/6 text-emerald-100/60">
+                    <span className="text-white/80">{mem.key}:</span> {mem.value}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from 'lucide-react';
 import type { ChannelId, TerminalEntry } from '../types/hermes';
+import { DecodedText } from './DecodedText';
 
 interface CommandTerminalProps {
   activeChannel: ChannelId;
@@ -9,7 +10,15 @@ interface CommandTerminalProps {
   onSubmitInput: (value: string) => void;
 }
 
-const QUICK_COMMANDS = ['/brief', '/tasks', '/approve card-1', '/status', '/style braille', '/help'];
+const QUICK_COMMANDS = [
+  '/brief',
+  '/tasks',
+  '/skills',
+  '/cron',
+  '/gateway',
+  '/approve card-1',
+  '/help',
+];
 
 export function CommandTerminal({
   activeChannel,
@@ -34,9 +43,9 @@ export function CommandTerminal({
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-white/8 bg-black/20">
         <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/80">
           <Terminal className="w-3.5 h-3.5 text-[#34D399]" />
-          <span className="font-semibold text-white">duet-cli</span>
+          <span className="font-semibold text-white">hermes-duet</span>
           <span className="text-emerald-100/35">·</span>
-          <span className="text-emerald-100/60">#{activeChannel}</span>
+          <span className="text-emerald-100/60">duet-{activeChannel}</span>
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto">
@@ -96,7 +105,15 @@ export function CommandTerminal({
                       : 'text-emerald-50/90'
                   }`}
                 >
-                  {isUser ? `$ ${entry.text}` : entry.text}
+                  {isUser ? (
+                    `$ ${entry.text}`
+                  ) : (
+                    <DecodedText
+                      text={entry.text}
+                      animate={!entry.id.startsWith('init-')}
+                      speedMultiplier={1.25}
+                    />
+                  )}
                 </pre>
               </div>
             );

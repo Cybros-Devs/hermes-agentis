@@ -18,6 +18,7 @@ export type ChannelId = 'general' | 'ops' | 'launch' | 'research';
 export interface Channel {
   id: ChannelId;
   name: string;
+  sessionId: string;
   description: string;
   unreadCount: number;
 }
@@ -27,6 +28,8 @@ export interface ApprovalCard {
   channelId: ChannelId;
   title: string;
   actionType: 'send_message' | 'payment' | 'deploy' | 'calendar';
+  mcpTool?: 'mcp__duet__request_approval' | 'mcp__duet__request_payment';
+  runId?: string;
   destination: string;
   summary: string;
   draft: string;
@@ -47,11 +50,43 @@ export interface BriefDecision {
 export interface BackgroundTask {
   id: string;
   channelId: ChannelId;
+  sessionId?: string;
   title: string;
   status: 'running' | 'completed' | 'paused';
   progress: number;
   lastStep: string;
   updatedAt: string;
+}
+
+export interface HermesSkill {
+  name: string;
+  source: string;
+  summary: string;
+  enabled: boolean;
+}
+
+export interface HermesMemoryItem {
+  key: string;
+  scope: 'host' | 'duet' | 'preference';
+  value: string;
+}
+
+export interface HermesCronJob {
+  id: string;
+  schedule: string;
+  channelId: ChannelId;
+  mode: 'agent' | 'no-agent';
+  summary: string;
+}
+
+export interface HermesGatewayStatus {
+  connected: boolean;
+  mode: 'hermes-gateway' | 'standalone-duet';
+  gatewayUrl: string;
+  profile: string;
+  mcpBridge: string;
+  skillsCount: number;
+  toolsets: string[];
 }
 
 export interface TerminalEntry {
