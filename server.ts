@@ -879,7 +879,13 @@ async function createServer() {
   // SSE passthrough: live items/tasks/channels from the Duet server (or standalone SSE hub).
   app.get("/api/duet/events", async (req, res) => {
     try {
-      const upstream = await duetFetch("/api/events", { headers: { accept: "text/event-stream" } });
+      // Long-lived stream: the default 2.5s duetFetch timeout must NOT apply.
+      // We own the lifecycle and abort upstream only when this client leaves.
+      const upstreamController = new AbortController();
+      const upstream = await duetFetch("/api/events", {
+        headers: { accept: "text/event-stream" },
+        signal: upstreamController.signal,
+      });
       if (upstream.ok && upstream.body) {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -888,10 +894,21 @@ async function createServer() {
           "X-Accel-Buffering": "no",
         });
         const nodeStream = Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]);
-        nodeStream.pipe(res);
-        req.on("close", () => {
-          nodeStream.destroy();
+        // A stream error (upstream abort/restart) must end the response, never crash the server.
+        nodeStream.on("error", () => {
+          try {
+            res.end();
+          } catch {
+            // response already closed
+          }
         });
+        nodeStream.pipe(res);
+        const teardown = () => {
+          upstreamController.abort();
+          nodeStream.destroy();
+        };
+        req.on("close", teardown);
+        res.on("close", teardown);
         return;
       }
     } catch {
