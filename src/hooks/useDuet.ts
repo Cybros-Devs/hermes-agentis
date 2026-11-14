@@ -172,6 +172,8 @@ export function useDuet(opts: UseDuetOptions) {
   const [brief, setBrief] = useState<BriefDecision[]>([]);
   const optsRef = useRef(opts);
   optsRef.current = opts;
+  /** Item ids whose completion already triggered speech; replays stay silent. */
+  const spokenItemIdsRef = useRef<Set<string>>(new Set());
 
   const applyItem = useCallback((item: DuetItem) => {
     if (item.kind === 'card') {
@@ -205,7 +207,10 @@ export function useDuet(opts: UseDuetOptions) {
         item.text &&
         item.text.trim().length > 0
       ) {
-        optsRef.current.onAssistantComplete(item.text.trim());
+        if (!spokenItemIdsRef.current.has(item.id)) {
+          spokenItemIdsRef.current.add(item.id);
+          optsRef.current.onAssistantComplete(item.text.trim());
+        }
       }
     }
   }, []);
