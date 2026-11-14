@@ -1295,8 +1295,8 @@ function sampleReferenceWithExpression(
     const botL = 0.465 - lowerRise;
     const botR = 0.468 - lowerRise;
 
-    // Clear upper iris & upper lash cleanly with matching stippled skin tone
-    const inEyeXL = 1 - smoothstep(0.030, 0.041, Math.abs(ax - 0.218));
+    // Clear upper iris & upper lash cleanly with matching stippled skin tone (strictly inside eye sockets)
+    const inEyeXL = 1 - smoothstep(0.018, 0.025, Math.abs(ax - 0.223));
     const inEyeXR = 1 - smoothstep(0.049, 0.064, Math.abs(ax - 0.380));
     const skinToneL = 0.70;
     const skinToneR = clamp01(0.67 - smoothstep(0.32, 0.46, ax) * 0.24);
@@ -1305,8 +1305,8 @@ function sampleReferenceWithExpression(
     const wipeBotL = blink > 0.64 ? lerp(upperDropL, 0.476, smoothstep(0.64, 0.88, blink)) : upperDropL;
     const wipeBotR = blink > 0.64 ? lerp(upperDropR, 0.478, smoothstep(0.64, 0.88, blink)) : upperDropR;
 
-    if (inEyeXL > 0.02 && ay > 0.394 && ay < wipeBotL + 0.004) {
-      const vMask = smoothstep(0.394, 0.404, ay) * (1 - smoothstep(wipeBotL - 0.004, wipeBotL + 0.004, ay));
+    if (inEyeXL > 0.02 && ay > 0.398 && ay < wipeBotL + 0.004) {
+      const vMask = smoothstep(0.398, 0.408, ay) * (1 - smoothstep(wipeBotL - 0.004, wipeBotL + 0.004, ay));
       const mask = inEyeXL * vMask * smoothstep(0.04, 0.20, blink);
       lum = lerp(lum, skinToneL, mask * 0.98);
     }
@@ -1325,27 +1325,28 @@ function sampleReferenceWithExpression(
       if (lowCleanR > 0.02) lum = lerp(lum, skinToneR, lowCleanR * fullClean * 0.92);
     }
 
-    // Subtle upper-eyelid fold crease floating ~0.016 above the dropped upper lid (matches template Half-Closed & Closed!)
-    const creaseCurveL = (((ax - 0.218) / 0.032) ** 2) * 0.003;
+    // Subtle upper-eyelid fold crease mainly visible during half-closed transition, fading cleanly at full close
+    const creaseCurveL = (((ax - 0.223) / 0.024) ** 2) * 0.0025;
     const creaseCurveR = (((ax - 0.380) / 0.056) ** 2) * 0.004;
-    const dCreaseL = sdCapsule2(ax, ay + creaseCurveL, 0.194, upperDropL - 0.015, 0.242, upperDropL - 0.016, 0.0018);
-    const dCreaseR = sdCapsule2(ax, ay + creaseCurveR, 0.332, upperDropR - 0.016, 0.428, upperDropR - 0.018, 0.0020);
+    const dCreaseL = sdCapsule2(ax, ay + creaseCurveL, 0.202, upperDropL - 0.015, 0.242, upperDropL - 0.016, 0.0016);
+    const dCreaseR = sdCapsule2(ax, ay + creaseCurveR, 0.334, upperDropR - 0.016, 0.426, upperDropR - 0.018, 0.0018);
     const dCrease = Math.min(dCreaseL, dCreaseR);
     if (dCrease < 0.004) {
-      const cMask = (1 - smoothstep(-0.001, 0.003, dCrease)) * smoothstep(0.20, 0.75, blink);
-      lum *= 1 - cMask * 0.38;
+      const creaseEnvelope = smoothstep(0.18, 0.48, blink) * (1 - smoothstep(0.66, 0.96, blink) * 0.72);
+      const cMask = (1 - smoothstep(-0.001, 0.003, dCrease)) * creaseEnvelope;
+      lum *= 1 - cMask * 0.22;
     }
 
     // Crisp bowed upper eyelash rim (smoothly transitions from Half-Closed lid edge -> bowed Closed lash + outer corner flick)
     const lashBaseL = lerp(upperDropL, 0.453, smoothstep(0.65, 1.0, blink));
     const lashBaseR = lerp(upperDropR, 0.447, smoothstep(0.65, 1.0, blink));
     // Closed eyes curve gently downward in the center and lift cleanly at inner/outer corners
-    const arcShapeL = -(((ax - 0.218) / 0.030) ** 2) * lerp(-0.0025, 0.0056, blink);
+    const arcShapeL = -(((ax - 0.222) / 0.024) ** 2) * lerp(-0.0022, 0.0052, blink);
     const arcShapeR = -(((ax - 0.380) / 0.054) ** 2) * lerp(-0.003, 0.0072, blink);
-    const dLashMainL = sdCapsule2(ax, ay + arcShapeL, 0.190, lashBaseL, 0.244, lashBaseL - 0.002, 0.0040);
+    const dLashMainL = sdCapsule2(ax, ay + arcShapeL, 0.198, lashBaseL, 0.245, lashBaseL - 0.002, 0.0038);
     const dLashMainR = sdCapsule2(ax, ay + arcShapeR, 0.328, lashBaseR + 0.001, 0.433, lashBaseR - 0.003, 0.0047);
     // Delicate outer-corner eyelash wing on outer left & outer right edges
-    const dWingL = sdCapsule2(ax, ay, 0.190, lashBaseL - 0.002, 0.182, lashBaseL - 0.007, 0.0026);
+    const dWingL = sdCapsule2(ax, ay, 0.198, lashBaseL - 0.002, 0.191, lashBaseL - 0.006, 0.0024);
     const dWingR = sdCapsule2(ax, ay, 0.431, lashBaseR - 0.003, 0.443, lashBaseR - 0.009, 0.0030);
     const dLashes = Math.min(Math.min(dLashMainL, dLashMainR), Math.min(dWingL, dWingR));
     if (dLashes < 0.007) {

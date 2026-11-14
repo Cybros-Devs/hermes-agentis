@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { ArrowLeft, Plus, SlidersHorizontal } from 'lucide-react';
 import type {
   ApprovalCard,
@@ -7,12 +8,16 @@ import type {
   ChannelId,
   ExpressionMood,
 } from '../types/hermes';
+import type { CanvasSession } from '../utils/canvasSessions';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 
 interface SidebarWorkspaceProps {
   channels: Channel[];
   activeChannel: ChannelId;
   onSelectChannel: (id: ChannelId) => void;
+  canvasSessions?: CanvasSession[];
+  thinkingByChannel?: Record<string, boolean>;
+  onSelectSession?: (session: CanvasSession) => void;
   approvals: ApprovalCard[];
   brief: BriefDecision[];
   tasks: BackgroundTask[];
@@ -39,6 +44,9 @@ export function SidebarWorkspace({
   channels,
   activeChannel,
   onSelectChannel,
+  canvasSessions = [],
+  thinkingByChannel = {},
+  onSelectSession,
   approvals,
   brief,
   tasks,
@@ -61,6 +69,15 @@ export function SidebarWorkspace({
   onOpenStudio,
 }: SidebarWorkspaceProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
+  const activeChannelBtnRef = useRef<HTMLButtonElement | null>(null);
+  const customSessions = canvasSessions
+    .filter((s) => s.isCore === false && s.channelId !== 'daemon')
+    .slice()
+    .reverse();
+
+  useEffect(() => {
+    activeChannelBtnRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeChannel, channels.length]);
 
   return (
     <aside
@@ -148,6 +165,51 @@ export function SidebarWorkspace({
           </div>
         ) : (
           <>
+            {customSessions.map((session) => {
+              const active =
+                selectedItemId === session.id || activeChannel === session.channelId;
+              const isThinking = Boolean(thinkingByChannel[session.channelId]);
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  data-testid={`sidebar-session-${session.channelId}`}
+                  onClick={() =>
+                    onSelectSession
+                      ? onSelectSession(session)
+                      : onSelectChannel(session.channelId)
+                  }
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
+                    active ? 'bg-white/10' : 'hover:bg-white/5'
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${
+                      isThinking
+                        ? 'bg-amber-400 animate-pulse'
+                        : active
+                        ? 'bg-[#4ADE80]'
+                        : 'bg-[#6EE7B7]/65'
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[13px] font-medium text-white truncate">
+                        {session.topic}
+                      </span>
+                      <span className="font-mono text-[10px] text-[#6EE7B7]/75 shrink-0">
+                        {isThinking ? 'live' : `#${session.channelId}`}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
+                      {session.hermesSessionId}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+
             {pendingApprovals.map((card) => {
               const active = selectedItemId === card.id;
               return (
@@ -246,13 +308,14 @@ export function SidebarWorkspace({
             sidebarPosition === 'right' ? 'pr-12' : 'pr-3.5'
           }`}
         >
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 min-w-0 max-h-[68px] overflow-y-auto cyber-scroll">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 min-w-0 max-h-[104px] overflow-y-auto cyber-scroll">
             {channels.map((ch) => {
               const active = ch.id === activeChannel;
               const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
               return (
                 <button
                   key={ch.id}
+                  ref={active ? activeChannelBtnRef : undefined}
                   type="button"
                   data-testid={`sidebar-channel-${ch.id}`}
                   onClick={() => onSelectChannel(ch.id)}

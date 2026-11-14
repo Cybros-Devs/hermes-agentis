@@ -91,6 +91,16 @@ test('pickNextShapeAndTint avoids overusing already-present shapes', () => {
   assert.ok(picked.tint);
 });
 
-test('buildUniqueSlugForFreshChannel prevents collisions with existing upstream slugs', () => {
+test('buildUniqueSlugForFreshChannel prevents collisions with existing upstream slugs within 24 chars', () => {
   assert.equal(buildUniqueSlugForFreshChannel('morning-brief', ['general', 'morning-brief']), 'morning-brief-2');
+  const maxBase = 'ultra-long-session-title';
+  const collided = buildUniqueSlugForFreshChannel(maxBase, [maxBase]);
+  assert.ok(collided.length <= 24, `expected <= 24 chars, got ${collided.length}`);
+  assert.ok(collided.endsWith('-2'));
+});
+
+test('deriveSessionFromPrompt never yields reserved general slug', () => {
+  const s = deriveSessionFromPrompt('general', []);
+  assert.notEqual(s.slug, 'general');
+  assert.ok(s.slug.length <= 24);
 });
