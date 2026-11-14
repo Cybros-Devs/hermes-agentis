@@ -8,6 +8,12 @@ import {
   type LookTarget,
   type PortraitSourceField,
 } from '../utils/asciiPortraitEngine';
+import {
+  blendLoadingToPortraitFrame,
+  computeMaterializeProgress,
+  renderPortraitLoadingFrame,
+  type PortraitAssetStatus,
+} from '../utils/portraitLoadingEngine';
 
 const REFERENCE_PORTRAIT_URL = '/assets/aistudio/image_9fdb5ec4.png';
 const REFERENCE_SPRITE_SHEET_URL = '/assets/aistudio/image_f0b5dc2e.png';
@@ -16,14 +22,29 @@ let cachedPortraitSource: PortraitSourceField | null = null;
 let portraitLoadPromise: Promise<PortraitSourceField | null> | null = null;
 let cachedSpriteBank: PortraitSourceField[] | null = null;
 let spriteBankLoadPromise: Promise<PortraitSourceField[] | null> | null = null;
+let portraitAssetStatus: PortraitAssetStatus = 'loading';
+let portraitLoadGeneration = 0;
+
+const assetListeners = new Set<() => void>();
+
+function notifyAssetListeners() {
+  for (const listener of assetListeners) {
+    listener();
+  }
+}
 
 function loadReferencePortraitField(): Promise<PortraitSourceField | null> {
   if (cachedPortraitSource) return Promise.resolve(cachedPortraitSource);
   if (portraitLoadPromise) return portraitLoadPromise;
 
+  const gen = portraitLoadGeneration;
   portraitLoadPromise = new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
+      if (gen !== portraitLoadGeneration) {
+        resolve(null);
+        return;
+      }
       try {
         const size = 160;
         const offscreen = document.createElement('canvas');
@@ -37,12 +58,19 @@ function loadReferencePortraitField(): Promise<PortraitSourceField | null> {
         octx.drawImage(img, 0, 0, size, size);
         const rgba = octx.getImageData(0, 0, size, size).data;
         cachedPortraitSource = buildPortraitSourceFromRgba(rgba, size, size);
+        portraitAssetStatus = 'ready';
+        notifyAssetListeners();
         resolve(cachedPortraitSource);
       } catch {
         resolve(null);
       }
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => {
+      if (gen === portraitLoadGeneration) {
+        portraitLoadPromise = null;
+      }
+      resolve(null);
+    };
     img.src = REFERENCE_PORTRAIT_URL;
   });
 
@@ -53,9 +81,14 @@ function loadReferenceSpriteBank(): Promise<PortraitSourceField[] | null> {
   if (cachedSpriteBank) return Promise.resolve(cachedSpriteBank);
   if (spriteBankLoadPromise) return spriteBankLoadPromise;
 
+  const gen = portraitLoadGeneration;
   spriteBankLoadPromise = new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
+      if (gen !== portraitLoadGeneration) {
+        resolve(null);
+        return;
+      }
       try {
         const w = img.naturalWidth || img.width;
         const h = img.naturalHeight || img.height;
@@ -76,6 +109,8 @@ function loadReferenceSpriteBank(): Promise<PortraitSourceField[] | null> {
         const bank = buildPortraitBankFromSpriteSheet(rgba, w, h, 160);
         if (bank.length >= 12) {
           cachedSpriteBank = bank;
+          portraitAssetStatus = 'ready';
+          notifyAssetListeners();
           resolve(bank);
         } else {
           resolve(null);
@@ -84,11 +119,44 @@ function loadReferenceSpriteBank(): Promise<PortraitSourceField[] | null> {
         resolve(null);
       }
     };
-    img.onerror = () => resolve(null);
+    img.onerror = () => {
+      if (gen === portraitLoadGeneration) {
+        spriteBankLoadPromise = null;
+      }
+      resolve(null);
+    };
     img.src = REFERENCE_SPRITE_SHEET_URL;
   });
 
   return spriteBankLoadPromise;
+}
+
+function ensurePortraitAssetsLoading(): void {
+  if (cachedSpriteBank || cachedPortraitSource) {
+    portraitAssetStatus = 'ready';
+    return;
+  }
+  portraitAssetStatus = 'loading';
+  const spritePromise = loadReferenceSpriteBank();
+  const basePromise = loadReferencePortraitField();
+  void Promise.all([spritePromise, basePromise]).then(([bank, base]) => {
+    if (!bank && !base && !cachedSpriteBank && !cachedPortraitSource) {
+      portraitAssetStatus = 'error';
+      notifyAssetListeners();
+    } else if (bank || base) {
+      portraitAssetStatus = 'ready';
+      notifyAssetListeners();
+    }
+  });
+}
+
+function retryPortraitAssetsLoading(): void {
+  portraitLoadGeneration += 1;
+  portraitLoadPromise = null;
+  spriteBankLoadPromise = null;
+  portraitAssetStatus = 'loading';
+  notifyAssetListeners();
+  ensurePortraitAssetsLoading();
 }
 
 interface AsciiPortraitCanvasProps {
@@ -104,6 +172,8 @@ interface AsciiPortraitCanvasProps {
   tintHex?: string | null;
   speedScale?: number;
   reducedMotionOverride?: boolean;
+  showLoadingLabel?: boolean;
+  onStatusChange?: (status: PortraitAssetStatus) => void;
   onClick?: () => void;
 }
 
@@ -149,11 +219,23 @@ export function AsciiPortraitCanvas({
   tintHex = null,
   speedScale = 1,
   reducedMotionOverride = false,
+  showLoadingLabel,
+  onStatusChange,
   onClick,
 }: AsciiPortraitCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [sourceField, setSourceField] = useState<PortraitSourceField | null>(cachedPortraitSource);
-  const [spriteBank, setSpriteBank] = useState<PortraitSourceField[] | null>(cachedSpriteBank);
+  const [sourceField, setSourceField] = useState<PortraitSourceField | null>(() => cachedPortraitSource);
+  const [spriteBank, setSpriteBank] = useState<PortraitSourceField[] | null>(() => cachedSpriteBank);
+  const [status, setStatus] = useState<PortraitAssetStatus>(() =>
+    cachedSpriteBank || cachedPortraitSource ? 'ready' : portraitAssetStatus
+  );
+
+  // Track whether this component actually witnessed loading before becoming ready,
+  // so tab switches when already cached render immediately without re-wiping.
+  const startedWhileLoadingRef = useRef<boolean>(!(cachedSpriteBank || cachedPortraitSource));
+  const readyAtMsRef = useRef<number | null>(
+    cachedSpriteBank || cachedPortraitSource ? 0 : null
+  );
 
   const stateRef = useRef({
     mood,
@@ -166,6 +248,7 @@ export function AsciiPortraitCanvas({
     lookTargetRef,
     sourceField,
     spriteBank,
+    status,
     tintHex,
     speedScale,
     reducedMotionOverride,
@@ -181,31 +264,39 @@ export function AsciiPortraitCanvas({
     lookTargetRef,
     sourceField,
     spriteBank,
+    status,
     tintHex,
     speedScale,
     reducedMotionOverride,
   };
 
   useEffect(() => {
-    let mounted = true;
-    if (!cachedSpriteBank) {
-      loadReferenceSpriteBank().then((loadedBank) => {
-        if (mounted && loadedBank) {
-          setSpriteBank(loadedBank);
-        }
-      });
-    }
-    if (!cachedPortraitSource) {
-      loadReferencePortraitField().then((loaded) => {
-        if (mounted && loaded) {
-          setSourceField(loaded);
-        }
-      });
-    }
+    const sync = () => {
+      setSourceField(cachedPortraitSource);
+      setSpriteBank(cachedSpriteBank);
+      const nextStatus: PortraitAssetStatus =
+        cachedSpriteBank || cachedPortraitSource ? 'ready' : portraitAssetStatus;
+      if (nextStatus === 'ready' && readyAtMsRef.current === null) {
+        readyAtMsRef.current = performance.now();
+      } else if (nextStatus === 'loading') {
+        startedWhileLoadingRef.current = true;
+        readyAtMsRef.current = null;
+      }
+      setStatus(nextStatus);
+    };
+
+    assetListeners.add(sync);
+    ensurePortraitAssetsLoading();
+    sync();
+
     return () => {
-      mounted = false;
+      assetListeners.delete(sync);
     };
   }, []);
+
+  useEffect(() => {
+    onStatusChange?.(status);
+  }, [status, onStatusChange]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -253,45 +344,87 @@ export function AsciiPortraitCanvas({
       }
 
       smoothEnergy += (s.energy - smoothEnergy) * (1 - Math.exp(-16 * dt));
-      const elapsed = isThumb ? 0.5 : isReduced ? 0.6 : elapsedPhase;
-      const activeLook = s.lookTargetRef?.current ?? s.lookTarget ?? null;
+      const elapsed = isReduced ? 0.6 : elapsedPhase;
+      const hasRealCharacter = Boolean(
+        (s.spriteBank && s.spriteBank.length >= 12) || s.sourceField
+      );
 
-      const motion = isThumb
-        ? null
-        : animator.step(
-            {
-              time: elapsed,
-              mood: s.mood,
-              viseme: s.viseme,
-              eyeState: s.eyeState,
-              energy: smoothEnergy,
-              isSpeaking: s.isSpeaking,
-              isListening: s.isListening,
-            },
-            dt,
-            isReduced,
-            activeLook
-          );
+      let frame;
+      let isLoadingVisual = false;
 
-      const frame = renderHalftonePortrait({
-        cols,
-        rows,
-        time: elapsed,
-        mood: s.mood,
-        viseme: isThumb ? 'closed' : s.viseme,
-        eyeState: isThumb ? 'open' : s.eyeState,
-        energy: isThumb ? 0.1 : smoothEnergy,
-        isSpeaking: isThumb ? false : s.isSpeaking,
-        isListening: isThumb ? false : s.isListening,
-        style: 'braille',
-        sourceField: s.sourceField,
-        spriteBank: s.spriteBank,
-        motion,
-      });
+      if (!hasRealCharacter) {
+        // Never render mathematical mock character data while real character artwork loads or errors
+        isLoadingVisual = true;
+        frame = renderPortraitLoadingFrame({
+          cols,
+          rows,
+          time: elapsed,
+          variant,
+          status: s.status === 'error' ? 'error' : 'loading',
+          reducedMotion: isReduced,
+        });
+      } else {
+        const portraitElapsed = isThumb ? 0.5 : elapsed;
+        const activeLook = s.lookTargetRef?.current ?? s.lookTarget ?? null;
+        const motion = isThumb
+          ? null
+          : animator.step(
+              {
+                time: portraitElapsed,
+                mood: s.mood,
+                viseme: s.viseme,
+                eyeState: s.eyeState,
+                energy: smoothEnergy,
+                isSpeaking: s.isSpeaking,
+                isListening: s.isListening,
+              },
+              dt,
+              isReduced,
+              activeLook
+            );
+
+        const portraitFrame = renderHalftonePortrait({
+          cols,
+          rows,
+          time: portraitElapsed,
+          mood: s.mood,
+          viseme: isThumb ? 'closed' : s.viseme,
+          eyeState: isThumb ? 'open' : s.eyeState,
+          energy: isThumb ? 0.1 : smoothEnergy,
+          isSpeaking: isThumb ? false : s.isSpeaking,
+          isListening: isThumb ? false : s.isListening,
+          style: 'braille',
+          sourceField: s.sourceField,
+          spriteBank: s.spriteBank,
+          motion,
+        });
+
+        const readyElapsed =
+          startedWhileLoadingRef.current && readyAtMsRef.current !== null && readyAtMsRef.current > 0
+            ? (now - readyAtMsRef.current) / 1000
+            : 10;
+        const matProgress = computeMaterializeProgress(readyElapsed, isReduced);
+
+        if (matProgress < 0.995) {
+          const loadingFrame = renderPortraitLoadingFrame({
+            cols,
+            rows,
+            time: elapsed,
+            variant,
+            status: 'loading',
+            reducedMotion: isReduced,
+          });
+          frame = blendLoadingToPortraitFrame(loadingFrame, portraitFrame, matProgress);
+        } else {
+          frame = portraitFrame;
+        }
+      }
 
       ctx.clearRect(0, 0, width, height);
 
-      const activeTint = !isThumb && (s.isListening || (motion?.listenPulse ?? 0) > 0.35);
+      const activeTint =
+        !isThumb &&
+        (isLoadingVisual || s.isListening || (s.isSpeaking && smoothEnergy > 0.35));
 
       const pHigh = new Path2D();
       const pMid = new Path2D();
@@ -334,22 +467,29 @@ export function AsciiPortraitCanvas({
       const highColor = customTint ? mixPortraitHex('#FFFFFF', customTint, 0.18) : '#FFFFFF';
 
       ctx.fillStyle = lowColor;
-      ctx.globalAlpha = 0.72;
+      ctx.globalAlpha = isLoadingVisual ? 0.56 : 0.72;
       ctx.fill(pLow);
 
       ctx.fillStyle = midColor;
-      ctx.globalAlpha = 0.88;
+      ctx.globalAlpha = isLoadingVisual ? 0.78 : 0.88;
       ctx.fill(pMid);
 
       ctx.fillStyle = highColor;
-      ctx.globalAlpha = 0.98;
+      ctx.globalAlpha = isLoadingVisual ? 0.94 : 0.98;
       ctx.fill(pHigh);
 
       ctx.globalAlpha = 1;
     };
 
     drawFrame(startTime);
-    if (isThumb) return;
+
+    // Thumb stays static once real character finishes materializing,
+    // but animates smoothly while loading!
+    const thumbMaterialized =
+      isThumb &&
+      status === 'ready' &&
+      (!startedWhileLoadingRef.current || readyAtMsRef.current === 0);
+    if (thumbMaterialized) return;
 
     let timerId = 0;
     const minIntervalMs = isStage ? 28 : 24;
@@ -357,6 +497,15 @@ export function AsciiPortraitCanvas({
     const loop = (now: number) => {
       if (now - lastDraw >= minIntervalMs) {
         drawFrame(now);
+      }
+      if (isThumb && stateRef.current.status === 'ready') {
+        const doneElapsed =
+          readyAtMsRef.current && readyAtMsRef.current > 0
+            ? (now - readyAtMsRef.current) / 1000
+            : 10;
+        if (doneElapsed > 0.5) {
+          return;
+        }
       }
       timerId = window.setTimeout(() => {
         rafId = window.requestAnimationFrame(loop);
@@ -368,12 +517,13 @@ export function AsciiPortraitCanvas({
       window.cancelAnimationFrame(rafId);
       window.clearTimeout(timerId);
     };
-  }, [variant, sourceField, spriteBank]);
+  }, [variant, sourceField, spriteBank, status]);
 
   if (variant === 'thumb') {
     return (
       <canvas
         ref={canvasRef}
+        data-portrait-status={status}
         aria-hidden="true"
         className="w-[42px] h-[42px] rounded-md bg-black/35 shrink-0"
       />
@@ -381,23 +531,61 @@ export function AsciiPortraitCanvas({
   }
 
   const isStage = variant === 'stage';
+  const showBadge = showLoadingLabel ?? isStage;
+  const isError = status === 'error';
+  const isLoading = status === 'loading';
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`Animated monochrome braille halftone portrait of Hermes, expression ${mood}, mouth ${viseme}. Click to cycle mood.`}
-      className="group relative flex items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] cursor-pointer"
-    >
-      <canvas
-        ref={canvasRef}
-        data-testid="ascii-portrait-canvas"
-        className={
-          isStage
-            ? 'block w-[clamp(230px,38vmin,540px)] aspect-[12/11]'
-            : 'w-[216px] h-[198px] block'
+    <div className="relative flex flex-col items-center justify-center">
+      <button
+        type="button"
+        onClick={isError ? retryPortraitAssetsLoading : onClick}
+        aria-busy={isLoading}
+        aria-label={
+          isLoading
+            ? 'Loading Hermes character sprite rig'
+            : isError
+            ? 'Character signal failed to load. Click to retry.'
+            : `Animated monochrome braille halftone portrait of Hermes, expression ${mood}, mouth ${viseme}. Click to cycle mood.`
         }
-      />
-    </button>
+        className="group relative flex items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] cursor-pointer"
+      >
+        <canvas
+          ref={canvasRef}
+          data-testid="ascii-portrait-canvas"
+          data-portrait-status={status}
+          className={
+            isStage
+              ? 'block w-[clamp(230px,38vmin,540px)] aspect-[12/11]'
+              : 'w-[216px] h-[198px] block'
+          }
+        />
+      </button>
+
+      {isLoading && showBadge && (
+        <div
+          data-testid="portrait-loading-indicator"
+          aria-live="polite"
+          className="pointer-events-none -mt-2 mb-1 inline-flex items-center gap-2 rounded-full border border-white/12 bg-black/55 backdrop-blur-md px-3 py-1 font-mono text-[10.5px] text-[#6EE7B7] shadow-[0_6px_20px_rgba(0,0,0,0.45)]"
+        >
+          <span
+            aria-hidden="true"
+            className="inline-block w-1.5 h-1.5 rounded-full bg-[#34D399] animate-pulse"
+          />
+          <span>Calibrating halftone rig…</span>
+        </div>
+      )}
+
+      {isError && showBadge && (
+        <button
+          type="button"
+          onClick={retryPortraitAssetsLoading}
+          data-testid="portrait-retry-btn"
+          className="-mt-1 mb-1 inline-flex items-center gap-1.5 rounded-full border border-rose-400/40 bg-rose-500/12 hover:bg-rose-500/20 px-3 py-1 font-mono text-[10.5px] text-rose-200 transition-colors cursor-pointer"
+        >
+          <span>Signal unavailable · Retry</span>
+        </button>
+      )}
+    </div>
   );
 }

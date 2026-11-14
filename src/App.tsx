@@ -454,13 +454,13 @@ export default function App() {
       setLastSpokenLineState(cached);
     } else if (scopedLatest) {
       setLastSpokenLineState(scopedLatest.text.slice(0, 140));
-    } else {
+    } else if (!duet.initialLoading) {
       const cs = canvasSessions.find((s) => s.channelId === activeChannel);
       if (cs) {
         setLastSpokenLineState(`${cs.hermesSessionId} ready · ${cs.topic}`);
       }
     }
-  }, [activeChannel, entries, lastSpokenByChannel, canvasSessions]);
+  }, [activeChannel, entries, lastSpokenByChannel, canvasSessions, duet.initialLoading]);
 
   const [showThinking, setShowThinking] = useState<boolean>(() => {
     try {

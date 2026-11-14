@@ -32,6 +32,7 @@ import type {
 } from '../types/hermes';
 import { amplitudeToViseme, resolveEyeState } from '../utils/asciiCharacter';
 import type { LookTarget } from '../utils/asciiPortraitEngine';
+import type { PortraitAssetStatus } from '../utils/portraitLoadingEngine';
 import type { BrailleShapeKind, BrailleShapeTint } from '../utils/brailleShapesEngine';
 import { getShapeMeta, type CanvasSession } from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
@@ -147,6 +148,7 @@ export function VoiceWorkspacePane({
   const [input, setInput] = useState('');
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [workingSeconds, setWorkingSeconds] = useState(0);
+  const [portraitStatus, setPortraitStatus] = useState<PortraitAssetStatus>('loading');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const portraitWrapRef = useRef<HTMLDivElement | null>(null);
   const lookTargetRef = useRef<LookTarget | null>(null);
@@ -297,6 +299,10 @@ export function VoiceWorkspacePane({
 
   const statusText = voiceState.isMuted
     ? 'Mute'
+    : portraitStatus === 'loading'
+    ? 'Calibrating'
+    : portraitStatus === 'error'
+    ? 'Signal offline'
     : activeIsThinking
     ? 'Thinking'
     : activeIsSpeaking
@@ -509,6 +515,7 @@ export function VoiceWorkspacePane({
                   tintHex={effectivePortraitTint}
                   speedScale={uiConfig.animationSpeed}
                   reducedMotionOverride={uiConfig.reducedMotion}
+                  onStatusChange={setPortraitStatus}
                   onClick={onCycleMood}
                 />
               </div>

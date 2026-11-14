@@ -225,6 +225,7 @@ function localChannelId(id?: string | null): string {
 }
 
 export function useDuet(opts: UseDuetOptions) {
+  const [initialLoading, setInitialLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [linked, setLinked] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -355,8 +356,12 @@ export function useDuet(opts: UseDuetOptions) {
         setStatsTick((t) => t + 1);
         for (const e of entries) optsRef.current.upsertEntry(e);
         setConnected(true);
+        setInitialLoading(false);
       } catch {
-        if (active) setConnected(false);
+        if (active) {
+          setConnected(false);
+          setInitialLoading(false);
+        }
       }
     })();
     return () => {
@@ -527,6 +532,7 @@ export function useDuet(opts: UseDuetOptions) {
 
   return useMemo(
     () => ({
+      initialLoading,
       connected,
       linked,
       channels,
@@ -541,6 +547,7 @@ export function useDuet(opts: UseDuetOptions) {
       actOnCard,
     }),
     [
+      initialLoading,
       connected,
       linked,
       channels,
