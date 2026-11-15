@@ -189,7 +189,9 @@ export function VoiceWorkspacePane({
   const [portraitStatus, setPortraitStatus] = useState<PortraitAssetStatus>('loading');
   const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
   const [showTopFade, setShowTopFade] = useState(false);
-  const [threadTasksOpen, setThreadTasksOpen] = useState(false);
+  const [threadTasksOverrideByChannel, setThreadTasksOverrideByChannel] = useState<
+    Record<string, boolean>
+  >({});
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const threadListRef = useRef<HTMLDivElement | null>(null);
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -217,6 +219,35 @@ export function VoiceWorkspacePane({
   const activeIsThinking = isHomeNewDraft ? false : rawIsThinking;
   const activeIsSpeaking = isHomeNewDraft ? false : rawIsSpeaking;
 
+  const activeChannelTasksPartition = useMemo(
+    () => partitionChannelTasks(tasks, activeChannel),
+    [tasks, activeChannel]
+  );
+  const threadTasksOpen =
+    threadTasksOverrideByChannel[activeChannel] ?? activeChannelTasksPartition.all.length > 0;
+
+  const toggleThreadTasksOpen = () => {
+    const current =
+      threadTasksOverrideByChannel[activeChannel] ?? activeChannelTasksPartition.all.length > 0;
+    const nextOpen = !current;
+    setThreadTasksOverrideByChannel((prev) => ({
+      ...prev,
+      [activeChannel]: nextOpen,
+    }));
+    if (nextOpen) {
+      isPinnedToBottomRef.current = true;
+      setIsAwayFromBottom(false);
+      requestAnimationFrame(() => snapThreadToBottom('smooth'));
+    }
+  };
+
+  const hideThreadTasks = () => {
+    setThreadTasksOverrideByChannel((prev) => ({
+      ...prev,
+      [activeChannel]: false,
+    }));
+  };
+
   useEffect(() => {
     if (!activeIsSpeaking) return;
     const id = window.setInterval(() => {
@@ -224,10 +255,6 @@ export function VoiceWorkspacePane({
     }, 42);
     return () => window.clearInterval(id);
   }, [activeIsSpeaking]);
-
-  useEffect(() => {
-    setThreadTasksOpen(false);
-  }, [activeChannel, panelView]);
 
   useEffect(() => {
     if (!activeIsThinking && !activeIsSpeaking) {
@@ -487,10 +514,7 @@ export function VoiceWorkspacePane({
     ? 'listening'
     : 'idle';
 
-  const activeChannelRunningTaskCount = useMemo(
-    () => partitionChannelTasks(tasks, activeChannel).running.length,
-    [tasks, activeChannel]
-  );
+  const activeChannelRunningTaskCount = activeChannelTasksPartition.running.length;
 
   const navTabItems: MorphTabItem<WorkspacePanelView>[] = useMemo(
     () => [
@@ -857,144 +881,119 @@ export function VoiceWorkspacePane({
                   </>
                 )}
                 {panelView === 'voice' && (
-                  <button
-                    type="button"
-                    onClick={() => onResetSession(activeChannel)}
-                    title="Reset isolated hermes-agent session context"
-                    className="ml-1 inline-flex items-center gap-1 text-[11px] text-emerald-100/55 hover:text-white underline underline-offset-4 decoration-white/20 cursor-pointer"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Reset</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onResetSession(activeChannel)}
+                      title="Reset isolated hermes-agent session context"
+                      className="ml-1 inline-flex items-center gap-1 text-[11px] text-emerald-100/55 hover:text-white underline underline-offset-4 decoration-white/20 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Reset</span>
+                    </button>
+                    <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                    <ThreadTaskBanner
+                      variant="thread-trigger"
+                      activeChannel={activeChannel}
+                      activeSessionId={activeHermesSessionId}
+                      tasks={tasks}
+                      activeIsThinking={activeIsThinking}
+                      workingSeconds={workingSeconds}
+                      isOpen={threadTasksOpen}
+                      onToggleOpen={toggleThreadTasksOpen}
+                      onHide={hideThreadTasks}
+                    />
+                  </>
                 )}
               </div>
-
-              {panelView === 'voice' && (
-                <ThreadTaskBanner
-                  variant="desktop-corner"
-                  activeChannel={activeChannel}
-                  activeSessionId={activeHermesSessionId}
-                  tasks={tasks}
-                  activeIsThinking={activeIsThinking}
-                  workingSeconds={workingSeconds}
-                  isOpen={threadTasksOpen}
-                  onToggleOpen={() => setThreadTasksOpen((v) => !v)}
-                  onHide={() => setThreadTasksOpen(false)}
-                  onToggleTaskStatus={onToggleTaskStatus}
-                  onConfirmTask={onConfirmTask}
-                  onReopenTask={onReopenTask}
-                  onCancelTask={onCancelTask}
-                  onSteerTask={onSteerTask}
-                  onStopSpeaking={onStopSpeaking}
-                />
-              )}
             </div>
           ) : (
             panelView === 'voice' && (
-              <div className="relative hidden lg:block h-10 shrink-0">
-                <ThreadTaskBanner
-                  variant="desktop-corner"
-                  activeChannel={activeChannel}
-                  activeSessionId={activeHermesSessionId}
-                  tasks={tasks}
-                  activeIsThinking={activeIsThinking}
-                  workingSeconds={workingSeconds}
-                  isOpen={threadTasksOpen}
-                  onToggleOpen={() => setThreadTasksOpen((v) => !v)}
-                  onHide={() => setThreadTasksOpen(false)}
-                  onToggleTaskStatus={onToggleTaskStatus}
-                  onConfirmTask={onConfirmTask}
-                  onReopenTask={onReopenTask}
-                  onCancelTask={onCancelTask}
-                  onSteerTask={onSteerTask}
-                  onStopSpeaking={onStopSpeaking}
-                />
-              </div>
-            )
-          )}
-
-          {/* Mobile Compact Character Presence Strip in Thread View + Integrated Top-Right Task Trigger */}
-          {panelView === 'voice' && (
-            <>
-              <div className="flex lg:hidden items-center gap-2 mx-2.5 my-0.5 rounded-xl bg-white/[0.035] border border-white/10 px-2.5 py-1 shrink-0">
-                {uiConfig.portraitVisible && (
-                  <div className="relative w-[64px] h-[54px] rounded-lg bg-black/35 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
-                    <div className="scale-[0.29] origin-center">
-                      <AsciiPortraitCanvas
-                        variant="hero"
-                        mood={effectiveMood}
-                        viseme={viseme}
-                        eyeState={portraitEyeState}
-                        energy={energy}
-                        isSpeaking={activeIsSpeaking}
-                        isListening={voiceState.isListening}
-                        lookTargetRef={lookTargetRef}
-                        tintHex={effectivePortraitTint}
-                        speedScale={uiConfig.animationSpeed}
-                        reducedMotionOverride={uiConfig.reducedMotion}
-                        onStatusChange={setPortraitStatus}
-                        onClick={onCycleMood}
-                      />
-                    </div>
+              <div className="hidden lg:block border-b border-white/[0.06] shrink-0">
+                <div className="max-w-[780px] mx-auto w-full px-3.5 sm:px-8 lg:px-12 py-2 flex items-center justify-between gap-3 text-xs text-emerald-100/75">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <StatusPulse size="sm" state={statusPulseState} />
+                    <span className="font-mono text-[11px] text-[#6EE7B7]">{activeHermesSessionId}</span>
                   </div>
-                )}
-                <div className="min-w-0 flex-1 space-y-0.5">
-                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-100/75">
-                    <StatusPulse state={statusPulseState} />
-                    <span className="font-medium text-white">{statusText}</span>
-                    <span aria-hidden="true" className="text-emerald-100/30">·</span>
-                    <span className="font-mono text-[#6EE7B7] truncate">{activeHermesSessionId}</span>
-                  </div>
-                  <div className="text-[11px] text-emerald-100/55 truncate">
-                    {activeIsThinking
-                      ? `Routing turn inside ${activeHermesSessionId}…`
-                      : `${activeShapeMeta?.label ?? 'Hermes'} · Tap portrait to cycle mood`}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
                   <ThreadTaskBanner
-                    variant="mobile-trigger"
+                    variant="thread-trigger"
                     activeChannel={activeChannel}
                     activeSessionId={activeHermesSessionId}
                     tasks={tasks}
                     activeIsThinking={activeIsThinking}
                     workingSeconds={workingSeconds}
                     isOpen={threadTasksOpen}
-                    onToggleOpen={() => setThreadTasksOpen((v) => !v)}
-                    onHide={() => setThreadTasksOpen(false)}
+                    onToggleOpen={toggleThreadTasksOpen}
+                    onHide={hideThreadTasks}
                   />
-                  <button
-                    type="button"
-                    onClick={onToggleThinking}
-                    aria-pressed={showThinking}
-                    className={`shrink-0 px-2 py-1.5 rounded-xl border text-[10.5px] font-mono transition-colors cursor-pointer ${
-                      showThinking
-                        ? 'bg-[#34D399]/14 border-[#34D399]/35 text-[#6EE7B7]'
-                        : 'bg-white/[0.04] border-white/10 text-emerald-100/60'
-                    }`}
-                  >
-                    {showThinking ? 'Trace' : 'Muted'}
-                  </button>
                 </div>
               </div>
-              <ThreadTaskBanner
-                variant="mobile-panel"
-                activeChannel={activeChannel}
-                activeSessionId={activeHermesSessionId}
-                tasks={tasks}
-                activeIsThinking={activeIsThinking}
-                workingSeconds={workingSeconds}
-                isOpen={threadTasksOpen}
-                onToggleOpen={() => setThreadTasksOpen((v) => !v)}
-                onHide={() => setThreadTasksOpen(false)}
-                onToggleTaskStatus={onToggleTaskStatus}
-                onConfirmTask={onConfirmTask}
-                onReopenTask={onReopenTask}
-                onCancelTask={onCancelTask}
-                onSteerTask={onSteerTask}
-                onStopSpeaking={onStopSpeaking}
-              />
-            </>
+            )
+          )}
+
+          {/* Mobile Compact Character Presence Strip in Thread View */}
+          {panelView === 'voice' && (
+            <div className="flex lg:hidden items-center gap-2 mx-2.5 my-0.5 rounded-xl bg-white/[0.035] border border-white/10 px-2.5 py-1 shrink-0">
+              {uiConfig.portraitVisible && (
+                <div className="relative w-[64px] h-[54px] rounded-lg bg-black/35 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
+                  <div className="scale-[0.29] origin-center">
+                    <AsciiPortraitCanvas
+                      variant="hero"
+                      mood={effectiveMood}
+                      viseme={viseme}
+                      eyeState={portraitEyeState}
+                      energy={energy}
+                      isSpeaking={activeIsSpeaking}
+                      isListening={voiceState.isListening}
+                      lookTargetRef={lookTargetRef}
+                      tintHex={effectivePortraitTint}
+                      speedScale={uiConfig.animationSpeed}
+                      reducedMotionOverride={uiConfig.reducedMotion}
+                      onStatusChange={setPortraitStatus}
+                      onClick={onCycleMood}
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-100/75">
+                  <StatusPulse state={statusPulseState} />
+                  <span className="font-medium text-white">{statusText}</span>
+                  <span aria-hidden="true" className="text-emerald-100/30">·</span>
+                  <span className="font-mono text-[#6EE7B7] truncate">{activeHermesSessionId}</span>
+                </div>
+                <div className="text-[11px] text-emerald-100/55 truncate">
+                  {activeIsThinking
+                    ? `Routing in ${activeHermesSessionId}…`
+                    : activeShapeMeta?.label ?? 'Hermes'}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <ThreadTaskBanner
+                  variant="mobile-trigger"
+                  activeChannel={activeChannel}
+                  activeSessionId={activeHermesSessionId}
+                  tasks={tasks}
+                  activeIsThinking={activeIsThinking}
+                  workingSeconds={workingSeconds}
+                  isOpen={threadTasksOpen}
+                  onToggleOpen={toggleThreadTasksOpen}
+                  onHide={hideThreadTasks}
+                />
+                <button
+                  type="button"
+                  onClick={onToggleThinking}
+                  aria-pressed={showThinking}
+                  className={`shrink-0 px-2 py-1.5 rounded-xl border text-[10.5px] font-mono transition-colors cursor-pointer ${
+                    showThinking
+                      ? 'bg-[#34D399]/14 border-[#34D399]/35 text-[#6EE7B7]'
+                      : 'bg-white/[0.04] border-white/10 text-emerald-100/60'
+                  }`}
+                >
+                  {showThinking ? 'Trace' : 'Muted'}
+                </button>
+              </div>
+            </div>
           )}
 
           {panelView === 'queue' ? (
@@ -1079,9 +1078,7 @@ export function VoiceWorkspacePane({
                 style={{ overflowAnchor: 'none' }}
                 className={`ui-view-enter transcript-fade-mask ${
                   showTopFade ? 'ui-transcript-fade-active' : ''
-                } flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-8 lg:px-12 ${
-                  threadTasksOpen ? 'lg:pr-[340px] xl:pr-[400px]' : ''
-                } transition-[padding] duration-200 py-4 sm:py-5`}
+                } flex-1 min-h-0 overflow-y-auto cyber-scroll px-3 sm:px-8 lg:px-12 py-2.5 sm:py-5`}
               >
                 <div
                   ref={threadListRef}
@@ -1137,6 +1134,25 @@ export function VoiceWorkspacePane({
                       <p className="whitespace-pre-wrap break-words">{voiceState.interimTranscript}</p>
                     </div>
                   )}
+
+                  {/* Thread-integrated Task Timeline Block inside the conversation stream */}
+                  <ThreadTaskBanner
+                    variant="thread-inline"
+                    activeChannel={activeChannel}
+                    activeSessionId={activeHermesSessionId}
+                    tasks={tasks}
+                    activeIsThinking={activeIsThinking}
+                    workingSeconds={workingSeconds}
+                    isOpen={threadTasksOpen}
+                    onToggleOpen={toggleThreadTasksOpen}
+                    onHide={hideThreadTasks}
+                    onToggleTaskStatus={onToggleTaskStatus}
+                    onConfirmTask={onConfirmTask}
+                    onReopenTask={onReopenTask}
+                    onCancelTask={onCancelTask}
+                    onSteerTask={onSteerTask}
+                    onStopSpeaking={onStopSpeaking}
+                  />
 
                   {/* Reference-style inline pending status pill + approval action */}
                   {channelPendingApprovals.length > 0 && !activeIsThinking && (
