@@ -1420,6 +1420,7 @@ export default function App() {
               }}
               onCloseMobile={() => setMobileSidebarOpen(false)}
               workspaceTitle={uiConfig.workspaceTitle}
+              homeSessionDraft={homeSessionDraft}
               queueVisible={uiConfig.sidebarQueueVisible}
               channelsVisible={uiConfig.sidebarChannelsVisible}
               sidebarPosition={uiConfig.sidebarPosition}

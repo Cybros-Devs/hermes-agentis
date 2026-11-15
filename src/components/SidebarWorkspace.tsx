@@ -10,6 +10,7 @@ import type {
 } from '../types/hermes';
 import type { CanvasSession } from '../utils/canvasSessions';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
+import { StaggerItem, StatusPulse, getStaggerVars } from './ui';
 
 interface SidebarWorkspaceProps {
   channels: Channel[];
@@ -34,6 +35,7 @@ interface SidebarWorkspaceProps {
   onOpenQueue: () => void;
   onCloseMobile?: () => void;
   workspaceTitle?: string;
+  homeSessionDraft?: boolean;
   queueVisible?: boolean;
   channelsVisible?: boolean;
   sidebarPosition?: 'left' | 'right';
@@ -62,11 +64,13 @@ export function SidebarWorkspace({
   onOpenQueue,
   onCloseMobile,
   workspaceTitle = '> hermes',
+  homeSessionDraft = false,
   queueVisible = true,
   channelsVisible = true,
   sidebarPosition = 'left',
 }: SidebarWorkspaceProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
+  const openBrief = brief.filter((b) => !b.resolved).slice(0, 2);
   const activeChannelBtnRef = useRef<HTMLButtonElement | null>(null);
   const customSessions = canvasSessions
     .filter((s) => s.isCore === false && s.channelId !== 'daemon')
@@ -107,7 +111,7 @@ export function SidebarWorkspace({
         <button
           type="button"
           onClick={onNewTask}
-          className="flex items-center gap-1 text-xs font-medium text-emerald-50/75 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/6 shrink-0"
+          className="ui-tactile flex items-center gap-1 text-xs font-medium text-emerald-50/75 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/6 shrink-0"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>New</span>
@@ -119,7 +123,7 @@ export function SidebarWorkspace({
         <button
           type="button"
           onClick={onOpenQueue}
-          className="w-full text-left rounded-xl border border-white/12 bg-white/[0.035] hover:border-[#34D399]/50 p-2.5 flex items-center gap-3 transition-colors cursor-pointer"
+          className="ui-tactile w-full text-left rounded-xl border border-white/12 bg-white/[0.035] hover:border-[#34D399]/50 p-2.5 flex items-center gap-3 transition-colors cursor-pointer"
         >
           <AsciiPortraitCanvas
             variant="thumb"
@@ -132,9 +136,12 @@ export function SidebarWorkspace({
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[13px] font-semibold text-white truncate">Hermes Duet</span>
-              <span className="font-mono text-[11px] text-[#6EE7B7] tabular-nums shrink-0">
-                #{activeChannel}
+              <span className="text-[13px] font-semibold text-white shrink-0">Hermes Duet</span>
+              <span
+                data-testid="sidebar-active-lane"
+                className="font-mono text-[11px] text-[#6EE7B7] tabular-nums truncate min-w-0 text-right"
+              >
+                {homeSessionDraft ? 'new session' : `#${activeChannel}`}
               </span>
             </div>
             <p className="text-xs text-emerald-100/50 truncate mt-0.5">{lastSpokenLine}</p>
@@ -150,70 +157,76 @@ export function SidebarWorkspace({
           </div>
         ) : (
           <>
-            {customSessions.map((session) => {
+            {customSessions.length > 0 && (
+              <div className="px-2 pt-0.5 pb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/40">
+                Sessions
+              </div>
+            )}
+
+            {customSessions.map((session, idx) => {
               const active =
-                selectedItemId === session.id || activeChannel === session.channelId;
+                !homeSessionDraft &&
+                (selectedItemId === session.id || activeChannel === session.channelId);
               const isThinking = Boolean(thinkingByChannel[session.channelId]);
               return (
-                <button
-                  key={session.id}
-                  type="button"
-                  data-testid={`sidebar-session-${session.channelId}`}
-                  onClick={() =>
-                    onSelectSession
-                      ? onSelectSession(session)
-                      : onSelectChannel(session.channelId)
-                  }
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
-                    active
-                      ? 'bg-white/[0.08] border-[#34D399]/35'
-                      : 'border-transparent hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${
-                      isThinking
-                        ? 'bg-amber-400 animate-pulse motion-safe-only'
-                        : active
-                        ? 'bg-[#4ADE80]'
-                        : 'bg-[#6EE7B7]/65'
+                <StaggerItem key={session.id} index={idx}>
+                  <button
+                    type="button"
+                    data-testid={`sidebar-session-${session.channelId}`}
+                    onClick={() =>
+                      onSelectSession
+                        ? onSelectSession(session)
+                        : onSelectChannel(session.channelId)
+                    }
+                    className={`ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                      active
+                        ? 'bg-white/[0.08] border-[#34D399]/35'
+                        : 'border-transparent hover:bg-white/[0.04]'
                     }`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[13px] font-medium text-white truncate">
-                        {session.topic}
-                      </span>
-                      <span className="font-mono text-[10px] text-[#6EE7B7]/75 shrink-0">
-                        {isThinking ? 'live' : `#${session.channelId}`}
-                      </span>
+                  >
+                    <StatusPulse
+                      state={isThinking ? 'thinking' : active ? 'live' : 'idle'}
+                      className="mt-1.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-[13px] font-medium text-white truncate">
+                          {session.topic}
+                        </span>
+                        <span className="font-mono text-[10px] text-[#6EE7B7]/75 shrink-0">
+                          {isThinking ? 'live' : `#${session.channelId}`}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
+                        {session.hermesSessionId}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
-                      {session.hermesSessionId}
-                    </div>
-                  </div>
-                </button>
+                  </button>
+                </StaggerItem>
               );
             })}
 
-            {pendingApprovals.map((card) => {
+            {(pendingApprovals.length > 0 || tasks.length > 0 || openBrief.length > 0) && (
+              <div className="px-2 pt-1.5 pb-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/40">
+                Queue &amp; Lanes
+              </div>
+            )}
+
+            {pendingApprovals.map((card, idx) => {
               const active = selectedItemId === card.id;
               return (
                 <button
                   key={card.id}
                   type="button"
+                  style={getStaggerVars(idx)}
                   onClick={() => onSelectApproval(card)}
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                  className={`ui-stagger-enter ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
                     active
                       ? 'bg-white/[0.08] border-[#34D399]/35'
                       : 'border-transparent hover:bg-white/[0.04]'
                   }`}
                 >
-                  <span
-                    aria-hidden="true"
-                    className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shrink-0 mt-1.5"
-                  />
+                  <StatusPulse state="live" className="mt-1.5" />
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-medium text-white truncate">{card.title}</div>
                     <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
@@ -224,28 +237,22 @@ export function SidebarWorkspace({
               );
             })}
 
-            {tasks.map((task) => {
+            {tasks.map((task, idx) => {
               const active = selectedItemId === task.id;
               const isRunning = task.status === 'running';
               return (
                 <button
                   key={task.id}
                   type="button"
+                  style={getStaggerVars(idx + pendingApprovals.length)}
                   onClick={() => onSelectTask(task)}
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                  className={`ui-stagger-enter ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
                     active
                       ? 'bg-white/[0.08] border-[#34D399]/35'
                       : 'border-transparent hover:bg-white/[0.04]'
                   }`}
                 >
-                  <span
-                    aria-hidden="true"
-                    className={`text-xs leading-4 shrink-0 mt-0.5 ${
-                      isRunning ? 'text-[#6EE7B7]' : 'text-emerald-100/40'
-                    }`}
-                  >
-                    {isRunning ? '❖' : '○'}
-                  </span>
+                  <StatusPulse state={isRunning ? 'live' : 'idle'} className="mt-1.5" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="text-[13px] text-emerald-50/85 truncate">{task.title}</span>
@@ -261,35 +268,28 @@ export function SidebarWorkspace({
               );
             })}
 
-            {brief
-              .filter((b) => !b.resolved)
-              .slice(0, 2)
-              .map((item) => {
-                const active = selectedItemId === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onSelectBrief(item)}
-                    className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
-                      active
-                        ? 'bg-white/[0.08] border-[#34D399]/35'
-                        : 'border-transparent hover:bg-white/[0.04]'
-                    }`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="text-xs leading-4 text-emerald-100/40 shrink-0 mt-0.5"
-                    >
-                      ○
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13px] text-emerald-50/80 truncate">{item.title}</div>
-                      <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">Brief</div>
-                    </div>
-                  </button>
-                );
-              })}
+            {openBrief.map((item, idx) => {
+              const active = selectedItemId === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  style={getStaggerVars(idx + pendingApprovals.length + tasks.length)}
+                  onClick={() => onSelectBrief(item)}
+                  className={`ui-stagger-enter ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                    active
+                      ? 'bg-white/[0.08] border-[#34D399]/35'
+                      : 'border-transparent hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <StatusPulse state="idle" className="mt-1.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] text-emerald-50/80 truncate">{item.title}</div>
+                    <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">Brief</div>
+                  </div>
+                </button>
+              );
+            })}
           </>
         )}
       </div>
@@ -299,7 +299,7 @@ export function SidebarWorkspace({
         <div className="py-2.5 px-3 border-t border-white/8 flex items-end justify-between gap-1.5 font-mono text-[10.5px]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 max-h-[104px] overflow-y-auto cyber-scroll">
             {channels.map((ch) => {
-              const active = ch.id === activeChannel;
+              const active = !homeSessionDraft && ch.id === activeChannel;
               const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
               return (
                 <button
@@ -308,7 +308,7 @@ export function SidebarWorkspace({
                   type="button"
                   data-testid={`sidebar-channel-${ch.id}`}
                   onClick={() => onSelectChannel(ch.id)}
-                  className={`transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
+                  className={`ui-tactile transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
                     active ? 'text-[#4ADE80] font-semibold' : 'text-emerald-100/50 hover:text-white'
                   }`}
                 >

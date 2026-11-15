@@ -33,6 +33,7 @@ import {
   type UiDensity,
   type UiFontPreset,
 } from '../utils/uiCustomization';
+import { ModalShell, MorphTabs, type MorphTabItem } from './ui';
 
 export type StudioTab = 'theme' | 'layout' | 'stage' | 'backdrop';
 
@@ -199,25 +200,11 @@ export function UiCustomizerStudio({
     return subscribeBackgroundSettings((next) => setBgSettings(next));
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
-  const tabs: { id: StudioTab; label: string; icon: typeof Palette }[] = [
-    { id: 'theme', label: 'Appearance', icon: Palette },
-    { id: 'layout', label: 'Layout', icon: LayoutPanelLeft },
-    { id: 'stage', label: 'Motion & Stage', icon: Tv },
-    { id: 'backdrop', label: 'Backdrop', icon: Sparkles },
+  const tabs: MorphTabItem<StudioTab>[] = [
+    { id: 'theme', label: 'Appearance', icon: <Palette className="w-3.5 h-3.5 shrink-0" />, testId: 'studio-tab-theme' },
+    { id: 'layout', label: 'Layout', icon: <LayoutPanelLeft className="w-3.5 h-3.5 shrink-0" />, testId: 'studio-tab-layout' },
+    { id: 'stage', label: 'Motion & Stage', icon: <Tv className="w-3.5 h-3.5 shrink-0" />, testId: 'studio-tab-stage' },
+    { id: 'backdrop', label: 'Backdrop', icon: <Sparkles className="w-3.5 h-3.5 shrink-0" />, testId: 'studio-tab-backdrop' },
   ];
 
   const handleBgSelect = (id: string) => {
@@ -269,112 +256,88 @@ export function UiCustomizerStudio({
   };
 
   return (
-    <div
-      className="ui-backdrop-enter fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/72"
-      onClick={onClose}
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      ariaLabel="Settings"
+      testId="ui-studio-drawer"
+      maxWidthClass="w-[min(780px,96vw)]"
     >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="Settings"
-        data-testid="ui-studio-drawer"
-        onClick={(e) => e.stopPropagation()}
-        className="ui-drawer-shell ui-modal-enter w-[min(780px,96vw)] max-h-[min(86vh,720px)] rounded-2xl border shadow-[0_24px_80px_rgba(0,0,0,0.72)] flex flex-col overflow-hidden text-[#ECF3F0]"
-      >
-        {/* Modal Header */}
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 shrink-0">
-          <div>
-            <h2 className="text-[15px] font-semibold text-white tracking-tight flex items-center gap-2">
-              <Settings className="w-4 h-4 text-[#6EE7B7]" />
-              <span>Settings</span>
-            </h2>
-            <p className="text-xs text-emerald-100/55 mt-0.5">
-              Workspace appearance, layout, stage motion, and backdrops
-            </p>
-          </div>
+      {/* Modal Header */}
+      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 shrink-0">
+        <div>
+          <h2 className="text-[15px] font-semibold text-white tracking-tight flex items-center gap-2">
+            <Settings className="w-4 h-4 text-[#6EE7B7]" />
+            <span>Settings</span>
+          </h2>
+          <p className="text-xs text-emerald-100/55 mt-0.5">
+            Workspace appearance, layout, stage motion, and backdrops
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close Settings"
+          data-testid="ui-studio-close"
+          className="ui-tactile w-8 h-8 rounded-lg border border-white/10 bg-white/[0.04] text-emerald-100/70 hover:text-white hover:bg-white/[0.08] flex items-center justify-center cursor-pointer"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Natural-Language UI Update Prompt inside Settings */}
+      <div className="px-5 py-3 border-b border-white/8 bg-white/[0.02] space-y-2 shrink-0">
+        <form onSubmit={submitAgentPrompt} className="flex items-center gap-2">
+          <label htmlFor="ui-studio-agent-prompt" className="sr-only">
+            Ask Hermes to update the interface
+          </label>
+          <input
+            id="ui-studio-agent-prompt"
+            data-testid="ui-studio-agent-input"
+            type="text"
+            value={agentPrompt}
+            onChange={(e) => setAgentPrompt(e.target.value)}
+            placeholder='Describe a UI update: "cyber violet, hide horizon"...'
+            className="flex-1 min-w-0 rounded-xl bg-black/40 border border-white/14 px-3 py-2 text-xs text-white placeholder:text-emerald-100/40 focus:outline-none focus:border-[#34D399]"
+          />
           <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close Settings"
-            data-testid="ui-studio-close"
-            className="w-8 h-8 rounded-lg border border-white/10 bg-white/[0.04] text-emerald-100/70 hover:text-white hover:bg-white/[0.08] flex items-center justify-center transition-colors cursor-pointer"
+            type="submit"
+            data-testid="ui-studio-agent-submit"
+            className="ui-accent-btn ui-tactile px-3.5 py-2 rounded-xl text-xs font-semibold hover:opacity-90 shrink-0 cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            Apply
           </button>
-        </div>
+        </form>
 
-        {/* Natural-Language UI Update Prompt inside Settings */}
-        <div className="px-5 py-3 border-b border-white/8 bg-white/[0.02] space-y-2 shrink-0">
-          <form onSubmit={submitAgentPrompt} className="flex items-center gap-2">
-            <label htmlFor="ui-studio-agent-prompt" className="sr-only">
-              Ask Hermes to update the interface
-            </label>
-            <input
-              id="ui-studio-agent-prompt"
-              data-testid="ui-studio-agent-input"
-              type="text"
-              value={agentPrompt}
-              onChange={(e) => setAgentPrompt(e.target.value)}
-              placeholder='Describe a UI update: "cyber violet, hide horizon"...'
-              className="flex-1 min-w-0 rounded-xl bg-black/40 border border-white/14 px-3 py-2 text-xs text-white placeholder:text-emerald-100/40 focus:outline-none focus:border-[#34D399]"
-            />
+        <div className="flex items-center gap-1.5 overflow-x-auto cyber-scroll pb-0.5">
+          {AGENT_PROMPT_EXAMPLES.map((example) => (
             <button
-              type="submit"
-              data-testid="ui-studio-agent-submit"
-              className="ui-accent-btn px-3.5 py-2 rounded-xl text-xs font-semibold hover:opacity-90 transition-opacity shrink-0 cursor-pointer"
+              key={example}
+              type="button"
+              onClick={() => onAskAgent(example)}
+              className="ui-tactile shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-white/10 bg-white/[0.03] text-emerald-100/70 hover:text-white hover:border-[#34D399]/50 cursor-pointer"
             >
-              Apply
+              {example}
             </button>
-          </form>
+          ))}
+        </div>
+      </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto cyber-scroll pb-0.5">
-            {AGENT_PROMPT_EXAMPLES.map((example) => (
-              <button
-                key={example}
-                type="button"
-                onClick={() => onAskAgent(example)}
-                className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-white/10 bg-white/[0.03] text-emerald-100/70 hover:text-white hover:border-[#34D399]/50 transition-colors cursor-pointer"
-              >
-                {example}
-              </button>
-            ))}
-          </div>
+      {/* Two-Pane Responsive Settings Body */}
+      <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
+        {/* Gliding Category Rail (2x2 grid on mobile, Left rail on desktop) */}
+        <div className="px-3 py-2.5 sm:p-3 sm:w-48 border-b sm:border-b-0 sm:border-r border-white/8 shrink-0">
+          <MorphTabs
+            items={tabs}
+            value={activeTab}
+            onChange={onChangeTab}
+            ariaLabel="Settings categories"
+            variant="rail"
+          />
         </div>
 
-        {/* Two-Pane Responsive Settings Body */}
-        <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
-          {/* Category Rail (2x2 grid on mobile, Left rail on desktop) */}
-          <nav
-            role="tablist"
-            aria-label="Settings categories"
-            className="grid grid-cols-2 sm:flex sm:flex-col gap-1.5 sm:gap-1 px-3 py-2.5 sm:p-3 sm:w-48 border-b sm:border-b-0 sm:border-r border-white/8 shrink-0"
-          >
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const active = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  data-testid={`studio-tab-${tab.id}`}
-                  onClick={() => onChangeTab(tab.id)}
-                  className={`flex items-center sm:justify-start justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
-                    active
-                      ? 'ui-active-tab'
-                      : 'text-emerald-100/65 hover:text-white border-transparent hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Scrollable Settings Controls */}
-          <div className="flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 sm:p-5 space-y-5">
+        {/* Scrollable Settings Controls */}
+        <div key={activeTab} className="ui-card-enter flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 sm:p-5 space-y-5">
             {activeTab === 'theme' && (
               <>
                 <div className="space-y-2.5">
@@ -836,12 +799,11 @@ export function UiCustomizerStudio({
           <button
             type="button"
             onClick={onClose}
-            className="ui-accent-btn px-4 py-1.5 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer"
+            className="ui-accent-btn ui-tactile px-4 py-1.5 rounded-lg text-xs font-semibold hover:opacity-90 cursor-pointer"
           >
             Done
           </button>
         </div>
-      </section>
-    </div>
+    </ModalShell>
   );
 }

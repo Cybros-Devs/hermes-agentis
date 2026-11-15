@@ -12,6 +12,7 @@ import { clampCanvasPosition, type CanvasSession } from '../utils/canvasSessions
 import { AddSessionShapeModal } from './AddSessionShapeModal';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
 import { CanvasSessionNode } from './CanvasSessionNode';
+import { EmptyState } from './ui';
 
 interface BrailleSessionsCanvasProps {
   sessions: CanvasSession[];
@@ -299,7 +300,7 @@ export function BrailleSessionsCanvas({
             type="button"
             onClick={onAutoArrange}
             aria-label="Auto arrange sessions on canvas"
-            className="px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] hover:border-white/25 text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            className="ui-tactile px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] hover:border-white/25 text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
           >
             <LayoutGrid className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Arrange</span>
@@ -309,7 +310,7 @@ export function BrailleSessionsCanvas({
             type="button"
             onClick={() => setIsAddOpen(true)}
             data-testid="canvas-add-button"
-            className="px-3.5 py-1.5 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            className="ui-tactile px-3.5 py-1.5 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
           >
             <span>+ Add</span>
           </button>
@@ -351,18 +352,21 @@ export function BrailleSessionsCanvas({
         </svg>
 
         {sessions.length === 0 ? (
-          <div className="sm:absolute sm:inset-0 flex flex-col items-center justify-center gap-3 text-center px-6 py-12">
-            <p className="text-sm text-emerald-100/70">
-              No isolated hermes-agent sessions on this canvas yet.
-            </p>
-            <button
-              type="button"
-              onClick={() => setIsAddOpen(true)}
-              className="px-4 py-2 rounded-lg bg-[#34D399] text-[#05140E] text-xs font-semibold cursor-pointer"
-            >
-              + Add first session
-            </button>
-          </div>
+          <EmptyState
+            className="sm:absolute sm:inset-0"
+            icon={<LayoutGrid className="w-4 h-4" />}
+            title="No isolated hermes-agent sessions on this canvas yet"
+            description="Spawn an animated session character to orchestrate parallel agents."
+            action={
+              <button
+                type="button"
+                onClick={() => setIsAddOpen(true)}
+                className="ui-tactile px-4 py-2 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold cursor-pointer"
+              >
+                + Add first session
+              </button>
+            }
+          />
         ) : (
           sessions.map((session, idx) => {
             const isDragged = draggingId === session.id;

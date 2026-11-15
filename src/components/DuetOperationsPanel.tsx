@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, X, Play, Pause, Hash } from 'lucide-react';
+import { Check, X, Play, Pause, Hash, CheckCircle2 } from 'lucide-react';
 import type {
   ApprovalCard,
   BackgroundTask,
@@ -13,6 +13,7 @@ import {
   INITIAL_HERMES_MEMORY,
   INITIAL_HERMES_SKILLS,
 } from '../utils/cliEngine';
+import { EmptyState, MorphTabs, StaggerItem, StatusPulse, type MorphTabItem } from './ui';
 
 interface DuetOperationsPanelProps {
   channels: Channel[];
@@ -50,6 +51,13 @@ export function DuetOperationsPanel({
   const openBriefCount = brief.filter((b) => !b.resolved).length;
   const runningTasksCount = tasks.filter((t) => t.status === 'running').length;
 
+  const opsTabs: MorphTabItem<OpsTab>[] = [
+    { id: 'approvals', label: `MCP Gates (${pendingApprovals})` },
+    { id: 'brief', label: `post_brief (${openBriefCount})` },
+    { id: 'tasks', label: `Runs (${runningTasksCount})` },
+    { id: 'runtime', label: 'Hermes Agent' },
+  ];
+
   return (
     <section
       aria-label="Hermes Duet Operations"
@@ -57,7 +65,7 @@ export function DuetOperationsPanel({
       className="flex flex-col rounded-xl bg-[#0B1714]/90 border border-white/12 overflow-hidden shadow-[0_12px_36px_rgba(0,0,0,0.35)]"
     >
       {/* Channel & Session Lane Strip */}
-      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/8 bg-black/20 overflow-x-auto">
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/8 bg-black/20 overflow-x-auto cyber-scroll">
         <div className="flex items-center gap-1.5">
           {channels.map((ch) => {
             const active = ch.id === activeChannel;
@@ -66,7 +74,7 @@ export function DuetOperationsPanel({
                 key={ch.id}
                 type="button"
                 onClick={() => onSelectChannel(ch.id)}
-                className={`px-3 py-1.5 rounded-lg font-mono text-xs flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`ui-tactile px-3 py-1.5 rounded-lg font-mono text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                   active
                     ? 'bg-[#34D399] text-[#05140E] font-semibold'
                     : 'bg-white/[0.05] text-emerald-50/75 hover:text-white border border-white/10'
@@ -83,52 +91,16 @@ export function DuetOperationsPanel({
         </span>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex items-center gap-1 p-2 border-b border-white/8 bg-black/15 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setActiveTab('approvals')}
-          className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-            activeTab === 'approvals'
-              ? 'bg-[#34D399]/15 text-[#6EE7B7] border border-[#34D399]/35'
-              : 'text-emerald-100/55 hover:text-white'
-          }`}
-        >
-          MCP Gates ({pendingApprovals})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('brief')}
-          className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-            activeTab === 'brief'
-              ? 'bg-[#34D399]/15 text-[#6EE7B7] border border-[#34D399]/35'
-              : 'text-emerald-100/55 hover:text-white'
-          }`}
-        >
-          post_brief ({openBriefCount})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('tasks')}
-          className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-            activeTab === 'tasks'
-              ? 'bg-[#34D399]/15 text-[#6EE7B7] border border-[#34D399]/35'
-              : 'text-emerald-100/55 hover:text-white'
-          }`}
-        >
-          Runs ({runningTasksCount})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('runtime')}
-          className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-            activeTab === 'runtime'
-              ? 'bg-[#34D399]/15 text-[#6EE7B7] border border-[#34D399]/35'
-              : 'text-emerald-100/55 hover:text-white'
-          }`}
-        >
-          Hermes Agent
-        </button>
+      {/* Gliding Pill Tab Navigation */}
+      <div className="p-2 border-b border-white/8 bg-black/15 overflow-x-auto cyber-scroll">
+        <MorphTabs
+          items={opsTabs}
+          value={activeTab}
+          onChange={setActiveTab}
+          ariaLabel="Operations sections"
+          variant="pill"
+          fullWidth
+        />
       </div>
 
       {/* Tab Content */}
@@ -137,44 +109,52 @@ export function DuetOperationsPanel({
         className="ui-card-enter p-3 sm:p-3.5 space-y-2 lg:max-h-[min(56vh,520px)] overflow-y-auto cyber-scroll"
       >
         {activeTab === 'approvals' &&
-          approvals.map((card) => {
-            const currentDraft = draftEdits[card.id] ?? card.draft;
-            const isPending = card.status === 'pending';
-            return (
-              <div
-                key={card.id}
-                data-testid={`approval-card-${card.id}`}
-                className="rounded-xl bg-white/[0.04] border border-white/10 p-3 space-y-2"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-emerald-100/55">
-                      <span>{card.id}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>#{card.channelId}</span>
-                      {card.mcpTool && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span className="text-[#6EE7B7]/85">{card.mcpTool}</span>
-                        </>
-                      )}
-                      <span aria-hidden="true">·</span>
-                      <span>{card.createdAt}</span>
-                    </div>
-                    <h3 className="text-sm font-semibold text-white mt-0.5">{card.title}</h3>
-                  </div>
-                  <span
-                    className={`font-mono text-[11px] uppercase font-semibold ${
-                      card.status === 'approved'
-                        ? 'text-emerald-400'
-                        : card.status === 'rejected'
-                        ? 'text-rose-400'
-                        : 'text-[#6EE7B7]'
-                    }`}
+          (approvals.length === 0 ? (
+            <EmptyState
+              icon={<CheckCircle2 className="w-4 h-4" />}
+              title="All MCP gates clear"
+              description="Tool authorization requests from your parallel Hermes sessions will appear here."
+            />
+          ) : (
+            approvals.map((card, idx) => {
+              const currentDraft = draftEdits[card.id] ?? card.draft;
+              const isPending = card.status === 'pending';
+              return (
+                <StaggerItem key={card.id} index={idx}>
+                  <div
+                    data-testid={`approval-card-${card.id}`}
+                    className="rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 transition-colors p-3 space-y-2"
                   >
-                    {card.status}
-                  </span>
-                </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-emerald-100/55">
+                          <span>{card.id}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>#{card.channelId}</span>
+                          {card.mcpTool && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="text-[#6EE7B7]/85">{card.mcpTool}</span>
+                            </>
+                          )}
+                          <span aria-hidden="true">·</span>
+                          <span>{card.createdAt}</span>
+                        </div>
+                        <h3 className="text-sm font-semibold text-white mt-0.5">{card.title}</h3>
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-1.5 font-mono text-[11px] uppercase font-semibold ${
+                          card.status === 'approved'
+                            ? 'text-emerald-400'
+                            : card.status === 'rejected'
+                            ? 'text-rose-400'
+                            : 'text-[#6EE7B7]'
+                        }`}
+                      >
+                        {isPending && <StatusPulse state="live" size="sm" />}
+                        <span>{card.status}</span>
+                      </span>
+                    </div>
 
                 <p className="text-xs text-emerald-50/80">{card.summary}</p>
                 <p className="font-mono text-[11px] text-[#6EE7B7] truncate">
@@ -222,108 +202,115 @@ export function DuetOperationsPanel({
                     Draft: &ldquo;{currentDraft}&rdquo;
                   </p>
                 )}
-              </div>
-            );
-          })}
+                  </div>
+                </StaggerItem>
+              );
+            })
+          ))}
 
         {activeTab === 'brief' &&
-          brief.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 flex items-start justify-between gap-3"
-            >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/55">
-                  <span
-                    className={
-                      item.priority === 'high'
-                        ? 'text-rose-400 font-semibold'
-                        : item.priority === 'medium'
-                        ? 'text-[#6EE7B7] font-semibold'
-                        : 'text-emerald-100/50'
-                    }
-                  >
-                    {item.priority.toUpperCase()}
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span>{item.resolved ? 'Resolved' : 'Pending'}</span>
+          brief.map((item, idx) => (
+            <StaggerItem key={item.id} index={idx}>
+              <div className="rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 transition-colors p-3.5 flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/55">
+                    <span
+                      className={
+                        item.priority === 'high'
+                          ? 'text-rose-400 font-semibold'
+                          : item.priority === 'medium'
+                          ? 'text-[#6EE7B7] font-semibold'
+                          : 'text-emerald-100/50'
+                      }
+                    >
+                      {item.priority.toUpperCase()}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>{item.resolved ? 'Resolved' : 'Pending'}</span>
+                  </div>
+                  <h3 className="text-sm font-medium text-white">{item.title}</h3>
+                  <p className="text-xs text-emerald-100/60">{item.detail}</p>
                 </div>
-                <h3 className="text-sm font-medium text-white">{item.title}</h3>
-                <p className="text-xs text-emerald-100/60">{item.detail}</p>
-              </div>
 
-              <button
-                type="button"
-                disabled={item.resolved}
-                onClick={() => onRunBriefCommand(item.suggestedCommand, item.id)}
-                className={`min-h-[38px] px-3 rounded-lg font-mono text-xs whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
-                  item.resolved
-                    ? 'bg-black/25 text-emerald-100/35 cursor-not-allowed'
-                    : 'bg-black/30 text-[#6EE7B7] border border-[#34D399]/35 hover:bg-[#34D399] hover:text-[#05140E]'
-                }`}
-              >
-                {item.resolved ? 'Done' : item.suggestedCommand}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  disabled={item.resolved}
+                  onClick={() => onRunBriefCommand(item.suggestedCommand, item.id)}
+                  className={`ui-tactile min-h-[38px] px-3 rounded-lg font-mono text-xs whitespace-nowrap shrink-0 cursor-pointer ${
+                    item.resolved
+                      ? 'bg-black/25 text-emerald-100/35 cursor-not-allowed'
+                      : 'bg-black/30 text-[#6EE7B7] border border-[#34D399]/35 hover:bg-[#34D399] hover:text-[#05140E]'
+                  }`}
+                >
+                  {item.resolved ? 'Done' : item.suggestedCommand}
+                </button>
+              </div>
+            </StaggerItem>
           ))}
 
         {activeTab === 'tasks' &&
-          tasks.map((task) => (
-            <div
-              key={task.id}
-              className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/55">
-                    <span>{task.id}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{task.sessionId ?? `duet-${task.channelId}`}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{task.updatedAt}</span>
-                  </div>
-                  <h3 className="text-sm font-medium text-white mt-0.5">{task.title}</h3>
-                </div>
-                {task.status !== 'completed' && (
-                  <button
-                    type="button"
-                    onClick={() => onToggleTaskStatus(task.id)}
-                    aria-label={
-                      task.status === 'running'
-                        ? `Pause ${task.title}`
-                        : `Resume ${task.title}`
-                    }
-                    className="min-h-[36px] min-w-[36px] rounded-lg bg-black/30 border border-white/10 flex items-center justify-center text-emerald-50 hover:border-[#34D399]/50 hover:text-[#6EE7B7] cursor-pointer"
-                  >
-                    {task.status === 'running' ? (
-                      <Pause className="w-3.5 h-3.5" />
-                    ) : (
-                      <Play className="w-3.5 h-3.5" />
+          (tasks.length === 0 ? (
+            <EmptyState
+              title="No active background runs"
+              description="Subagent runs and cron jobs will stream progress here."
+            />
+          ) : (
+            tasks.map((task, idx) => (
+              <StaggerItem key={task.id} index={idx}>
+                <div className="rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 transition-colors p-3.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/55">
+                        <span>{task.id}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{task.sessionId ?? `duet-${task.channelId}`}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{task.updatedAt}</span>
+                      </div>
+                      <h3 className="text-sm font-medium text-white mt-0.5">{task.title}</h3>
+                    </div>
+                    {task.status !== 'completed' && (
+                      <button
+                        type="button"
+                        onClick={() => onToggleTaskStatus(task.id)}
+                        aria-label={
+                          task.status === 'running'
+                            ? `Pause ${task.title}`
+                            : `Resume ${task.title}`
+                        }
+                        className="ui-tactile min-h-[36px] min-w-[36px] rounded-lg bg-black/30 border border-white/10 flex items-center justify-center text-emerald-50 hover:border-[#34D399]/50 hover:text-[#6EE7B7] cursor-pointer"
+                      >
+                        {task.status === 'running' ? (
+                          <Pause className="w-3.5 h-3.5" />
+                        ) : (
+                          <Play className="w-3.5 h-3.5" />
+                        )}
+                      </button>
                     )}
-                  </button>
-                )}
-              </div>
+                  </div>
 
-              <p className="text-xs text-emerald-100/60">{task.lastStep}</p>
+                  <p className="text-xs text-emerald-100/60">{task.lastStep}</p>
 
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-1.5 rounded-full bg-black/45 overflow-hidden">
-                  <div
-                    className={`h-full w-full origin-left transition-transform duration-300 ease-out ${
-                      task.status === 'completed'
-                        ? 'bg-emerald-400'
-                        : task.status === 'paused'
-                        ? 'bg-emerald-100/35'
-                        : 'bg-[#34D399]'
-                    }`}
-                    style={{ transform: `scaleX(${Math.max(0, Math.min(1, task.progress / 100))})` }}
-                  />
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-1.5 rounded-full bg-black/45 overflow-hidden">
+                      <div
+                        className={`h-full w-full origin-left transition-transform duration-300 ease-out ${
+                          task.status === 'completed'
+                            ? 'bg-emerald-400'
+                            : task.status === 'paused'
+                            ? 'bg-emerald-100/35'
+                            : 'bg-[#34D399]'
+                        }`}
+                        style={{ transform: `scaleX(${Math.max(0, Math.min(1, task.progress / 100))})` }}
+                      />
+                    </div>
+                    <span className="font-mono text-[11px] tabular-nums text-emerald-50/80">
+                      {task.progress}%
+                    </span>
+                  </div>
                 </div>
-                <span className="font-mono text-[11px] tabular-nums text-emerald-50/80">
-                  {task.progress}%
-                </span>
-              </div>
-            </div>
+              </StaggerItem>
+            ))
           ))}
 
         {activeTab === 'runtime' && (

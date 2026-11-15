@@ -19,6 +19,7 @@ import { BRAILLE_TINT_PALETTE } from '../utils/brailleShapesEngine';
 import { getShapeMeta, type CanvasSession } from '../utils/canvasSessions';
 import { BrailleShapeCanvas } from './BrailleShapeCanvas';
 import { DecodedText } from './DecodedText';
+import { ScrollToBottomButton, StatusPulse } from './ui';
 
 interface CanvasSessionNodeProps {
   session: CanvasSession;
@@ -83,6 +84,7 @@ export function CanvasSessionNode({
 }: CanvasSessionNodeProps) {
   const [draft, setDraft] = useState('');
   const [isHovered, setIsHovered] = useState(false);
+  const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -107,10 +109,14 @@ export function CanvasSessionNode({
 
   // Auto-scroll this character's individual chat window to the bottom on open & new updates
   useLayoutEffect(() => {
-    if (!isChatOpen || !chatScrollRef.current) return;
+    if (!isChatOpen || !chatScrollRef.current) {
+      setIsAwayFromBottom(false);
+      return;
+    }
     const snap = () => {
       if (chatScrollRef.current) {
         chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+        setIsAwayFromBottom(false);
       }
     };
     snap();
@@ -146,7 +152,9 @@ export function CanvasSessionNode({
           zIndex: isDragged ? 40 : isChatOpen ? 30 : isSelected ? 20 : 10,
         } as React.CSSProperties
       }
-      className={`relative sm:absolute sm:left-[var(--dot-x)] sm:top-[var(--dot-y)] sm:-translate-x-1/2 sm:-translate-y-1/2 flex flex-col items-center sm:touch-none py-1 sm:py-0 w-full sm:w-auto ${
+      className={`ui-node-enter ${
+        !isDragged ? 'ui-canvas-node-glide' : ''
+      } relative sm:absolute sm:left-[var(--dot-x)] sm:top-[var(--dot-y)] sm:-translate-x-1/2 sm:-translate-y-1/2 flex flex-col items-center sm:touch-none py-1 sm:py-0 w-full sm:w-auto ${
         isChatOpen ? 'col-span-2 sm:col-span-1' : ''
       }`}
     >
@@ -246,16 +254,8 @@ export function CanvasSessionNode({
           {/* Individual Window Header */}
           <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 border-b border-white/8 bg-white/[0.02]">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span
-                aria-hidden="true"
-                className="w-1.5 h-1.5 rounded-full shrink-0"
-                style={{
-                  backgroundColor: isThinking
-                    ? '#FBBF24'
-                    : isSpeaking
-                    ? '#4ADE80'
-                    : palette.mid,
-                }}
+              <StatusPulse
+                state={isThinking ? 'thinking' : isSpeaking ? 'speaking' : 'idle'}
               />
               <span className="font-mono text-[10.5px] font-medium text-emerald-50/90 truncate">
                 {session.hermesSessionId}
@@ -317,59 +317,81 @@ export function CanvasSessionNode({
           </div>
 
           {/* Independently Scrollable Message Stream */}
-          <div
-            ref={chatScrollRef}
-            data-testid={`session-chat-scroll-${session.channelId}`}
-            className="max-h-[168px] min-h-[76px] overflow-y-auto cyber-scroll px-2.5 py-2 space-y-2 text-[11.5px] leading-relaxed select-text"
-          >
-            {visibleMessages.length === 0 ? (
-              <p className="text-emerald-100/50 text-[11px] leading-snug">
-                {session.topic}
-              </p>
-            ) : (
-              visibleMessages.map((entry) => {
-                const isUser = entry.role === 'user' || entry.role === 'command';
-                if (entry.role === 'activity') {
+          <div className="relative">
+            <div
+              ref={chatScrollRef}
+              onScroll={() => {
+                const el = chatScrollRef.current;
+                if (!el) return;
+                setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 22);
+              }}
+              data-testid={`session-chat-scroll-${session.channelId}`}
+              className="max-h-[168px] min-h-[76px] overflow-y-auto cyber-scroll px-2.5 py-2 space-y-2 text-[11.5px] leading-relaxed select-text"
+            >
+              {visibleMessages.length === 0 ? (
+                <p className="text-emerald-100/50 text-[11px] leading-snug">
+                  {session.topic}
+                </p>
+              ) : (
+                visibleMessages.map((entry) => {
+                  const isUser = entry.role === 'user' || entry.role === 'command';
+                  if (entry.role === 'activity') {
+                    return (
+                      <div
+                        key={entry.id}
+                        className="font-mono text-[10px] text-emerald-100/45 truncate"
+                      >
+                        ▸ {entry.text}
+                      </div>
+                    );
+                  }
+                  if (isUser) {
+                    return (
+                      <div
+                        key={entry.id}
+                        className="ui-msg-enter ml-auto max-w-[88%] rounded-lg bg-white/[0.08] border border-white/10 px-2.5 py-1.5 text-white/95 whitespace-pre-wrap break-words"
+                      >
+                        {entry.text}
+                      </div>
+                    );
+                  }
                   return (
                     <div
                       key={entry.id}
-                      className="font-mono text-[10px] text-emerald-100/45 truncate"
+                      className="ui-msg-enter max-w-[94%] text-emerald-50/90 whitespace-pre-wrap break-words"
                     >
-                      ▸ {entry.text}
+                      <DecodedText
+                        text={entry.text}
+                        animate={!entry.id.startsWith('init-')}
+                        speedMultiplier={1.3}
+                      />
                     </div>
                   );
-                }
-                if (isUser) {
-                  return (
-                    <div
-                      key={entry.id}
-                      className="ui-msg-enter ml-auto max-w-[88%] rounded-lg bg-white/[0.08] border border-white/10 px-2.5 py-1.5 text-white/95 whitespace-pre-wrap break-words"
-                    >
-                      {entry.text}
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={entry.id}
-                    className="ui-msg-enter max-w-[94%] text-emerald-50/90 whitespace-pre-wrap break-words"
-                  >
-                    <DecodedText
-                      text={entry.text}
-                      animate={!entry.id.startsWith('init-')}
-                      speedMultiplier={1.3}
-                    />
-                  </div>
-                );
-              })
-            )}
+                })
+              )}
 
-            {isThinking && (
-              <div className="flex items-center gap-1.5 font-mono text-[10.5px] text-amber-300/90">
-                <span aria-hidden="true">❖</span>
-                <span>Thinking in {session.hermesSessionId}…</span>
-              </div>
-            )}
+              {isThinking && (
+                <div className="flex items-center gap-1.5 font-mono text-[10.5px] text-amber-300/90">
+                  <span aria-hidden="true">❖</span>
+                  <span>Thinking in {session.hermesSessionId}…</span>
+                </div>
+              )}
+            </div>
+
+            <ScrollToBottomButton
+              compact
+              label="Latest"
+              visible={isAwayFromBottom}
+              testId={`session-jump-${session.channelId}`}
+              className="absolute bottom-1.5 right-2 z-10"
+              onClick={() => {
+                const el = chatScrollRef.current;
+                if (el) {
+                  el.scrollTop = el.scrollHeight;
+                  setIsAwayFromBottom(false);
+                }
+              }}
+            />
           </div>
         </div>
       )}
@@ -401,7 +423,7 @@ export function CanvasSessionNode({
               : `Open #${session.name} chat window`
           }
           title={isChatOpen ? 'Hide chat window' : 'Open chat window'}
-          className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
+          className={`ui-tactile w-7 h-7 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
             isChatOpen
               ? 'bg-white/10 text-[#6EE7B7]'
               : 'bg-white/[0.05] text-emerald-100/75 hover:text-white hover:bg-white/10'
@@ -435,7 +457,7 @@ export function CanvasSessionNode({
             type="submit"
             data-testid={`session-send-${session.channelId}`}
             aria-label={`Send message to #${session.name}`}
-            className="w-7 h-7 rounded-full bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+            className="ui-pop-in ui-tactile w-7 h-7 rounded-full bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] flex items-center justify-center transition-colors shrink-0 cursor-pointer"
           >
             <ArrowUp className="w-3.5 h-3.5" />
           </button>
@@ -449,7 +471,7 @@ export function CanvasSessionNode({
                 ? `Stop voice input for #${session.name}`
                 : `Voice input for #${session.name}`
             }
-            className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
+            className={`ui-tactile w-7 h-7 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
               isListeningHere || isSpeaking
                 ? 'bg-[#4ADE80] text-[#05140E] shadow-[0_0_12px_rgba(74,222,128,0.45)]'
                 : 'bg-[#227D5A]/80 hover:bg-[#34D399] text-emerald-50 hover:text-[#05140E]'

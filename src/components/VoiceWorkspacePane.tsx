@@ -7,7 +7,6 @@ import {
   Volume2,
   VolumeX,
   ArrowUp,
-  ArrowDown,
   Brain,
   Check,
   X,
@@ -41,6 +40,7 @@ import { getShapeMeta, type CanvasSession } from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
 import { groupThreadTimeline } from '../utils/threadTrace';
 import { computeThreadScrollPin } from '../utils/threadScroll';
+import { shouldShowScrollTopFade } from '../utils/motionChoreography';
 import { DEFAULT_UI_CONFIG, type UiCustomizationConfig } from '../utils/uiCustomization';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
@@ -50,6 +50,13 @@ import { DuetOperationsPanel } from './DuetOperationsPanel';
 import { CommandTerminal } from './CommandTerminal';
 import { MobileWorkspaceBar } from './MobileWorkspaceBar';
 import { ThreadTraceTree } from './ThreadTraceTree';
+import {
+  MorphTabs,
+  ScrollToBottomButton,
+  StatusPulse,
+  type MorphTabItem,
+  type StatusPulseState,
+} from './ui';
 
 export type WorkspacePanelView = 'home' | 'canvas' | 'voice' | 'queue' | 'cli';
 
@@ -160,6 +167,7 @@ export function VoiceWorkspacePane({
   const [workingSeconds, setWorkingSeconds] = useState(0);
   const [portraitStatus, setPortraitStatus] = useState<PortraitAssetStatus>('loading');
   const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
+  const [showTopFade, setShowTopFade] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const threadListRef = useRef<HTMLDivElement | null>(null);
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -219,10 +227,12 @@ export function VoiceWorkspacePane({
     if (behavior === 'smooth') {
       programmaticTargetTopRef.current = maxTop;
       el.scrollTo({ top: maxTop, behavior: 'smooth' });
+      setShowTopFade(shouldShowScrollTopFade(maxTop));
     } else {
       el.scrollTop = el.scrollHeight;
       programmaticTargetTopRef.current = el.scrollTop;
       lastScrollTopRef.current = el.scrollTop;
+      setShowTopFade(shouldShowScrollTopFade(el.scrollTop));
     }
   };
 
@@ -234,6 +244,7 @@ export function VoiceWorkspacePane({
     if (panelView !== 'voice') {
       isPinnedToBottomRef.current = true;
       setIsAwayFromBottom(false);
+      setShowTopFade(false);
       return;
     }
 
@@ -438,6 +449,32 @@ export function VoiceWorkspacePane({
     ? 'Listening'
     : 'Standby';
 
+  const statusPulseState: StatusPulseState = voiceState.isMuted
+    ? 'muted'
+    : portraitStatus === 'error'
+    ? 'error'
+    : activeIsThinking
+    ? 'thinking'
+    : activeIsSpeaking
+    ? 'speaking'
+    : voiceState.isListening
+    ? 'listening'
+    : 'idle';
+
+  const navTabItems: MorphTabItem<WorkspacePanelView>[] = useMemo(
+    () => [
+      { id: 'home', label: 'Home' },
+      { id: 'canvas', label: 'Canvas' },
+      { id: 'voice', label: 'Thread' },
+      {
+        id: 'queue',
+        label: pendingApprovals.length > 0 ? `Queue (${pendingApprovals.length})` : 'Queue',
+      },
+      { id: 'cli', label: 'CLI' },
+    ],
+    [pendingApprovals.length]
+  );
+
   const handlePointerMove = (e: React.PointerEvent<HTMLElement>) => {
     const anchor = portraitWrapRef.current ?? e.currentTarget;
     const rect = anchor.getBoundingClientRect();
@@ -487,6 +524,7 @@ export function VoiceWorkspacePane({
         showThinking={showThinking}
         canvasSessions={canvasSessions}
         thinkingByChannel={thinkingByChannel}
+        homeSessionDraft={homeSessionDraft}
         onChangePanelView={onChangePanelView}
         onSelectChannel={onSelectChannel}
         onOpenMobileSidebar={onOpenMobileSidebar}
@@ -500,10 +538,7 @@ export function VoiceWorkspacePane({
       {/* Unified Clean Top Bar (Desktop lg+) */}
       {uiConfig.showTopNav ? (
         <div className="hidden lg:flex items-center justify-between gap-6 px-6 pt-3 pb-2 border-b border-white/6 z-30 shrink-0">
-          <nav
-            aria-label="Workspace views"
-            className="flex items-center gap-5 min-w-0 overflow-x-auto cyber-scroll"
-          >
+          <div className="flex items-center gap-4 min-w-0 overflow-x-auto cyber-scroll">
             {onOpenMobileSidebar && (
               <button
                 type="button"
@@ -516,42 +551,14 @@ export function VoiceWorkspacePane({
               </button>
             )}
 
-            {(
-              [
-                { id: 'home', label: 'Home' },
-                { id: 'canvas', label: 'Canvas' },
-                { id: 'voice', label: 'Thread' },
-                {
-                  id: 'queue',
-                  label: pendingApprovals.length > 0 ? `Queue (${pendingApprovals.length})` : 'Queue',
-                },
-                { id: 'cli', label: 'CLI' },
-              ] as { id: WorkspacePanelView; label: string }[]
-            ).map((tab) => {
-              const active = panelView === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => onChangePanelView(tab.id)}
-                  aria-current={active ? 'page' : undefined}
-                  className={`relative py-1.5 text-xs transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
-                    active
-                      ? 'text-white font-semibold'
-                      : 'text-emerald-100/60 hover:text-white font-medium'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span
-                    aria-hidden="true"
-                    className={`pointer-events-none absolute inset-x-0 -bottom-[9px] h-[2px] rounded-full bg-[#34D399] transition-all duration-200 origin-center ${
-                      active ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-50'
-                    }`}
-                  />
-                </button>
-              );
-            })}
-          </nav>
+            <MorphTabs
+              items={navTabItems}
+              value={panelView}
+              onChange={onChangePanelView}
+              ariaLabel="Workspace views"
+              variant="underline"
+            />
+          </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
             {panelView === 'voice' && (
@@ -592,7 +599,7 @@ export function VoiceWorkspacePane({
                 data-testid="ui-studio-trigger"
                 aria-label="Open Settings"
                 title="Settings"
-                className="h-8 px-2.5 rounded-lg border border-white/10 bg-white/[0.03] text-xs font-medium text-emerald-100/75 hover:text-white hover:border-white/25 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="ui-tactile h-8 px-2.5 rounded-lg border border-white/10 bg-white/[0.03] text-xs font-medium text-emerald-100/75 hover:text-white hover:border-white/25 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
                 <span>Settings</span>
@@ -665,16 +672,7 @@ export function VoiceWorkspacePane({
           {uiConfig.statusReadoutVisible && (
             <>
               <div className="relative z-10 flex items-center gap-2 mt-2.5 text-xs text-emerald-100/70">
-                <span
-                  aria-hidden="true"
-                  className={`inline-block w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
-                    activeIsSpeaking || voiceState.isListening
-                      ? 'bg-[#4ADE80]'
-                      : activeIsThinking
-                      ? 'bg-amber-400'
-                      : 'bg-emerald-200/45'
-                  }`}
-                />
+                <StatusPulse state={statusPulseState} />
                 <span>{statusText}</span>
                 <span aria-hidden="true" className="text-emerald-100/30">·</span>
                 <span
@@ -716,7 +714,7 @@ export function VoiceWorkspacePane({
                       <button
                         type="button"
                         onClick={onStopSpeaking}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/15 text-emerald-50 hover:bg-white/12 transition-colors cursor-pointer"
+                        className="ui-tactile inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/15 text-emerald-50 hover:bg-white/12 transition-colors cursor-pointer"
                       >
                         <Square className="w-2.5 h-2.5 fill-current" />
                         <span>Stop</span>
@@ -726,7 +724,7 @@ export function VoiceWorkspacePane({
                       <button
                         type="button"
                         onClick={() => onChangePanelView('voice')}
-                        className="text-[#6EE7B7]/90 hover:text-white underline underline-offset-4 decoration-[#34D399]/35 transition-colors cursor-pointer"
+                        className="ui-tactile text-[#6EE7B7]/90 hover:text-white underline underline-offset-4 decoration-[#34D399]/35 transition-colors cursor-pointer"
                       >
                         Open thread ({visibleMessages.length})
                       </button>
@@ -736,7 +734,7 @@ export function VoiceWorkspacePane({
                         type="button"
                         data-testid="home-new-session-btn"
                         onClick={onStartNewSession}
-                        className="inline-flex items-center gap-1 hover:text-white underline underline-offset-4 decoration-white/20 transition-colors cursor-pointer"
+                        className="ui-tactile inline-flex items-center gap-1 hover:text-white underline underline-offset-4 decoration-white/20 transition-colors cursor-pointer"
                       >
                         <Plus className="w-3 h-3" />
                         <span>New session</span>
@@ -805,16 +803,7 @@ export function VoiceWorkspacePane({
               />
 
               <div className="flex flex-wrap items-center justify-center gap-2 mt-1 px-4 text-xs font-medium text-emerald-50/80">
-                <span
-                  aria-hidden="true"
-                  className={`inline-block w-2 h-2 rounded-full ${
-                    activeIsSpeaking || voiceState.isListening
-                      ? 'bg-[#4ADE80]'
-                      : activeIsThinking
-                      ? 'bg-amber-400'
-                      : 'bg-emerald-200/40'
-                  }`}
-                />
+                <StatusPulse size="md" state={statusPulseState} />
                 <span>{statusText}</span>
                 <span aria-hidden="true" className="text-emerald-100/35">·</span>
                 <span className="font-mono text-[11px] text-[#6EE7B7]" data-testid="active-hermes-session-id">
@@ -843,9 +832,9 @@ export function VoiceWorkspacePane({
 
           {/* Mobile Compact Character Presence Strip in Thread View (includes animated character without crowding) */}
           {panelView === 'voice' && uiConfig.portraitVisible && (
-            <div className="flex lg:hidden items-center gap-2.5 mx-2.5 my-1 rounded-2xl bg-white/[0.035] border border-white/10 px-2.5 py-1.5 shrink-0">
-              <div className="relative w-[68px] h-[60px] rounded-xl bg-black/35 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
-                <div className="scale-[0.31] origin-center">
+            <div className="flex lg:hidden items-center gap-2.5 mx-2.5 my-0.5 rounded-xl bg-white/[0.035] border border-white/10 px-2.5 py-1 shrink-0">
+              <div className="relative w-[64px] h-[54px] rounded-lg bg-black/35 border border-white/10 overflow-hidden flex items-center justify-center shrink-0">
+                <div className="scale-[0.29] origin-center">
                   <AsciiPortraitCanvas
                     variant="hero"
                     mood={effectiveMood}
@@ -865,16 +854,7 @@ export function VoiceWorkspacePane({
               </div>
               <div className="min-w-0 flex-1 space-y-0.5">
                 <div className="flex items-center gap-1.5 text-[11px] text-emerald-100/75">
-                  <span
-                    aria-hidden="true"
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                      activeIsSpeaking || voiceState.isListening
-                        ? 'bg-[#4ADE80]'
-                        : activeIsThinking
-                        ? 'bg-amber-400'
-                        : 'bg-emerald-200/45'
-                    }`}
-                  />
+                  <StatusPulse state={statusPulseState} />
                   <span className="font-medium text-white">{statusText}</span>
                   <span aria-hidden="true" className="text-emerald-100/30">·</span>
                   <span className="font-mono text-[#6EE7B7] truncate">{activeHermesSessionId}</span>
@@ -972,11 +952,14 @@ export function VoiceWorkspacePane({
                   lastScrollTopRef.current = nextTop;
                   isPinnedToBottomRef.current = result.pinned;
                   setIsAwayFromBottom(result.away);
+                  setShowTopFade(shouldShowScrollTopFade(nextTop));
                 }}
                 data-testid="voice-transcript-stream"
                 data-pinned={String(!isAwayFromBottom)}
                 style={{ overflowAnchor: 'none' }}
-                className="ui-view-enter transcript-fade-mask flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-14 lg:px-20 py-3 sm:py-4"
+                className={`ui-view-enter transcript-fade-mask ${
+                  showTopFade ? 'ui-transcript-fade-active' : ''
+                } flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-14 lg:px-20 py-3 sm:py-4`}
               >
                 <div ref={threadListRef} className="space-y-4 sm:space-y-5">
                   {timelineBlocks.map((block, idx) => {
@@ -1091,22 +1074,15 @@ export function VoiceWorkspacePane({
                 </div>
               </div>
 
-              {isAwayFromBottom && (
-                <button
-                  type="button"
-                  data-testid="jump-to-latest-btn"
-                  onClick={() => {
-                    isPinnedToBottomRef.current = true;
-                    setIsAwayFromBottom(false);
-                    snapThreadToBottom('auto');
-                  }}
-                  aria-label="Jump to latest message"
-                  className="absolute bottom-3 right-4 sm:right-10 z-20 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#071510]/90 backdrop-blur-md border border-[#34D399]/40 text-xs font-medium text-[#6EE7B7] hover:text-white hover:border-[#6EE7B7]/70 shadow-lg transition-colors cursor-pointer"
-                >
-                  <ArrowDown className="w-3.5 h-3.5" />
-                  <span>Jump to latest</span>
-                </button>
-              )}
+              <ScrollToBottomButton
+                visible={isAwayFromBottom}
+                onClick={() => {
+                  isPinnedToBottomRef.current = true;
+                  setIsAwayFromBottom(false);
+                  snapThreadToBottom('auto');
+                }}
+                className="absolute bottom-3 right-4 sm:right-10 z-20"
+              />
             </div>
           )}
         </>

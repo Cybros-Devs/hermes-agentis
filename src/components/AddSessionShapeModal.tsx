@@ -7,6 +7,7 @@ import {
   type BrailleShapeTint,
 } from '../utils/brailleShapesEngine';
 import { BrailleShapeCanvas } from './BrailleShapeCanvas';
+import { ModalShell } from './ui';
 
 interface AddSessionShapeModalProps {
   open: boolean;
@@ -79,43 +80,36 @@ export function AddSessionShapeModal({
   };
 
   return (
-    <div
-      className="ui-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/72 p-4"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      ariaLabelledBy="add-braille-session-title"
+      maxWidthClass="w-[min(672px,96vw)]"
     >
-      <dialog
-        open
-        aria-modal="true"
-        aria-labelledby="add-braille-session-title"
-        className="ui-modal-enter relative m-0 w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl bg-[#0A1613] border border-[#34D399]/35 text-[#ECF3F0] shadow-[0_24px_80px_rgba(0,0,0,0.75)] overflow-hidden"
-      >
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 shrink-0">
-          <div>
-            <h2
-              id="add-braille-session-title"
-              className="text-base font-semibold text-white"
-            >
-              Spawn Hermes Agent Session
-            </h2>
-            <p className="text-xs text-emerald-100/60 mt-0.5">
-              Choose an anime character silhouette to launch an isolated hermes-agent session
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close add session dialog"
-            className="w-8 h-8 rounded-lg border border-white/12 bg-white/[0.04] text-emerald-100/70 hover:text-white hover:border-white/25 flex items-center justify-center transition-colors cursor-pointer"
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 shrink-0">
+        <div>
+          <h2
+            id="add-braille-session-title"
+            className="text-base font-semibold text-white"
           >
-            <X className="w-4 h-4" />
-          </button>
+            Spawn Hermes Agent Session
+          </h2>
+          <p className="text-xs text-emerald-100/60 mt-0.5">
+            Choose an anime character silhouette to launch an isolated hermes-agent session
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close add session dialog"
+          className="ui-tactile w-8 h-8 rounded-lg border border-white/12 bg-white/[0.04] text-emerald-100/70 hover:text-white hover:border-white/25 flex items-center justify-center cursor-pointer"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 cyber-scroll">
             {/* 9 Anime Character Braille Picker */}
             <div className="space-y-2">
@@ -293,7 +287,6 @@ export function AddSessionShapeModal({
             </button>
           </div>
         </form>
-      </dialog>
-    </div>
+    </ModalShell>
   );
 }

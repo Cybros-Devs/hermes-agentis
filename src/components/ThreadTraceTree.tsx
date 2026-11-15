@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   CornerDownRight,
   Link2,
   MoreHorizontal,
@@ -11,6 +10,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { ClassifiedTraceStep } from '../utils/threadTrace';
+import { AnimatedCollapsible, StaggerItem } from './ui';
 
 interface ThreadTraceTreeProps {
   agentLabel?: string;
@@ -51,17 +51,17 @@ export function ThreadTraceTree({
 
   return (
     <div className="max-w-[68ch] py-1" data-testid="thread-trace-tree">
-      {/* Trace Header Row: Agent Identity + Collapse Chevron */}
+      {/* Trace Header Row: Agent Identity + Smoothly Rotating Collapse Chevron */}
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
-        className="w-full min-h-[36px] flex items-center justify-between gap-2 text-left group cursor-pointer"
+        className="ui-tactile w-full min-h-[36px] flex items-center justify-between gap-2 text-left group cursor-pointer rounded-lg px-1 -mx-1 hover:bg-white/[0.03]"
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <span
             aria-hidden="true"
-            className={`w-6 h-6 rounded-full border flex items-center justify-center text-[11px] font-mono shrink-0 ${
+            className={`w-6 h-6 rounded-full border flex items-center justify-center text-[11px] font-mono shrink-0 transition-colors ${
               isLive
                 ? 'border-[#34D399]/60 bg-[#34D399]/14 text-[#6EE7B7]'
                 : 'border-white/15 bg-white/[0.06] text-emerald-100/80'
@@ -78,18 +78,22 @@ export function ThreadTraceTree({
         </div>
 
         <span className="text-emerald-100/45 group-hover:text-white transition-colors shrink-0 p-1">
-          {collapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+          <ChevronDown
+            className={`w-4 h-4 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+              collapsed ? 'rotate-0' : 'rotate-180'
+            }`}
+          />
         </span>
       </button>
 
-      {/* Vertical Timeline Branch */}
-      {!collapsed && (
-        <div className="ml-3 pl-4 border-l border-white/12 mt-1 space-y-2.5">
+      {/* Smooth Animated Vertical Timeline Branch */}
+      <AnimatedCollapsible open={!collapsed}>
+        <div className="ml-3 pl-4 border-l border-white/12 mt-1.5 space-y-2.5 pb-1">
           {hiddenCount > 0 && (
             <button
               type="button"
               onClick={() => setShowAllSteps(true)}
-              className="flex items-center gap-2.5 min-h-[32px] text-xs text-emerald-100/55 hover:text-white transition-colors cursor-pointer"
+              className="ui-tactile flex items-center gap-2.5 min-h-[32px] text-xs text-emerald-100/55 hover:text-white transition-colors cursor-pointer"
             >
               <span
                 aria-hidden="true"
@@ -103,9 +107,10 @@ export function ThreadTraceTree({
             </button>
           )}
 
-          {visibleItems.map((step) => (
-            <div
+          {visibleItems.map((step, idx) => (
+            <StaggerItem
               key={step.id}
+              index={idx}
               className="flex items-center justify-between gap-2.5 text-[12.5px] leading-snug"
             >
               <div className="flex items-center gap-2.5 min-w-0">
@@ -129,7 +134,7 @@ export function ThreadTraceTree({
                 <span>{step.timestamp}</span>
                 <ChevronRight className="w-3 h-3 opacity-60" aria-hidden="true" />
               </div>
-            </div>
+            </StaggerItem>
           ))}
 
           {isLive && (
@@ -145,7 +150,8 @@ export function ThreadTraceTree({
             </div>
           )}
         </div>
-      )}
+      </AnimatedCollapsible>
     </div>
   );
 }
+

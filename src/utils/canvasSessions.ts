@@ -91,29 +91,35 @@ export function findOpenCanvasSpot(existing: Pick<CanvasSession, 'xPct' | 'yPct'
     return { xPct: 50, yPct: 46 };
   }
 
-  // Deterministic candidate grid prioritizing central breathing room
+  // Evaluate a balanced canvas grid using box-overlap Chebyshev clearance
+  // (accounting for ~25% width x ~31% height per character + pill) plus Euclidean tie-breaking.
   const candidates: Array<{ xPct: number; yPct: number }> = [];
-  const xs = [50, 34, 66, 22, 78, 42, 58, 16, 84];
-  const ys = [46, 34, 58, 26, 66];
-  for (const yPct of ys) {
-    for (const xPct of xs) {
-      candidates.push(clampCanvasPosition(xPct, yPct));
+  for (let y = 20; y <= 70; y += 5) {
+    for (let x = 14; x <= 86; x += 6) {
+      candidates.push(clampCanvasPosition(x, y));
     }
   }
 
   let best = candidates[0];
-  let bestMinDist = -1;
+  let bestScore = -1;
 
   for (const cand of candidates) {
-    let minDist = Infinity;
+    let minBoxClearance = Infinity;
+    let minEuclid = Infinity;
     for (const item of existing) {
-      const dx = cand.xPct - item.xPct;
-      const dy = (cand.yPct - item.yPct) * 1.25;
-      const dist = Math.hypot(dx, dy);
-      if (dist < minDist) minDist = dist;
+      const rx = Math.abs(cand.xPct - item.xPct) / 25;
+      const ry = Math.abs(cand.yPct - item.yPct) / 31;
+      const boxClearance = Math.max(rx, ry);
+      const euclid = Math.hypot(rx, ry);
+      if (boxClearance < minBoxClearance) minBoxClearance = boxClearance;
+      if (euclid < minEuclid) minEuclid = euclid;
     }
-    if (minDist > bestMinDist) {
-      bestMinDist = minDist;
+    const centerBias =
+      1 - Math.hypot((cand.xPct - 50) / 100, (cand.yPct - 48) / 100) * 0.04;
+    // Prioritize avoiding any 2D bounding-box overlap first, then maximize comfortable separation.
+    const overlapSafeScore = Math.min(1.05, minBoxClearance) * 2 + minEuclid * 0.35 + centerBias * 0.02;
+    if (overlapSafeScore > bestScore) {
+      bestScore = overlapSafeScore;
       best = cand;
     }
   }
@@ -157,12 +163,12 @@ const DEFAULT_SHAPE_PRESETS: Record<
   string,
   { shape: BrailleShapeKind; tint: BrailleShapeTint; xPct: number; yPct: number; eyeStyle: 'open' | 'sleepy'; mood: ExpressionMood }
 > = {
-  general: { shape: 'clover', tint: 'lime', xPct: 18, yPct: 33, eyeStyle: 'open', mood: 'happy' },
+  general: { shape: 'clover', tint: 'lime', xPct: 18, yPct: 30, eyeStyle: 'open', mood: 'happy' },
   ops: { shape: 'trapezoid', tint: 'amber', xPct: 50, yPct: 26, eyeStyle: 'sleepy', mood: 'focused' },
   research: { shape: 'pebble', tint: 'periwinkle', xPct: 82, yPct: 30, eyeStyle: 'sleepy', mood: 'thinking' },
-  launch: { shape: 'star', tint: 'pink', xPct: 33, yPct: 68, eyeStyle: 'open', mood: 'happy' },
-  daemon: { shape: 'ghost', tint: 'lavender', xPct: 72, yPct: 67, eyeStyle: 'open', mood: 'neutral' },
-  memory: { shape: 'cloud', tint: 'orange', xPct: 52, yPct: 68, eyeStyle: 'open', mood: 'happy' },
+  launch: { shape: 'star', tint: 'pink', xPct: 26, yPct: 68, eyeStyle: 'open', mood: 'happy' },
+  daemon: { shape: 'ghost', tint: 'lavender', xPct: 76, yPct: 68, eyeStyle: 'open', mood: 'neutral' },
+  memory: { shape: 'cloud', tint: 'orange', xPct: 50, yPct: 68, eyeStyle: 'open', mood: 'happy' },
 };
 
 export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): CanvasSession[] {

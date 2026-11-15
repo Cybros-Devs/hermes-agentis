@@ -18,6 +18,7 @@ import type {
 import type { CanvasSession } from '../utils/canvasSessions';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleShapeCanvas } from './BrailleShapeCanvas';
+import { StatusPulse } from './ui';
 import type { WorkspacePanelView } from './VoiceWorkspacePane';
 
 interface MobileWorkspaceBarProps {
@@ -34,6 +35,7 @@ interface MobileWorkspaceBarProps {
   showThinking: boolean;
   canvasSessions: CanvasSession[];
   thinkingByChannel: Record<string, boolean>;
+  homeSessionDraft?: boolean;
   onChangePanelView: (view: WorkspacePanelView) => void;
   onSelectChannel: (channelId: ChannelId) => void;
   onOpenMobileSidebar?: () => void;
@@ -66,6 +68,7 @@ export function MobileWorkspaceBar({
   showThinking,
   canvasSessions,
   thinkingByChannel,
+  homeSessionDraft = false,
   onChangePanelView,
   onSelectChannel,
   onOpenMobileSidebar,
@@ -80,6 +83,7 @@ export function MobileWorkspaceBar({
   const visibleSessions = canvasSessions.slice(0, maxAvatars);
   const extraCount = Math.max(0, canvasSessions.length - maxAvatars);
   const runningCount = canvasSessions.filter((s) => Boolean(thinkingByChannel[s.channelId])).length;
+  const isHomeNewDraft = panelView === 'home' && homeSessionDraft;
 
   const views: { id: WorkspacePanelView; label: string }[] = [
     { id: 'home', label: 'Home' },
@@ -120,12 +124,18 @@ export function MobileWorkspaceBar({
             className="flex-1 min-w-0 text-left cursor-pointer"
           >
             <div className="text-[12px] font-semibold text-white leading-tight truncate">
-              #{activeChannel}
+              {isHomeNewDraft ? 'new session' : `#${activeChannel}`}
             </div>
             <div className="font-mono text-[10px] tracking-tight text-emerald-100/60 tabular-nums leading-tight mt-0.5 flex items-center gap-1 whitespace-nowrap">
-              <span>{activeSessionId}</span>
-              <span aria-hidden="true">·</span>
-              <span>{turnCount}t</span>
+              {isHomeNewDraft ? (
+                <span>ready for prompt</span>
+              ) : (
+                <>
+                  <span>{activeSessionId}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{turnCount}t</span>
+                </>
+              )}
             </div>
           </button>
 
@@ -135,7 +145,7 @@ export function MobileWorkspaceBar({
               onClick={onOpenMobileSidebar}
               aria-label="Open tasks and lanes"
               title="Tasks & lanes"
-              className="w-7 h-7 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/80 hover:text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              className="ui-tactile w-7 h-7 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/80 hover:text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer"
             >
               <PanelLeft className="w-3.5 h-3.5" />
             </button>
@@ -149,23 +159,34 @@ export function MobileWorkspaceBar({
             onClick={() => setViewMenuOpen((v) => !v)}
             aria-expanded={viewMenuOpen}
             aria-label="Switch workspace view"
-            className="min-h-[32px] pl-1 pr-0.5 flex items-center gap-1 text-left cursor-pointer whitespace-nowrap"
+            className="ui-tactile min-h-[32px] pl-1 pr-0.5 flex items-center gap-1.5 text-left cursor-pointer whitespace-nowrap"
           >
-            <span className="w-2 h-2 rounded-full bg-[#34D399] shrink-0" aria-hidden="true" />
+            <StatusPulse
+              size="md"
+              state={
+                isSpeaking
+                  ? 'speaking'
+                  : isListening
+                  ? 'listening'
+                  : runningCount > 0
+                  ? 'live'
+                  : 'idle'
+              }
+            />
             <div className="leading-tight">
               <div className="text-[11.5px] font-semibold text-white">{VIEW_LABELS[panelView]}</div>
               <div className="font-mono text-[9.5px] text-emerald-100/55">
                 {pendingCount > 0 ? `${pendingCount} gate${pendingCount === 1 ? '' : 's'}` : 'view'}
               </div>
             </div>
-            <ChevronDown className="w-3 h-3 text-emerald-100/60" />
+            <ChevronDown className={`w-3 h-3 text-emerald-100/60 transition-transform duration-150 ${viewMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
           <button
             type="button"
             onClick={onToggleMute}
             aria-label={isMuted ? 'Unmute Hermes audio' : 'Mute Hermes audio'}
-            className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+            className={`ui-tactile w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
               isMuted
                 ? 'bg-rose-500/20 text-rose-200'
                 : 'bg-white/[0.05] text-emerald-100/75 hover:text-white'
@@ -182,7 +203,7 @@ export function MobileWorkspaceBar({
             type="button"
             onClick={() => setViewMenuOpen((v) => !v)}
             aria-label="Open view options"
-            className="w-7 h-7 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+            className="ui-tactile w-7 h-7 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
           >
             <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
@@ -191,7 +212,7 @@ export function MobileWorkspaceBar({
             <div
               role="menu"
               aria-label="Workspace views"
-              className="ui-menu-pop absolute right-0 top-[calc(100%+8px)] w-48 rounded-2xl bg-[#091512]/96 border border-white/15 shadow-[0_18px_40px_rgba(0,0,0,0.65)] p-1.5 space-y-1 z-50"
+              className="ui-menu-pop absolute right-0 top-[calc(100%+8px)] w-48 rounded-2xl bg-[#091512]/96 backdrop-blur-xl border border-white/15 shadow-[0_18px_40px_rgba(0,0,0,0.65)] p-1.5 space-y-1 z-50"
             >
               {views.map((tab) => {
                 const active = panelView === tab.id;
@@ -326,7 +347,7 @@ export function MobileWorkspaceBar({
           type="button"
           onClick={() => onChangePanelView('canvas')}
           aria-label="Open parallel sessions canvas"
-          className={`min-h-[34px] px-2.5 rounded-full border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+          className={`ui-tactile min-h-[34px] px-2.5 rounded-full border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
             panelView === 'canvas'
               ? 'bg-[#34D399]/16 border-[#34D399]/50 text-[#6EE7B7]'
               : 'bg-white/[0.045] border-white/12 text-emerald-100/75 hover:text-white'

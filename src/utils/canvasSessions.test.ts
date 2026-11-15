@@ -29,13 +29,26 @@ test('slugifySessionName normalizes and deduplicates session identifiers', () =>
   assert.equal(slugifySessionName('   ', []), 'session');
 });
 
-test('findOpenCanvasSpot maximizes distance from existing sessions', () => {
+test('findOpenCanvasSpot maximizes distance from existing sessions without overlapping input bars', () => {
   const first = findOpenCanvasSpot([]);
   assert.deepEqual(first, { xPct: 50, yPct: 46 });
 
   const next = findOpenCanvasSpot([first]);
   const dist = Math.hypot(next.xPct - first.xPct, next.yPct - first.yPct);
   assert.ok(dist >= 15, `expected open spot well separated from existing session, got dist=${dist}`);
+
+  const seeded = createSeedCanvasSessions(INITIAL_CHANNELS);
+  const extraSpot = findOpenCanvasSpot(seeded);
+  for (const item of seeded) {
+    const clearance = Math.hypot(
+      (extraSpot.xPct - item.xPct) / 24,
+      (extraSpot.yPct - item.yPct) / 26
+    );
+    assert.ok(
+      clearance >= 0.9,
+      `expected extra spot (${extraSpot.xPct}, ${extraSpot.yPct}) clear of #${item.channelId} (${item.xPct}, ${item.yPct}), got clearance=${clearance.toFixed(2)}`
+    );
+  }
 });
 
 test('createSeedCanvasSessions assigns distinct hermes-agent sessions and personas', () => {
