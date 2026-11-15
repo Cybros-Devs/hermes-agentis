@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ArrowLeft, Plus, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Plus } from 'lucide-react';
 import type {
   ApprovalCard,
   BackgroundTask,
@@ -37,7 +37,6 @@ interface SidebarWorkspaceProps {
   queueVisible?: boolean;
   channelsVisible?: boolean;
   sidebarPosition?: 'left' | 'right';
-  onOpenStudio?: () => void;
 }
 
 export function SidebarWorkspace({
@@ -66,7 +65,6 @@ export function SidebarWorkspace({
   queueVisible = true,
   channelsVisible = true,
   sidebarPosition = 'left',
-  onOpenStudio,
 }: SidebarWorkspaceProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const activeChannelBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -106,27 +104,14 @@ export function SidebarWorkspace({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {onOpenStudio && (
-            <button
-              type="button"
-              onClick={onOpenStudio}
-              aria-label="Customize UI studio"
-              title="Customize UI"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-emerald-100/60 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onNewTask}
-            className="flex items-center gap-1 text-xs font-medium text-emerald-50/75 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/6"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onNewTask}
+          className="flex items-center gap-1 text-xs font-medium text-emerald-50/75 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/6 shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>New</span>
+        </button>
       </div>
 
       {/* Active Session Card */}
@@ -179,8 +164,10 @@ export function SidebarWorkspace({
                       ? onSelectSession(session)
                       : onSelectChannel(session.channelId)
                   }
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border-l-2 transition-colors cursor-pointer ${
-                    active ? 'bg-white/10 border-[#34D399]' : 'border-transparent hover:bg-white/5'
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                    active
+                      ? 'bg-white/[0.08] border-[#34D399]/35'
+                      : 'border-transparent hover:bg-white/[0.04]'
                   }`}
                 >
                   <span
@@ -217,8 +204,10 @@ export function SidebarWorkspace({
                   key={card.id}
                   type="button"
                   onClick={() => onSelectApproval(card)}
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border-l-2 transition-colors cursor-pointer ${
-                    active ? 'bg-white/10 border-[#34D399]' : 'border-transparent hover:bg-white/5'
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                    active
+                      ? 'bg-white/[0.08] border-[#34D399]/35'
+                      : 'border-transparent hover:bg-white/[0.04]'
                   }`}
                 >
                   <span
@@ -243,8 +232,10 @@ export function SidebarWorkspace({
                   key={task.id}
                   type="button"
                   onClick={() => onSelectTask(task)}
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border-l-2 transition-colors cursor-pointer ${
-                    active ? 'bg-white/10 border-[#34D399]' : 'border-transparent hover:bg-white/5'
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                    active
+                      ? 'bg-white/[0.08] border-[#34D399]/35'
+                      : 'border-transparent hover:bg-white/[0.04]'
                   }`}
                 >
                   <span
@@ -280,8 +271,10 @@ export function SidebarWorkspace({
                     key={item.id}
                     type="button"
                     onClick={() => onSelectBrief(item)}
-                    className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border-l-2 transition-colors cursor-pointer ${
-                      active ? 'bg-white/10 border-[#34D399]' : 'border-transparent hover:bg-white/5'
+                    className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                      active
+                        ? 'bg-white/[0.08] border-[#34D399]/35'
+                        : 'border-transparent hover:bg-white/[0.04]'
                     }`}
                   >
                     <span
@@ -303,11 +296,7 @@ export function SidebarWorkspace({
 
       {/* Minimal Channel / Session Switcher Footer */}
       {channelsVisible && (
-        <div
-          className={`py-2.5 pl-3 border-t border-white/8 flex items-end justify-between gap-1.5 font-mono text-[10.5px] ${
-            sidebarPosition === 'right' ? 'pr-12' : 'pr-3'
-          }`}
-        >
+        <div className="py-2.5 px-3 border-t border-white/8 flex items-end justify-between gap-1.5 font-mono text-[10.5px]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 max-h-[104px] overflow-y-auto cyber-scroll">
             {channels.map((ch) => {
               const active = ch.id === activeChannel;

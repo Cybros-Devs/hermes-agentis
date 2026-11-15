@@ -7,12 +7,6 @@ html[data-onboarding-open="true"] .emerald-ambient-bg {
   transition: opacity 180ms ease;
 }
 
-/* Keep the corner settings trigger tucked away while modal is active */
-html[data-onboarding-open="true"] [data-testid="backgrounds-trigger"] {
-  opacity: 0;
-  pointer-events: none;
-}
-
 .onboarding-modal-backdrop {
   transition: opacity 160ms ease;
 }

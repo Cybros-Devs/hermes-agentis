@@ -205,8 +205,8 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
 /* Speed-scaled GPU-composited UI choreography animations (--ui-anim-speed driven by Studio) */
 @keyframes uiViewEnter {
   from {
-    opacity: 0.92;
-    transform: translate3d(0, 4px, 0);
+    opacity: 0.72;
+    transform: translate3d(0, 6px, 0);
   }
   to {
     opacity: 1;
@@ -249,12 +249,23 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
 
 @keyframes uiModalEnter {
   from {
-    opacity: 0.4;
-    transform: translate3d(0, 10px, 0) scale(0.985);
+    opacity: 0.25;
+    transform: translate3d(0, 10px, 0) scale(0.972);
   }
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes uiPopIn {
+  from {
+    opacity: 0.35;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -298,55 +309,72 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
   }
 }
 
+@keyframes uiHaloIdle {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, 0, 0) scale(1.024);
+  }
+}
+
 @keyframes uiHaloPulse {
   0%, 100% {
     transform: translate3d(0, 0, 0) scale(1);
   }
   50% {
-    transform: translate3d(0, 0, 0) scale(1.035);
+    transform: translate3d(0, 0, 0) scale(1.055);
   }
 }
 
 .ui-view-enter {
-  animation: uiViewEnter calc(140ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiViewEnter calc(170ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ui-msg-enter {
-  animation: uiMsgEnter calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiMsgEnter calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ui-chat-pop {
   transform-origin: top center;
-  animation: uiChatPop calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiChatPop calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ui-drawer-enter {
-  animation: uiDrawerEnter calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiDrawerEnter calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ui-modal-enter {
-  animation: uiModalEnter calc(170ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiModalEnter calc(185ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ui-pop-in {
+  animation: uiPopIn calc(140ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ui-backdrop-enter {
-  animation: uiBackdropEnter calc(140ms / var(--ui-anim-speed, 1)) ease-out both;
+  animation: uiBackdropEnter calc(150ms / var(--ui-anim-speed, 1)) ease-out both;
 }
 
 .ui-menu-pop {
   transform-origin: top right;
-  animation: uiMenuPop calc(150ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiMenuPop calc(150ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ui-card-enter {
-  animation: uiCardEnter calc(150ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiCardEnter calc(150ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ui-constellation-line {
   animation: uiConstellationFlow calc(3.4s / var(--ui-anim-speed, 1)) linear infinite;
 }
 
+.ui-halo-idle {
+  animation: uiHaloIdle calc(6.5s / var(--ui-anim-speed, 1)) ease-in-out infinite;
+}
+
 .ui-halo-pulse {
-  animation: uiHaloPulse calc(5.2s / var(--ui-anim-speed, 1)) ease-in-out infinite;
+  animation: uiHaloPulse calc(4.2s / var(--ui-anim-speed, 1)) ease-in-out infinite;
 }
 
 html[data-ui-motion="reduced"] .ui-view-enter,
@@ -354,10 +382,12 @@ html[data-ui-motion="reduced"] .ui-msg-enter,
 html[data-ui-motion="reduced"] .ui-chat-pop,
 html[data-ui-motion="reduced"] .ui-drawer-enter,
 html[data-ui-motion="reduced"] .ui-modal-enter,
+html[data-ui-motion="reduced"] .ui-pop-in,
 html[data-ui-motion="reduced"] .ui-backdrop-enter,
 html[data-ui-motion="reduced"] .ui-menu-pop,
 html[data-ui-motion="reduced"] .ui-card-enter,
 html[data-ui-motion="reduced"] .ui-constellation-line,
+html[data-ui-motion="reduced"] .ui-halo-idle,
 html[data-ui-motion="reduced"] .ui-halo-pulse,
 html[data-ui-motion="reduced"] .motion-safe-only {
   animation: none !important;
@@ -370,10 +400,12 @@ html[data-ui-motion="reduced"] .motion-safe-only {
   .ui-chat-pop,
   .ui-drawer-enter,
   .ui-modal-enter,
+  .ui-pop-in,
   .ui-backdrop-enter,
   .ui-menu-pop,
   .ui-card-enter,
   .ui-constellation-line,
+  .ui-halo-idle,
   .ui-halo-pulse,
   .motion-safe-only {
     animation: none !important;

@@ -18,22 +18,21 @@ export function DecodedText({
   speedMultiplier = 1,
   durationMs,
 }: DecodedTextProps) {
+  const isUiReduced = () =>
+    (typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) ||
+    (typeof document !== 'undefined' &&
+      document.documentElement.getAttribute('data-ui-motion') === 'reduced');
+
   const [frame, setFrame] = useState(() => {
-    const reduced =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    if (!animate || reduced || !text) {
+    if (!animate || isUiReduced() || !text) {
       return { settled: text, frontier: '', done: true };
     }
     return computeDecodeFrame(text, 0, 0);
   });
 
   useEffect(() => {
-    const reduced =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-
-    if (!animate || reduced || !text) {
+    if (!animate || isUiReduced() || !text) {
       setFrame({ settled: text, frontier: '', done: true });
       return;
     }

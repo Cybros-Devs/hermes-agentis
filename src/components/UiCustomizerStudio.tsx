@@ -4,10 +4,10 @@ import {
   LayoutPanelLeft,
   Palette,
   RotateCcw,
+  Settings,
   Sparkles,
   Tv,
   Undo2,
-  Wand2,
   X,
 } from 'lucide-react';
 import {
@@ -199,12 +199,24 @@ export function UiCustomizerStudio({
     return subscribeBackgroundSettings((next) => setBgSettings(next));
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const tabs: { id: StudioTab; label: string; icon: typeof Palette }[] = [
-    { id: 'theme', label: 'Theme', icon: Palette },
+    { id: 'theme', label: 'Appearance', icon: Palette },
     { id: 'layout', label: 'Layout', icon: LayoutPanelLeft },
-    { id: 'stage', label: 'Stage', icon: Tv },
+    { id: 'stage', label: 'Motion & Stage', icon: Tv },
     { id: 'backdrop', label: 'Backdrop', icon: Sparkles },
   ];
 
@@ -258,44 +270,44 @@ export function UiCustomizerStudio({
 
   return (
     <div
-      className="ui-backdrop-enter fixed inset-0 z-50 flex justify-end bg-black/55"
+      className="ui-backdrop-enter fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/72"
       onClick={onClose}
     >
-      <aside
+      <section
         role="dialog"
         aria-modal="true"
-        aria-label="UI Customization Studio"
+        aria-label="Settings"
         data-testid="ui-studio-drawer"
         onClick={(e) => e.stopPropagation()}
-        className="ui-drawer-shell ui-drawer-enter w-[min(430px,100vw)] h-full flex flex-col border-l shadow-[-16px_0_48px_rgba(0,0,0,0.68)] text-[#ECF3F0]"
+        className="ui-drawer-shell ui-modal-enter w-[min(780px,96vw)] max-h-[min(86vh,720px)] rounded-2xl border shadow-[0_24px_80px_rgba(0,0,0,0.72)] flex flex-col overflow-hidden text-[#ECF3F0]"
       >
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-white/10 shrink-0">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 shrink-0">
           <div>
-            <h2 className="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
-              <Wand2 className="w-4 h-4 text-[#6EE7B7]" />
-              <span>UI Studio</span>
+            <h2 className="text-[15px] font-semibold text-white tracking-tight flex items-center gap-2">
+              <Settings className="w-4 h-4 text-[#6EE7B7]" />
+              <span>Settings</span>
             </h2>
-            <p className="text-[11px] text-emerald-100/55 mt-0.5">
-              Customize layout, colors, stage, or ask Hermes live
+            <p className="text-xs text-emerald-100/55 mt-0.5">
+              Workspace appearance, layout, stage motion, and backdrops
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close UI Studio"
+            aria-label="Close Settings"
             data-testid="ui-studio-close"
-            className="w-8 h-8 rounded-lg border border-white/10 bg-white/[0.04] text-emerald-100/70 hover:text-white flex items-center justify-center cursor-pointer"
+            className="w-8 h-8 rounded-lg border border-white/10 bg-white/[0.04] text-emerald-100/70 hover:text-white hover:bg-white/[0.08] flex items-center justify-center transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Agent Conversational Prompt Bar */}
-        <div className="px-4 py-3 border-b border-white/8 bg-white/[0.02] space-y-2 shrink-0">
-          <form onSubmit={submitAgentPrompt} className="flex items-center gap-1.5">
+        {/* Natural-Language UI Update Prompt inside Settings */}
+        <div className="px-5 py-3 border-b border-white/8 bg-white/[0.02] space-y-2 shrink-0">
+          <form onSubmit={submitAgentPrompt} className="flex items-center gap-2">
             <label htmlFor="ui-studio-agent-prompt" className="sr-only">
-              Ask Hermes to restyle the interface
+              Ask Hermes to update the interface
             </label>
             <input
               id="ui-studio-agent-prompt"
@@ -303,13 +315,13 @@ export function UiCustomizerStudio({
               type="text"
               value={agentPrompt}
               onChange={(e) => setAgentPrompt(e.target.value)}
-              placeholder="Ask Hermes: &quot;make it cyber violet, hide horizon&quot;..."
+              placeholder='Describe a UI update: "cyber violet, hide horizon"...'
               className="flex-1 min-w-0 rounded-xl bg-black/40 border border-white/14 px-3 py-2 text-xs text-white placeholder:text-emerald-100/40 focus:outline-none focus:border-[#34D399]"
             />
             <button
               type="submit"
               data-testid="ui-studio-agent-submit"
-              className="ui-accent-btn px-3 py-2 rounded-xl text-xs font-semibold hover:opacity-90 transition-opacity shrink-0 cursor-pointer"
+              className="ui-accent-btn px-3.5 py-2 rounded-xl text-xs font-semibold hover:opacity-90 transition-opacity shrink-0 cursor-pointer"
             >
               Apply
             </button>
@@ -321,7 +333,7 @@ export function UiCustomizerStudio({
                 key={example}
                 type="button"
                 onClick={() => onAskAgent(example)}
-                className="shrink-0 text-[10.5px] px-2.5 py-1 rounded-lg border border-white/10 bg-white/[0.03] text-emerald-100/70 hover:text-white hover:border-[#34D399]/50 transition-colors cursor-pointer"
+                className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-white/10 bg-white/[0.03] text-emerald-100/70 hover:text-white hover:border-[#34D399]/50 transition-colors cursor-pointer"
               >
                 {example}
               </button>
@@ -329,44 +341,46 @@ export function UiCustomizerStudio({
           </div>
         </div>
 
-        {/* Section Tabs */}
-        <div
-          role="tablist"
-          aria-label="UI customization sections"
-          className="grid grid-cols-4 gap-1 px-4 py-2 border-b border-white/8 shrink-0"
-        >
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                data-testid={`studio-tab-${tab.id}`}
-                onClick={() => onChangeTab(tab.id)}
-                className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                  active
-                    ? 'ui-active-tab border'
-                    : 'text-emerald-100/60 hover:text-white border border-transparent hover:bg-white/[0.04]'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* Two-Pane Responsive Settings Body */}
+        <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
+          {/* Category Rail (2x2 grid on mobile, Left rail on desktop) */}
+          <nav
+            role="tablist"
+            aria-label="Settings categories"
+            className="grid grid-cols-2 sm:flex sm:flex-col gap-1.5 sm:gap-1 px-3 py-2.5 sm:p-3 sm:w-48 border-b sm:border-b-0 sm:border-r border-white/8 shrink-0"
+          >
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  data-testid={`studio-tab-${tab.id}`}
+                  onClick={() => onChangeTab(tab.id)}
+                  className={`flex items-center sm:justify-start justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors cursor-pointer border ${
+                    active
+                      ? 'ui-active-tab'
+                      : 'text-emerald-100/65 hover:text-white border-transparent hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
 
-        {/* Scrollable Controls Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 space-y-5">
-          {activeTab === 'theme' && (
-            <>
-              <div className="space-y-2.5">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-emerald-100/50">
-                  Curated Themes
-                </div>
+          {/* Scrollable Settings Controls */}
+          <div className="flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 sm:p-5 space-y-5">
+            {activeTab === 'theme' && (
+              <>
+                <div className="space-y-2.5">
+                  <div className="text-xs font-medium text-emerald-100/65">
+                    Curated themes
+                  </div>
                 <div className="grid grid-cols-2 gap-2">
                   {CURATED_UI_PRESETS.map((preset) => {
                     const presetAccent = preset.config.accentHex ?? '#34D399';
@@ -413,8 +427,8 @@ export function UiCustomizerStudio({
 
               <div className="space-y-2.5 pt-2 border-t border-white/8">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-emerald-100/50">
-                    Accent Palette
+                  <span className="text-xs font-medium text-emerald-100/65">
+                    Accent palette
                   </span>
                   <span className="font-mono text-[11px] text-[#6EE7B7]">{config.accentHex}</span>
                 </div>
@@ -504,8 +518,8 @@ export function UiCustomizerStudio({
           {activeTab === 'layout' && (
             <>
               <div className="space-y-2">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-emerald-100/50">
-                  Workspace Chrome
+                <div className="text-xs font-medium text-emerald-100/65">
+                  Workspace layout
                 </div>
                 <ToggleRow
                   label="Sidebar panel"
@@ -630,8 +644,8 @@ export function UiCustomizerStudio({
           {activeTab === 'stage' && (
             <>
               <div className="space-y-2">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-emerald-100/50">
-                  Character &amp; Braille Stage
+                <div className="text-xs font-medium text-emerald-100/65">
+                  Character &amp; wave stage
                 </div>
                 <ToggleRow
                   label="Character portrait"
@@ -776,47 +790,58 @@ export function UiCustomizerStudio({
               </div>
 
               <div className="pt-2 border-t border-white/8 flex items-center justify-between">
-                <span className="text-[11px] text-emerald-100/50">Need the guided walkthrough?</span>
+                <span className="text-xs text-emerald-100/55">Need the guided walkthrough?</span>
                 <button
                   type="button"
                   onClick={() => {
                     onClose();
                     requestOnboardingReplay();
                   }}
-                  className="inline-flex items-center gap-1.5 text-[11px] text-[#6EE7B7] hover:text-white cursor-pointer"
+                  className="inline-flex items-center gap-1.5 text-xs text-[#6EE7B7] hover:text-white cursor-pointer"
                 >
-                  <RotateCcw className="w-3 h-3" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                   <span>Replay onboarding</span>
                 </button>
               </div>
             </div>
           )}
+          </div>
         </div>
 
-        {/* Footer Undo / Reset */}
-        <div className="px-4 py-3 border-t border-white/10 bg-black/25 flex items-center justify-between gap-2 shrink-0">
-          <button
-            type="button"
-            disabled={!canUndo}
-            onClick={onUndo}
-            data-testid="ui-studio-undo"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] text-xs text-emerald-50/85 hover:text-white disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
-          >
-            <Undo2 className="w-3.5 h-3.5" />
-            <span>Undo</span>
-          </button>
+        {/* Footer Undo / Reset / Done */}
+        <div className="px-5 py-3.5 border-t border-white/10 bg-black/25 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={!canUndo}
+              onClick={onUndo}
+              data-testid="ui-studio-undo"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] text-xs text-emerald-50/85 hover:text-white disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              <span>Undo</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onApplyPatch({ resetAll: true }, 'studio')}
+              data-testid="ui-studio-reset"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:border-rose-400/50 hover:text-rose-200 text-xs text-emerald-100/75 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset defaults</span>
+            </button>
+          </div>
 
           <button
             type="button"
-            onClick={() => onApplyPatch({ resetAll: true }, 'studio')}
-            data-testid="ui-studio-reset"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:border-rose-400/50 hover:text-rose-200 text-xs text-emerald-100/75 transition-colors cursor-pointer"
+            onClick={onClose}
+            className="ui-accent-btn px-4 py-1.5 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset all</span>
+            Done
           </button>
         </div>
-      </aside>
+      </section>
     </div>
   );
 }

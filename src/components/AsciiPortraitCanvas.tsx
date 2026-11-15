@@ -582,8 +582,8 @@ export function AsciiPortraitCanvas({
         isBlinkingRef.current ||
         blinkLookahead;
 
-      // Smooth VSync cadence (~45fps active, ~30fps boot materialize, ~21fps calm idle)
-      const minIntervalMs = isReduced ? 220 : isMaterializing ? 33 : activeMotion ? 22 : 48;
+      // Smooth VSync cadence (~55fps active, ~36fps boot materialize, ~30fps calm idle)
+      const minIntervalMs = isReduced ? 220 : isMaterializing ? 28 : activeMotion ? 18 : 34;
       if (now - lastDraw >= minIntervalMs) {
         drawFrame(now);
       }

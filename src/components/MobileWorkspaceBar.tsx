@@ -6,7 +6,7 @@ import {
   MoreHorizontal,
   PanelLeft,
   RotateCcw,
-  SlidersHorizontal,
+  Settings,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -244,8 +244,8 @@ export function MobileWorkspaceBar({
                     }}
                     className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/85 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
                   >
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-[#6EE7B7]" />
-                    <span>Customize UI</span>
+                    <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
+                    <span>Settings</span>
                   </button>
                 )}
                 <button

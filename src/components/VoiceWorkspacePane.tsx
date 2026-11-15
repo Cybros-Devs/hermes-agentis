@@ -17,7 +17,7 @@ import {
   LayoutGrid,
   ChevronRight,
   RefreshCw,
-  SlidersHorizontal,
+  Settings,
   Plus,
 } from 'lucide-react';
 import type {
@@ -499,8 +499,11 @@ export function VoiceWorkspacePane({
 
       {/* Unified Clean Top Bar (Desktop lg+) */}
       {uiConfig.showTopNav ? (
-        <div className="hidden lg:flex items-center justify-between gap-3 px-6 pt-3 pb-2 border-b border-white/6 z-30 shrink-0">
-          <div className="flex items-center gap-4 min-w-0 overflow-x-auto cyber-scroll">
+        <div className="hidden lg:flex items-center justify-between gap-6 px-6 pt-3 pb-2 border-b border-white/6 z-30 shrink-0">
+          <nav
+            aria-label="Workspace views"
+            className="flex items-center gap-5 min-w-0 overflow-x-auto cyber-scroll"
+          >
             {onOpenMobileSidebar && (
               <button
                 type="button"
@@ -532,17 +535,23 @@ export function VoiceWorkspacePane({
                   type="button"
                   onClick={() => onChangePanelView(tab.id)}
                   aria-current={active ? 'page' : undefined}
-                  className={`px-2 py-1 rounded-md text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
+                  className={`relative py-1.5 text-xs transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
                     active
-                      ? 'bg-[#34D399]/12 border-[#34D399]/40 text-[#6EE7B7] font-medium'
-                      : 'border-transparent text-emerald-100/65 hover:text-white hover:bg-white/[0.04]'
+                      ? 'text-white font-semibold'
+                      : 'text-emerald-100/60 hover:text-white font-medium'
                   }`}
                 >
-                  {tab.label}
+                  <span>{tab.label}</span>
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute inset-x-0 -bottom-[9px] h-[2px] rounded-full bg-[#34D399] transition-all duration-200 origin-center ${
+                      active ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-50'
+                    }`}
+                  />
                 </button>
               );
             })}
-          </div>
+          </nav>
 
           <div className="flex items-center gap-1.5 shrink-0">
             {panelView === 'voice' && (
@@ -552,27 +561,13 @@ export function VoiceWorkspacePane({
                 aria-pressed={showThinking}
                 aria-label={showThinking ? 'Hide agent thinking trace' : 'Show agent thinking trace'}
                 title={showThinking ? 'Hide thinking trace' : 'Show thinking trace'}
-                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
                   showThinking
                     ? 'bg-[#34D399]/14 text-[#6EE7B7]'
-                    : 'text-emerald-100/45 hover:text-white hover:bg-white/6'
+                    : 'text-emerald-100/50 hover:text-white hover:bg-white/[0.06]'
                 }`}
               >
                 <Brain className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            {onOpenStudio && (
-              <button
-                type="button"
-                onClick={onOpenStudio}
-                data-testid="ui-studio-trigger"
-                aria-label="Open UI Studio"
-                title="Customize UI Studio"
-                className="h-7 px-2 rounded-lg border border-white/10 bg-white/[0.03] text-[11px] font-medium text-emerald-100/75 hover:text-white hover:border-[#34D399]/50 flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <SlidersHorizontal className="w-3 h-3 text-[#6EE7B7]" />
-                <span>Studio</span>
               </button>
             )}
 
@@ -581,40 +576,54 @@ export function VoiceWorkspacePane({
               onClick={onToggleMute}
               aria-label={voiceState.isMuted ? 'Unmute Hermes audio' : 'Mute Hermes audio'}
               title={voiceState.isMuted ? 'Unmute audio' : 'Mute audio'}
-              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
                 voiceState.isMuted
                   ? 'bg-rose-500/15 text-rose-200'
-                  : 'text-emerald-100/60 hover:text-white hover:bg-white/6'
+                  : 'text-emerald-100/60 hover:text-white hover:bg-white/[0.06]'
               }`}
             >
               {voiceState.isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
             </button>
+
+            {onOpenStudio && (
+              <button
+                type="button"
+                onClick={onOpenStudio}
+                data-testid="ui-studio-trigger"
+                aria-label="Open Settings"
+                title="Settings"
+                className="h-8 px-2.5 rounded-lg border border-white/10 bg-white/[0.03] text-xs font-medium text-emerald-100/75 hover:text-white hover:border-white/25 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
+                <span>Settings</span>
+              </button>
+            )}
           </div>
         </div>
       ) : (
         onOpenStudio && (
-          <div className="hidden lg:flex items-center gap-1.5 absolute top-3 right-4 z-30">
+          <div className="hidden lg:flex items-center gap-1.5 absolute top-3.5 right-4 z-30">
             <button
               type="button"
               onClick={onOpenStudio}
               data-testid="ui-studio-trigger"
-              aria-label="Open UI Studio"
-              className="h-7 px-2.5 rounded-lg border border-white/12 bg-black/45 backdrop-blur-md text-[11px] font-medium text-emerald-100/80 hover:text-white flex items-center gap-1.5 cursor-pointer"
+              aria-label="Open Settings"
+              className="h-8 px-2.5 rounded-lg border border-white/12 bg-black/45 backdrop-blur-sm text-xs font-medium text-emerald-100/80 hover:text-white flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
             >
-              <SlidersHorizontal className="w-3 h-3 text-[#6EE7B7]" />
-              <span>Studio</span>
+              <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
+              <span>Settings</span>
             </button>
           </div>
         )
       )}
 
-      {/* Center Stage: Overall Character Home View OR Compact Header + Thread/Queue/CLI */}
+      {/* Center Stage: Simplified Character Home View OR Compact Header + Thread/Queue/CLI */}
       {isHomeOverview ? (
         <div
           key="view-home"
           ref={portraitWrapRef}
           data-testid="home-character-overview"
-          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-4 sm:px-10 pb-4 sm:pb-6"
+          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-5 sm:px-10 pb-10 lg:pb-14"
         >
           {uiConfig.portraitVisible && (
             <div
@@ -623,8 +632,10 @@ export function VoiceWorkspacePane({
             >
               <div
                 aria-hidden="true"
-                className={`absolute inset-0 -m-10 rounded-full pointer-events-none ${
-                  activeIsSpeaking || voiceState.isListening ? 'ui-halo-pulse' : ''
+                className={`absolute inset-0 -m-12 rounded-full pointer-events-none transition-opacity duration-300 ${
+                  activeIsSpeaking || voiceState.isListening
+                    ? 'ui-halo-pulse opacity-100'
+                    : 'ui-halo-idle opacity-75'
                 }`}
                 style={{
                   background:
@@ -653,10 +664,10 @@ export function VoiceWorkspacePane({
 
           {uiConfig.statusReadoutVisible && (
             <>
-              <div className="relative z-10 flex items-center gap-2 mt-2 text-xs text-emerald-100/70">
+              <div className="relative z-10 flex items-center gap-2 mt-2.5 text-xs text-emerald-100/70">
                 <span
                   aria-hidden="true"
-                  className={`inline-block w-1.5 h-1.5 rounded-full ${
+                  className={`inline-block w-1.5 h-1.5 rounded-full transition-colors duration-200 ${
                     activeIsSpeaking || voiceState.isListening
                       ? 'bg-[#4ADE80]'
                       : activeIsThinking
@@ -675,15 +686,23 @@ export function VoiceWorkspacePane({
               </div>
 
               {/* Live Decoded Speech / Response Readout */}
-              <div className="relative z-10 mt-3.5 max-w-[52ch] text-center space-y-2.5">
+              <div className="relative z-10 mt-3 max-w-[50ch] text-center space-y-3">
                 <p
                   data-testid="home-decoded-line"
-                  className="text-sm sm:text-[15px] leading-relaxed text-white/95"
+                  className="text-sm sm:text-[15px] leading-relaxed text-white/92"
                 >
                   {activeIsThinking ? (
-                    <DecodedText text={`Routing turn inside ${activeHermesSessionId}...`} animate />
+                    <DecodedText
+                      text={`Routing turn inside ${activeHermesSessionId}...`}
+                      animate={!uiConfig.reducedMotion}
+                      speedMultiplier={uiConfig.animationSpeed}
+                    />
                   ) : (
-                    <DecodedText text={lastSpokenLine} animate={animateSpeechLine} />
+                    <DecodedText
+                      text={lastSpokenLine}
+                      animate={animateSpeechLine && !uiConfig.reducedMotion}
+                      speedMultiplier={uiConfig.animationSpeed}
+                    />
                   )}
                 </p>
 
@@ -692,7 +711,7 @@ export function VoiceWorkspacePane({
                   (!isHomeNewDraft && visibleMessages.length > 0) ||
                   (!isHomeNewDraft && onStartNewSession) ||
                   pendingApprovals.length > 0) && (
-                  <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-emerald-100/55">
+                  <div className="flex flex-wrap items-center justify-center gap-5 text-xs text-emerald-100/55">
                     {(activeIsThinking || activeIsSpeaking) && (
                       <button
                         type="button"
@@ -1128,7 +1147,7 @@ export function VoiceWorkspacePane({
         >
           <form
             onSubmit={handleSubmit}
-            className={`flex flex-col lg:flex-row lg:items-center gap-1.5 lg:gap-2.5 rounded-[22px] lg:rounded-xl border px-3 py-2.5 lg:px-3.5 lg:py-1.5 transition-colors ${
+            className={`${isHomeOverview ? 'lg:max-w-[740px] lg:mx-auto w-full ' : ''}flex flex-col lg:flex-row lg:items-center gap-1.5 lg:gap-2.5 rounded-[22px] lg:rounded-xl border px-3 py-2.5 lg:px-3.5 lg:py-1.5 transition-colors duration-150 ${
               uiConfig.composerStyle === 'minimal'
                 ? 'border-white/10 bg-[#081310]/82 shadow-none'
                 : uiConfig.composerStyle === 'floating'
@@ -1273,7 +1292,7 @@ export function VoiceWorkspacePane({
                   <button
                     type="submit"
                     aria-label="Send message or command"
-                    className="w-10 h-10 lg:w-8 lg:h-8 rounded-full lg:rounded-lg bg-[#34D399] text-[#05140E] flex items-center justify-center hover:bg-[#6EE7B7] transition-colors cursor-pointer shrink-0"
+                    className="ui-pop-in w-10 h-10 lg:w-8 lg:h-8 rounded-full lg:rounded-lg bg-[#34D399] text-[#05140E] flex items-center justify-center hover:bg-[#6EE7B7] active:scale-95 transition-all duration-150 cursor-pointer shrink-0"
                   >
                     <ArrowUp className="w-4 h-4" />
                   </button>

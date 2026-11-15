@@ -1423,7 +1423,6 @@ export default function App() {
               queueVisible={uiConfig.sidebarQueueVisible}
               channelsVisible={uiConfig.sidebarChannelsVisible}
               sidebarPosition={uiConfig.sidebarPosition}
-              onOpenStudio={() => setCustomizerOpen(true)}
             />
           </div>
         )}
