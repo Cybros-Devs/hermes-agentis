@@ -36,6 +36,14 @@ export function shouldShowOnboardingOnBoot(
   rawStorage: string | null
 ): boolean {
   if (hasOnboardingQueryParam(search)) return true;
+  if (search) {
+    try {
+      const params = new URLSearchParams(search.startsWith('?') ? search : `?${search}`);
+      if (params.get('autostart') === '1') return false;
+    } catch {
+      // ignore malformed query string
+    }
+  }
   const parsed = parseOnboardingState(rawStorage);
   return !parsed?.completed;
 }

@@ -217,10 +217,15 @@ export function BrailleHorizonCanvas({
     drawFrame(startTime);
 
     const loop = (now: number) => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        lastDraw = now;
+        rafId = window.requestAnimationFrame(loop);
+        return;
+      }
       const active = stateRef.current.isActive;
       const isReduced = Boolean(systemReduced || stateRef.current.reducedMotionOverride);
       const hasPointer = Boolean(stateRef.current.lookTargetRef?.current);
-      const interval = isReduced ? 220 : active || hasPointer ? 14 : 30;
+      const interval = isReduced ? 320 : active || hasPointer ? 32 : 66;
       if (now - lastDraw >= interval) {
         drawFrame(now);
       }

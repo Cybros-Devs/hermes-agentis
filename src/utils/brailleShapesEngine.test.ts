@@ -201,3 +201,72 @@ test('createBrailleShapeAnimator drives hoverBoost, earTwitch, and haloFloat on 
   assert.notEqual(hovered.haloFloat, 0, 'Active character should compute haloFloat levitation');
 });
 
+import {
+  IDLE_ACTION_SLOT_SECONDS,
+  IDLE_ANIMATION_SETS,
+  IDLE_SET_ORDER,
+  evaluateIdleActionStep,
+} from './brailleIdleLoops';
+import type { BrailleShapeKind } from './brailleShapesEngine';
+
+test('createBrailleShapeAnimator steps through 6 separated idle actions and renders distinct action frames for every set', () => {
+  const shapeBySet: Record<(typeof IDLE_SET_ORDER)[number], BrailleShapeKind> = {
+    tactician: 'clover',
+    celestial: 'trapezoid',
+    scholar: 'pebble',
+    idol: 'star',
+    neko: 'ghost',
+    trickster: 'cloud',
+  };
+
+  for (const setId of IDLE_SET_ORDER) {
+    const shape = shapeBySet[setId];
+    const anim = createBrailleShapeAnimator();
+    const seenIndices = new Set<number>();
+
+    // Sample once inside each 4.0s action slot
+    for (let idx = 0; idx < 6; idx++) {
+      const state = anim.step(
+        {
+          shape,
+          time: idx * IDLE_ACTION_SLOT_SECONDS + 1.45,
+          mood: 'happy',
+          eyeStyle: 'open',
+          viseme: 'closed',
+          energy: 0.08,
+          isSpeaking: false,
+          isThinking: false,
+          isDragging: false,
+        },
+        1 / 30
+      );
+      assert.equal(state.idle.setId, setId);
+      assert.equal(state.idle.actionIndex, idx);
+      seenIndices.add(state.idle.actionIndex);
+    }
+    assert.equal(seenIndices.size, 6);
+
+    // Every action within this set must produce a distinct rendered Braille frame
+    const renderedActions = new Set<string>();
+    for (let idx = 0; idx < 6; idx++) {
+      const actionFrame = evaluateIdleActionStep(setId, idx * IDLE_ACTION_SLOT_SECONDS + 1.45);
+      const rendered = renderBrailleShape({
+        shape,
+        cols: 46,
+        rows: 26,
+        time: 0.4,
+        mood: 'happy',
+        eyeState: 'open',
+        idlePose: actionFrame.pose,
+      });
+      renderedActions.add(rendered.lines.join('\n'));
+    }
+    assert.equal(
+      renderedActions.size,
+      IDLE_ANIMATION_SETS[setId].actions.length,
+      `${setId} (${shape}) must render 6 visually distinct Braille frames across its 6 separated actions`
+    );
+  }
+});
+
+

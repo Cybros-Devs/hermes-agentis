@@ -11,18 +11,21 @@ body,
 }
 
 /* Frosted glass backdrop blur driven by --glass-blur while preserving WCAG AA text contrast */
-.emerald-ambient-bg aside,
-.emerald-ambient-bg [data-testid="ascii-stage"] {
+.emerald-ambient-bg aside {
   background-color: rgba(var(--ui-surface-rgb, 10, 22, 19), var(--glass-panel-alpha, 0.76));
   backdrop-filter: blur(var(--glass-blur, 12px));
   -webkit-backdrop-filter: blur(var(--glass-blur, 12px));
+}
+
+.emerald-ambient-bg [data-testid="ascii-stage"] {
+  background-color: rgba(var(--ui-surface-rgb, 10, 22, 19), var(--glass-panel-alpha, 0.76));
 }
 
 .glass-bg-layer-opacity {
   opacity: var(--glass-bg-opacity, 0.64);
 }
 
-/* Preset 1: Aurora Drift (3 soft blurred blobs, slow <= 18px/s, gentle <= 6% luminance) */
+/* Preset 1: Aurora Drift (3 soft radial blobs, slow <= 18px/s, gentle <= 6% luminance) */
 .glass-bg-aurora {
   position: absolute;
   inset: -12%;
@@ -36,7 +39,6 @@ body,
   content: '';
   position: absolute;
   border-radius: 9999px;
-  filter: blur(72px);
   will-change: transform, opacity;
 }
 
