@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { ExpressionMood, MouthViseme } from '../types/hermes';
+import { evaluateNaturalBlinkCurve } from '../utils/asciiPortraitEngine';
 import {
   resolveIdleSetForShape,
   type IdleAnimationSetId,
@@ -138,13 +139,14 @@ export function BrailleShapeCanvas({
     let settleUntilMs = 0;
     let smoothEnergy = stateRef.current.energy;
     let activeIdleBusy = false;
+    let activeBlinkBusy = false;
     let rafId = 0;
 
     const drawFrame = (now: number) => {
       const s = stateRef.current;
       const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
       const speed = Math.max(0.25, Math.min(2.0, s.speedScale || 1));
-      const rawDt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
+      const rawDt = Math.min(0.16, Math.max(0.008, (now - lastDraw) / 1000));
       const dt = isReduced ? rawDt : rawDt * speed;
       lastDraw = now;
       if (!isReduced) {
@@ -208,6 +210,11 @@ export function BrailleShapeCanvas({
 
       if (motion) {
         activeIdleBusy = !motion.idle.isResting;
+        activeBlinkBusy =
+          motion.blink > 0.015 ||
+          motion.idle.pose.blinkLeft > 0.05 ||
+          motion.idle.pose.blinkRight > 0.05;
+        canvas.dataset.blink = motion.blink.toFixed(2);
         if (canvas.dataset.animSet !== motion.idle.setId) {
           canvas.dataset.animSet = motion.idle.setId;
         }
@@ -217,6 +224,8 @@ export function BrailleShapeCanvas({
         }
       } else {
         activeIdleBusy = false;
+        activeBlinkBusy = false;
+        canvas.dataset.blink = '0.00';
       }
 
       const frame = renderBrailleShape({
@@ -299,18 +308,20 @@ export function BrailleShapeCanvas({
       }
       prevDragActive = s.isDragging;
 
-      const cyclePos = ((elapsedPhase + s.blinkPhaseOffset) / 4.2) % 1;
+      const blinkLookahead =
+        evaluateNaturalBlinkCurve(elapsedPhase + 0.08, s.blinkPhaseOffset, 3) > 0.01;
       const fastMotion =
         s.isSpeaking ||
         s.isDragging ||
         now < settleUntilMs ||
-        cyclePos > 0.78;
+        activeBlinkBusy ||
+        blinkLookahead;
       const activeMotion =
         fastMotion ||
         s.isThinking ||
         s.isHovered ||
         activeIdleBusy;
-      const minInterval = isReduced ? 320 : fastMotion ? 28 : activeMotion ? 42 : 75;
+      const minInterval = isReduced ? 320 : fastMotion ? 16 : activeMotion ? 36 : 68;
       if (now - lastDraw >= minInterval) {
         drawFrame(now);
       }

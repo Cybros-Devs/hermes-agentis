@@ -166,6 +166,50 @@ export interface LookTarget {
   y: number;
 }
 
+/**
+ * Evaluates a biologically-grounded asymmetric blink envelope in [0, 1]:
+ * - Quasi-periodic intervals (~2.8s–4.4s) with organic jitter and occasional double-blinks
+ * - Fast snappy lid closure (~26% of blink), brief full-closed dwell (~20%), graceful ease-out opening (~54%)
+ */
+export function evaluateNaturalBlinkCurve(
+  time: number,
+  phaseOffset = 0,
+  doubleBlinkModulo = 4
+): number {
+  const t = time + phaseOffset;
+  const blinkWarp = t * 0.28 + 0.15 * Math.sin(t * 0.41 + phaseOffset * 0.6) + 0.06 * Math.sin(t * 0.19);
+  const cycleIndex = Math.floor(blinkWarp);
+  const cyclePos = blinkWarp - cycleIndex;
+
+  const shapeBlink = (u: number): number => {
+    if (u <= 0 || u >= 1) return 0;
+    // 0.00..0.26: snappy lid drop
+    if (u < 0.26) {
+      const k = u / 0.26;
+      return 1 - (1 - k) * (1 - k);
+    }
+    // 0.26..0.46: brief full-closed dwell so closed lashes register crisply
+    if (u < 0.46) {
+      return 1;
+    }
+    // 0.46..1.00: graceful slower lid lift
+    const k = (u - 0.46) / 0.54;
+    const eased = k * k * (3 - 2 * k);
+    return 1 - eased;
+  };
+
+  // Primary blink (~215ms window in cycle)
+  if (cyclePos > 0.935) {
+    return shapeBlink((cyclePos - 0.935) / 0.065);
+  }
+  // Occasional crisp double-blink slightly before primary blink
+  const hasDouble = ((cycleIndex % doubleBlinkModulo) + doubleBlinkModulo) % doubleBlinkModulo === 1;
+  if (hasDouble && cyclePos > 0.835 && cyclePos < 0.892) {
+    return shapeBlink((cyclePos - 0.835) / 0.057) * 0.94;
+  }
+  return 0;
+}
+
 function getTargetMotionFromParams(
   params: PortraitParams,
   lookTarget?: LookTarget | null
@@ -231,31 +275,23 @@ function getTargetMotionFromParams(
       : Math.sin(time * 1.6) * 0.02;
   const headTilt = baseTilt + speakNod - headYaw * 0.12;
 
-  // Organic quasi-periodic blink curve (~2.9–4.2s natural intervals, plus occasional double blink)
-  const blinkWarp = time * 0.29 + 0.14 * Math.sin(time * 0.43);
-  const blinkCycle = blinkWarp - Math.floor(blinkWarp);
-  let autoBlink = 0;
-  if (blinkCycle > 0.922) {
-    autoBlink = Math.sin(((blinkCycle - 0.922) / 0.078) * Math.PI);
-  } else if (blinkCycle > 0.822 && blinkCycle < 0.878 && Math.floor(blinkWarp) % 3 === 1) {
-    autoBlink = Math.sin(((blinkCycle - 0.822) / 0.056) * Math.PI) * 0.92;
-  }
+  const autoBlink = evaluateNaturalBlinkCurve(time, 0, 4);
 
   const blink =
     eyeState === 'blink' ? 1 : eyeState === 'half' ? 0.48 : autoBlink;
   const squint =
     eyeState === 'happy' || mood === 'happy'
-      ? 0.52 + (isSpeaking ? Math.max(0, speakCadence) * energy * 0.12 : 0)
+      ? 0.34 + (isSpeaking ? Math.max(0, speakCadence) * energy * 0.12 : 0)
       : eyeState === 'half' || mood === 'focused'
-      ? 0.36
+      ? 0.56
       : viseme === 'ee'
-      ? 0.24
+      ? 0.22
       : isSpeaking
       ? energy * 0.14
       : 0;
   const wide = eyeState === 'wide' || mood === 'alert' ? 0.88 : 0;
 
-  // Dynamic eyebrow micro-expressions (emphasis raises, focused narrows, curious thinking lift)
+  // Dynamic eyebrow micro-expressions (emphasis raises, focused narrows, subtle blink micro-dip)
   let browLift = 0.09 * Math.sin(time * 1.3);
   if (mood === 'alert' || eyeState === 'wide') browLift = 0.72;
   else if (mood === 'thinking') browLift = 0.38 + Math.sin(time * 1.6) * 0.12;
@@ -264,6 +300,7 @@ function getTargetMotionFromParams(
   if (isSpeaking) {
     browLift += Math.max(0, Math.sin(time * 3.8)) * (0.12 + energy * 0.46);
   }
+  browLift -= blink * 0.18;
   browLift = clamp(browLift, -0.45, 1.0);
 
   // Mouth targets mapped to the 10-viseme Talking Reference sheet
@@ -515,8 +552,8 @@ export function createPortraitAnimator() {
 
       const target = getTargetMotionFromParams(params as PortraitParams, lookTarget);
 
-      // Asymmetric crisp blink: fast close (rate 38), graceful open (rate 18)
-      const blinkRate = target.blink > state.blink ? 38 : 18;
+      // Asymmetric crisp blink: fast snap-close (rate 52), graceful lid lift (rate 22)
+      const blinkRate = target.blink > state.blink ? 52 : 22;
       state.blink = expApproach(state.blink, target.blink, blinkRate, clampedDt);
       state.squint = expApproach(state.squint, target.squint, 10, clampedDt);
       state.wide = expApproach(state.wide, target.wide, 14, clampedDt);
@@ -725,12 +762,17 @@ export interface ReferencePoseBlend {
   mouthBlend: number;
   eyeIndex: number;
   eyeBlend: number;
+  eyeHalfIndex: number;
+  eyeHalfWeight: number;
+  eyeClosedIndex: number;
+  eyeClosedWeight: number;
+  blinkAmount: number;
 }
 
 /**
  * Maps continuous facial motion state + phoneme viseme onto smooth crossfade indices
  * across the 12-panel reference sprite sheet (panels 01..12 mapped to indices 0..11),
- * decoupling mouth articulation from co-articulated blinking and half-lid micro-acting.
+ * decoupling mouth articulation from continuous 3-stage blinking (open -> half-lid -> closed).
  */
 export function resolveReferencePoseBlend(
   motion: PortraitMotionState,
@@ -797,19 +839,27 @@ export function resolveReferencePoseBlend(
     mouthBlend = clamp01((open - 0.56) / 0.36);
   }
 
-  // Co-articulated eye blink & half-lid expression overlay from panels 05, 06, 07, 11
+  // Continuous 3-stage eye blink & half-lid expression overlay from panels 05, 06, 07, 11
+  const eyeHalfIndex = open > 0.52 ? 4 : 6;
+  const eyeClosedIndex = smileAmt > 0.45 || mood === 'happy' ? 10 : 5;
+
+  // Focused squint gently engages half-lid only when genuinely focused/half-lidded (never default happy)
+  const focusedSquint = mood === 'focused' ? clamp01((motion.squint - 0.36) * 2.2) : 0;
+  const effBlink = Math.max(blinkAmt, focusedSquint * 0.52);
+
+  // Smooth tent + S-curve weights so open -> half -> closed has zero jump at any threshold
+  const eyeHalfWeight =
+    effBlink <= 0.5
+      ? smoothstep(0.06, 0.48, effBlink)
+      : 1 - smoothstep(0.46, 0.86, effBlink);
+  const eyeClosedWeight = smoothstep(0.42, 0.88, effBlink);
+
   let eyeIndex = mouthIndexB;
-  let eyeBlend = 0;
-  if (blinkAmt > 0.64) {
-    // Full calm blink (06 -> idx 5) or warm blink (11 -> idx 10)
-    eyeIndex = smileAmt > 0.45 || mood === 'happy' ? 10 : 5;
-    eyeBlend = smoothstep(0.54, 0.90, blinkAmt);
-  } else if (blinkAmt > 0.16 || motion.squint > 0.40) {
-    // Half-lidded blinks drawn in panels 05 (heavy peak, idx 4) & 07 (calm mid, idx 6)
-    eyeIndex = open > 0.52 ? 4 : 6;
-    eyeBlend = clamp01(
-      Math.max(smoothstep(0.14, 0.54, blinkAmt), (motion.squint - 0.35) * 0.72)
-    );
+  let eyeBlend = clamp01(eyeHalfWeight + eyeClosedWeight);
+  if (eyeClosedWeight >= eyeHalfWeight && eyeClosedWeight > 0.04) {
+    eyeIndex = eyeClosedIndex;
+  } else if (eyeHalfWeight > 0.04) {
+    eyeIndex = eyeHalfIndex;
   } else if (isSpeaking && open > 0.50) {
     // Smoothly ramped engaged wide eyes during vocal emphasis (04 -> idx 3)
     eyeIndex = 3;
@@ -822,6 +872,11 @@ export function resolveReferencePoseBlend(
     mouthBlend: clamp01(mouthBlend),
     eyeIndex,
     eyeBlend: clamp01(eyeBlend),
+    eyeHalfIndex,
+    eyeHalfWeight: clamp01(eyeHalfWeight),
+    eyeClosedIndex,
+    eyeClosedWeight: clamp01(eyeClosedWeight),
+    blinkAmount: blinkAmt,
   };
 }
 
@@ -1790,14 +1845,76 @@ function sampleSpriteBankWithExpression(
     }
   }
 
-  // Co-articulated upper eye/brow band blend from dedicated blink/half-lid panel (05, 06, 07, 11)
-  if (pose.eyeBlend > 0.02 && ax >= 0.14 && ax <= 0.56 && ay >= 0.30 && ay <= 0.52) {
-    const eyeField = bank[clamp(pose.eyeIndex, 0, bank.length - 1)];
-    const exMask = smoothstep(0.14, 0.19, ax) * (1 - smoothstep(0.50, 0.56, ax));
-    const eyMask = smoothstep(0.30, 0.34, ay) * (1 - smoothstep(0.47, 0.52, ay));
-    const eBlend = exMask * eyMask * pose.eyeBlend;
-    if (eBlend > 0.01) {
-      lum = lerp(lum, sampleLum(eyeField), eBlend);
+  // Co-articulated upper eye/brow band: continuous 3-stage blend (open -> half-lid -> closed)
+  // aligned to actual eye socket coordinates (ay ~ 0.43..0.53) using real closed-eye skin luminance.
+  if ((pose.eyeBlend > 0.015 || pose.blinkAmount > 0.04) && ax >= 0.16 && ax <= 0.53 && ay >= 0.38 && ay <= 0.55) {
+    const exMask = smoothstep(0.16, 0.20, ax) * (1 - smoothstep(0.48, 0.53, ax));
+    const eyMask = smoothstep(0.38, 0.415, ay) * (1 - smoothstep(0.515, 0.55, ay));
+    const socketMask = exMask * eyMask;
+
+    if (socketMask > 0.01) {
+      let targetEyeLum = lum;
+      if (pose.eyeHalfWeight > 0.01 || pose.eyeClosedWeight > 0.01) {
+        const halfField = bank[clamp(pose.eyeHalfIndex, 0, bank.length - 1)];
+        const closedField = bank[clamp(pose.eyeClosedIndex, 0, bank.length - 1)];
+        const halfLum = sampleLum(halfField);
+        const closedLum = sampleLum(closedField);
+
+        const totalBlinkW = clamp01(pose.eyeHalfWeight + pose.eyeClosedWeight);
+        const stageMix =
+          totalBlinkW > 0.001
+            ? lerp(halfLum, closedLum, pose.eyeClosedWeight / totalBlinkW)
+            : lum;
+        targetEyeLum = lerp(lum, stageMix, totalBlinkW);
+
+        // Anatomical upper-lid wipe: gently clear upper open-pupil remnants using real closed-eye skin tone
+        // (strictly gated on closedLum > 0.34 so dark bangs/brows are never painted over)
+        const blink = pose.blinkAmount;
+        if (blink > 0.12 && closedLum > 0.34) {
+          const inEyeXL = 1 - smoothstep(0.026, 0.044, Math.abs(ax - 0.246));
+          const inEyeXR = 1 - smoothstep(0.045, 0.068, Math.abs(ax - 0.415));
+          const lidSweepL = lerp(0.452, 0.512, smoothstep(0.10, 0.88, blink));
+          const lidSweepR = lerp(0.442, 0.506, smoothstep(0.10, 0.88, blink));
+
+          if (inEyeXL > 0.02 && ay > 0.436 && ay < lidSweepL - 0.004) {
+            const clearMask =
+              inEyeXL *
+              smoothstep(0.436, 0.448, ay) *
+              (1 - smoothstep(lidSweepL - 0.012, lidSweepL - 0.003, ay)) *
+              smoothstep(0.12, 0.44, blink) *
+              (1 - pose.eyeClosedWeight * 0.78);
+            targetEyeLum = lerp(targetEyeLum, closedLum, clearMask * 0.85);
+          }
+          if (inEyeXR > 0.02 && ay > 0.428 && ay < lidSweepR - 0.004) {
+            const clearMask =
+              inEyeXR *
+              smoothstep(0.428, 0.440, ay) *
+              (1 - smoothstep(lidSweepR - 0.012, lidSweepR - 0.003, ay)) *
+              smoothstep(0.12, 0.44, blink) *
+              (1 - pose.eyeClosedWeight * 0.78);
+            targetEyeLum = lerp(targetEyeLum, closedLum, clearMask * 0.85);
+          }
+
+          // Subtle descending upper-lash curve during mid-transition
+          const midTransition = Math.sin(clamp01(blink) * Math.PI);
+          if (midTransition > 0.22) {
+            const arcL = -(((ax - 0.246) / 0.032) ** 2) * lerp(-0.002, 0.005, blink);
+            const arcR = -(((ax - 0.415) / 0.056) ** 2) * lerp(-0.002, 0.006, blink);
+            const dLashL = sdCapsule2(ax, ay + arcL, 0.214, lidSweepL, 0.278, lidSweepL - 0.002, 0.0036);
+            const dLashR = sdCapsule2(ax, ay + arcR, 0.365, lidSweepR + 0.001, 0.460, lidSweepR - 0.003, 0.0044);
+            const dLash = Math.min(dLashL, dLashR);
+            if (dLash < 0.006) {
+              const lMask = (1 - smoothstep(-0.002, 0.004, dLash)) * midTransition * 0.65;
+              targetEyeLum = lerp(targetEyeLum, 0.02, lMask);
+            }
+          }
+        }
+      } else if (pose.eyeBlend > 0.01) {
+        const eyeField = bank[clamp(pose.eyeIndex, 0, bank.length - 1)];
+        targetEyeLum = lerp(lum, sampleLum(eyeField), pose.eyeBlend);
+      }
+
+      lum = lerp(lum, targetEyeLum, socketMask);
     }
   }
 

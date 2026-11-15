@@ -4,6 +4,7 @@ import {
   buildPortraitBankFromSpriteSheet,
   buildPortraitSourceFromRgba,
   createPortraitAnimator,
+  evaluateNaturalBlinkCurve,
   renderHalftonePortrait,
   resolveReferencePoseBlend,
   samplePortraitLuminance,
@@ -490,6 +491,75 @@ test('createPortraitAnimator triggerImpulse adds tactile nod/brow bounce and idl
     }
   }
   assert.ok(sawBlink, 'Expected quasi-periodic idle cadence to produce natural blink over ~6s');
+});
+
+test('evaluateNaturalBlinkCurve produces full closed dwell, asymmetric close/open timing, and double-blinks', () => {
+  const dt = 0.005;
+  const samples: number[] = [];
+  for (let i = 0; i <= 3200; i++) {
+    samples.push(evaluateNaturalBlinkCurve(i * dt, 0, 4));
+  }
+
+  // Must dwell near 1.0 across multiple 5ms samples (closed eyes actually hold)
+  const dwellCount = samples.filter((v) => v >= 0.99).length;
+  assert.ok(dwellCount >= 12, `Expected >= 12 dwell samples at 5ms step, got ${dwellCount}`);
+
+  // Extract first primary blink segment to verify closing is faster than opening
+  const firstStart = samples.findIndex((v) => v > 0.01);
+  assert.ok(firstStart >= 0, 'Expected a blink within 16s');
+  let peakIdx = firstStart;
+  while (peakIdx < samples.length && samples[peakIdx] < 0.99) peakIdx++;
+  let dwellEnd = peakIdx;
+  while (dwellEnd < samples.length && samples[dwellEnd] >= 0.99) dwellEnd++;
+  let closeEnd = dwellEnd;
+  while (closeEnd < samples.length && samples[closeEnd] > 0.01) closeEnd++;
+
+  const closeSteps = peakIdx - firstStart;
+  const openSteps = closeEnd - dwellEnd;
+  assert.ok(
+    openSteps > closeSteps * 1.3,
+    `Expected asymmetric blink (opening ${openSteps} steps > closing ${closeSteps} steps)`
+  );
+
+  // Count distinct blink peaks over 16s (should include at least one double-blink pair)
+  let peaks = 0;
+  let inBlink = false;
+  for (const v of samples) {
+    if (!inBlink && v > 0.5) {
+      peaks++;
+      inBlink = true;
+    } else if (inBlink && v < 0.1) {
+      inBlink = false;
+    }
+  }
+  assert.ok(peaks >= 4, `Expected multiple natural blinks including double-blink over 16s, got ${peaks}`);
+});
+
+test('resolveReferencePoseBlend avoids happy-mood half-lid ghosting and smoothly blends 3-stage blink without 0.64 snap', () => {
+  const base = createPortraitAnimator().step(
+    { time: 0, mood: 'happy', viseme: 'closed', eyeState: 'open', energy: 0.05, isSpeaking: false, isListening: false },
+    0.016
+  );
+
+  const restHappy = resolveReferencePoseBlend({ ...base, blink: 0, squint: 0.34 }, 'closed', 'happy', false);
+  assert.equal(restHappy.eyeHalfWeight, 0, 'Happy mood at rest must not ghost half-lid panel');
+  assert.equal(restHappy.eyeClosedWeight, 0, 'Happy mood at rest must not ghost closed panel');
+
+  const focusedRest = resolveReferencePoseBlend({ ...base, blink: 0, squint: 0.56 }, 'closed', 'focused', false);
+  assert.ok(focusedRest.eyeHalfWeight > 0.25, 'Focused mood should retain subtle half-lid squint');
+
+  // Continuity check across blink = 0.2 .. 1.0 (especially around 0.60..0.70)
+  const b60 = resolveReferencePoseBlend({ ...base, blink: 0.60, squint: 0 }, 'closed', 'neutral', false);
+  const b65 = resolveReferencePoseBlend({ ...base, blink: 0.65, squint: 0 }, 'closed', 'neutral', false);
+  const b100 = resolveReferencePoseBlend({ ...base, blink: 1.0, squint: 0 }, 'closed', 'neutral', false);
+
+  const total60 = b60.eyeHalfWeight + b60.eyeClosedWeight;
+  const total65 = b65.eyeHalfWeight + b65.eyeClosedWeight;
+  assert.ok(
+    Math.abs(total65 - total60) < 0.15 && b65.eyeClosedWeight >= b60.eyeClosedWeight,
+    `Expected continuous half->closed handoff across 0.60->0.65 (half=${b60.eyeHalfWeight}->${b65.eyeHalfWeight}, closed=${b60.eyeClosedWeight}->${b65.eyeClosedWeight})`
+  );
+  assert.ok(b100.eyeClosedWeight > 0.95 && b100.eyeHalfWeight < 0.05, 'Full blink should settle cleanly on closed eye panel');
 });
 
 

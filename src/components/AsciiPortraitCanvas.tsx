@@ -4,6 +4,7 @@ import {
   buildPortraitBankFromSpriteSheet,
   buildPortraitSourceFromRgba,
   createPortraitAnimator,
+  evaluateNaturalBlinkCurve,
   renderHalftonePortrait,
   type LookTarget,
   type PortraitSourceField,
@@ -238,6 +239,7 @@ export function AsciiPortraitCanvas({
   );
   const animatorRef = useRef<ReturnType<typeof createPortraitAnimator> | null>(null);
   const isHoveredRef = useRef(false);
+  const isBlinkingRef = useRef(false);
 
   const stateRef = useRef({
     mood,
@@ -339,7 +341,7 @@ export function AsciiPortraitCanvas({
       const s = stateRef.current;
       const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
       const speed = Math.max(0.25, Math.min(2.0, s.speedScale || 1));
-      const rawDt = Math.min(0.06, Math.max(0.008, (now - lastDraw) / 1000));
+      const rawDt = Math.min(0.16, Math.max(0.008, (now - lastDraw) / 1000));
       const dt = isReduced ? rawDt : rawDt * speed;
       lastDraw = now;
       if (!isReduced) {
@@ -385,6 +387,11 @@ export function AsciiPortraitCanvas({
               isReduced,
               activeLook
             );
+
+        if (!isThumb) {
+          isBlinkingRef.current = Boolean(motion && motion.blink > 0.015);
+          canvas.dataset.blink = motion ? motion.blink.toFixed(2) : '0.00';
+        }
 
         const portraitFrame = renderHalftonePortrait({
           cols,
@@ -503,6 +510,7 @@ export function AsciiPortraitCanvas({
           ? (now - readyAtMsRef.current) / 1000
           : 10;
       const isMaterializing = readyElapsed < 1.25;
+      const blinkLookahead = evaluateNaturalBlinkCurve(elapsedPhase + 0.08, 0, 4) > 0.01;
       const activeMotion =
         s.status !== 'ready' ||
         isMaterializing ||
@@ -510,9 +518,11 @@ export function AsciiPortraitCanvas({
         s.isListening ||
         s.mood === 'thinking' ||
         isHoveredRef.current ||
-        activeLook !== null;
+        activeLook !== null ||
+        isBlinkingRef.current ||
+        blinkLookahead;
 
-      // Smooth VSync cadence (~60fps active/materializing/hover/look, ~30fps calm idle)
+      // Smooth VSync cadence (~60fps active/blinking/materializing/hover/look, ~30fps calm idle)
       const minIntervalMs = isReduced ? 220 : activeMotion ? 14 : 30;
       if (now - lastDraw >= minIntervalMs) {
         drawFrame(now);

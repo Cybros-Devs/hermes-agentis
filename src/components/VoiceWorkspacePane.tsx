@@ -27,12 +27,13 @@ import type {
   Channel,
   ChannelId,
   ExpressionMood,
+  EyeState,
   HermesAgentSession,
   HermesGatewayStatus,
   TerminalEntry,
   VoiceState,
 } from '../types/hermes';
-import { amplitudeToViseme, resolveEyeState } from '../utils/asciiCharacter';
+import { amplitudeToViseme } from '../utils/asciiCharacter';
 import type { LookTarget } from '../utils/asciiPortraitEngine';
 import type { PortraitAssetStatus } from '../utils/portraitLoadingEngine';
 import type { BrailleShapeKind, BrailleShapeTint } from '../utils/brailleShapesEngine';
@@ -333,10 +334,16 @@ export function VoiceWorkspacePane({
     [voiceState.outputLevel, effectiveMood, tick, activeIsSpeaking, voiceState.frequencyBands, lastSpokenLine]
   );
 
-  const eyeState = useMemo(
-    () => resolveEyeState(effectiveMood, tick, activeIsSpeaking),
-    [effectiveMood, tick, activeIsSpeaking]
-  );
+  const portraitEyeState: EyeState =
+    effectiveMood === 'alert'
+      ? 'wide'
+      : effectiveMood === 'thinking'
+      ? 'side'
+      : effectiveMood === 'focused'
+      ? 'half'
+      : effectiveMood === 'happy'
+      ? 'happy'
+      : 'open';
 
   const energy = activeIsSpeaking
     ? voiceState.outputLevel
@@ -627,7 +634,7 @@ export function VoiceWorkspacePane({
                   variant="stage"
                   mood={effectiveMood}
                   viseme={viseme}
-                  eyeState={eyeState}
+                  eyeState={portraitEyeState}
                   energy={energy}
                   isSpeaking={activeIsSpeaking}
                   isListening={voiceState.isListening}
@@ -764,7 +771,7 @@ export function VoiceWorkspacePane({
                 variant="hero"
                 mood={effectiveMood}
                 viseme={viseme}
-                eyeState={eyeState}
+                eyeState={portraitEyeState}
                 energy={energy}
                 isSpeaking={activeIsSpeaking}
                 isListening={voiceState.isListening}
@@ -821,7 +828,7 @@ export function VoiceWorkspacePane({
                     variant="hero"
                     mood={effectiveMood}
                     viseme={viseme}
-                    eyeState={eyeState}
+                    eyeState={portraitEyeState}
                     energy={energy}
                     isSpeaking={activeIsSpeaking}
                     isListening={voiceState.isListening}

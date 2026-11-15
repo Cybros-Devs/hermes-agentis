@@ -1,4 +1,5 @@
 import type { ExpressionMood, EyeState, MouthViseme } from '../types/hermes';
+import { evaluateNaturalBlinkCurve } from './asciiPortraitEngine';
 import {
   NEUTRAL_IDLE_POSE,
   evaluateIdleActionStep,
@@ -369,15 +370,8 @@ export function createBrailleShapeAnimator() {
       const idle = evaluateIdleActionStep(setId, offsetTime, suppressIdle);
       const idlePose = idle.pose;
 
-      // Quasi-periodic asymmetric natural blink (~3.9s–4.5s cadence with occasional double-blink)
-      const jitterTime = offsetTime + 0.16 * Math.sin(offsetTime * 0.43 + phase * 0.7);
-      const cyclePos = ((jitterTime / 4.2) % 1 + 1) % 1;
-      let targetBlink = 0;
-      if (cyclePos > 0.915) {
-        targetBlink = Math.sin(((cyclePos - 0.915) / 0.085) * Math.PI);
-      } else if (cyclePos > 0.815 && cyclePos < 0.875 && Math.floor(jitterTime / 4.2) % 3 === 1) {
-        targetBlink = Math.sin(((cyclePos - 0.815) / 0.06) * Math.PI) * 0.9;
-      }
+      // Quasi-periodic asymmetric natural blink (~2.8s–4.4s cadence with closed dwell & occasional double-blink)
+      const targetBlink = evaluateNaturalBlinkCurve(input.time, phase, 3);
 
       const isHovered = Boolean(input.isHovered);
       const targetSquint = clamp01(
@@ -399,8 +393,8 @@ export function createBrailleShapeAnimator() {
           idlePose.wideEyes * 0.55
       );
 
-      // Asymmetric fast lid close (rate 36) / graceful lid lift (rate 15)
-      const blinkRate = targetBlink > state.blink ? 36 : 15;
+      // Asymmetric fast lid close (rate 50) / graceful lid lift (rate 20)
+      const blinkRate = targetBlink > state.blink ? 50 : 20;
       state.blink = expApproach(state.blink, targetBlink, blinkRate, clampedDt);
       state.squint = expApproach(state.squint, targetSquint, 10, clampedDt);
       state.wide = expApproach(state.wide, targetWide, 12, clampedDt);
@@ -1663,21 +1657,26 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
 
       // Expressive 3/4 Anime Facial Details inside Face & Eye Zone
       if (dFace < 0.05) {
-        // 1. Expressive Arched Manga Eyebrows
+        // 1. Expressive Arched Manga Eyebrows with subtle blink micro-dip
         const browRaise = mood === 'alert' ? -0.022 : mood === 'thinking' ? -0.014 : 0;
         const browTiltL = mood === 'focused' ? 0.014 : mood === 'thinking' ? -0.012 : 0;
         const browTiltR = mood === 'focused' ? -0.014 : 0;
-        const browY = eyeY - eyeRy * 1.38 + browRaise;
-        if (ny > browY - 0.030 && ny < browY + 0.030) {
-          const browDL = sdCapsule(nx, ny, leftEyeX - leftEyeRx * 0.92, browY + 0.008, leftEyeX + leftEyeRx * 0.88, browY + browTiltL, 0.011);
-          const browDR = sdCapsule(nx, ny, rightEyeX - rightEyeRx * 0.88, browY + browTiltR, rightEyeX + rightEyeRx * 0.92, browY + 0.008, 0.011);
+        const blinkDipL = clamp01(Math.max(blinkAmt, pose.blinkLeft)) * eyeRy * 0.14;
+        const blinkDipR = clamp01(Math.max(blinkAmt, pose.blinkRight)) * eyeRy * 0.14;
+        const browYL = eyeY - eyeRy * 1.38 + browRaise + blinkDipL;
+        const browYR = eyeY - eyeRy * 1.38 + browRaise + blinkDipR;
+        const browYMin = Math.min(browYL, browYR);
+        const browYMax = Math.max(browYL, browYR);
+        if (ny > browYMin - 0.030 && ny < browYMax + 0.032) {
+          const browDL = sdCapsule(nx, ny, leftEyeX - leftEyeRx * 0.92, browYL + 0.008, leftEyeX + leftEyeRx * 0.88, browYL + browTiltL, 0.011);
+          const browDR = sdCapsule(nx, ny, rightEyeX - rightEyeRx * 0.88, browYR + browTiltR, rightEyeX + rightEyeRx * 0.92, browYR + 0.008, 0.011);
           if (browDL < 0 || browDR < 0) {
             lum = 0.05;
           }
         }
 
-        // 2. Almond Anime Eyes with deep dark iris, sharp single catchlight & independent winks
-        if (ny > eyeY - eyeRy * 1.38 && ny < eyeY + eyeRy * 1.42) {
+        // 2. Almond Anime Eyes with continuous upper/lower eyelid sweep, catchlight & independent winks
+        if (ny > eyeY - eyeRy * 1.38 && ny < eyeY + eyeRy * 1.48) {
           const dxL = nx - leftEyeX;
           const dxR = nx - rightEyeX;
           const isLeft = Math.abs(dxL) < Math.abs(dxR);
@@ -1688,62 +1687,71 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
           const dyEye = ny - eyeY;
 
           const eyeBlink = clamp01(Math.max(blinkAmt, isLeft ? pose.blinkLeft : pose.blinkRight));
-          const isHappyArc =
-            (eyeState === 'happy' && !isSpeaking && eyeBlink < 0.15) ||
-            (pose.happyEyes > 0.40 && eyeBlink < 0.25);
+          const wantsHappyArc =
+            (eyeState === 'happy' && !isSpeaking) || pose.happyEyes > 0.40;
+          const happyArcBlend = wantsHappyArc ? 1 - smoothstep(0.06, 0.48, eyeBlink) : 0;
 
-          if (eyeBlink > 0.80) {
-            // Bowed closed anime eyelash arch + outer corner flick
-            const archY = eyeY + 0.018 - nearestDx * nearestDx * 2.1;
-            const dClosed = sdCapsule(nx, ny, nearestEyeX - rx * 1.05, archY, nearestEyeX + rx * 1.05, archY, 0.018);
-            const dWing = sdCapsule(nx, ny, nearestEyeX + outerDir * rx, archY, nearestEyeX + outerDir * rx * 1.28, archY - 0.018, 0.013);
-            if (dClosed < 0 || dWing < 0) lum = 0.03;
-          } else if (isHappyArc) {
-            // Cheerful upward anime ^ ^ happy arc
-            const happyY = eyeY + 0.012 + nearestDx * nearestDx * 3.4;
-            if (Math.abs(nearestDx) < rx * 1.08 && Math.abs(ny - happyY) < 0.020) {
-              lum = 0.03;
-            }
-          } else {
-            const effectiveClose = Math.max(eyeBlink, squintAmt * 0.54);
-            const lidCurve = (nearestDx / rx) * (nearestDx / rx) * eyeRy * lerp(0.55, 0.25, effectiveClose);
-            const lidY = lerp(eyeY - eyeRy * 0.72, eyeY + 0.016, effectiveClose) + lidCurve;
+          const effectiveClose = clamp01(Math.max(eyeBlink, squintAmt * 0.54));
+          const closeMorph = smoothstep(0.42, 0.96, eyeBlink);
+          const normDx = nearestDx / rx;
+          const openLidCurve = normDx * normDx * eyeRy * lerp(0.55, 0.08, effectiveClose);
+          const closedArchCurve = -normDx * normDx * eyeRy * 0.36;
+          const lidCurve = lerp(openLidCurve, closedArchCurve, closeMorph);
+          const standardLidY = lerp(eyeY - eyeRy * 0.72, eyeY + 0.018, effectiveClose) + lidCurve;
+          const happyLidY = eyeY + 0.012 + nearestDx * nearestDx * 3.4;
+          const lidY = lerp(standardLidY, happyLidY, happyArcBlend);
 
-            const lashThick = lerp(0.025, 0.020, effectiveClose);
-            const outerWing =
-              nearestDx * outerDir > rx * 0.72 &&
-              nearestDx * outerDir < rx * 1.36 &&
-              Math.abs(ny - (lidY - (nearestDx * outerDir - rx * 0.72) * 0.35)) < 0.015;
+          const lowerClose = smoothstep(0.32, 0.98, eyeBlink);
+          const lowerLidY =
+            lerp(eyeY + eyeRy * 0.98, eyeY + 0.022, lowerClose) -
+            normDx * normDx * eyeRy * 0.20 * (1 - lowerClose * 0.45);
 
-            if ((Math.abs(nearestDx) < rx * 1.18 && Math.abs(ny - lidY) < lashThick) || outerWing) {
-              lum = 0.02;
-            } else if (ny > lidY) {
-              const ix = nearestDx / rx;
+          const lashThick = lerp(0.026, 0.032, Math.max(effectiveClose * 0.7, closeMorph));
+          const wingAngle = lerp(0.35, 0.26, closeMorph);
+          const outerWing =
+            happyArcBlend < 0.5 &&
+            nearestDx * outerDir > rx * 0.72 &&
+            nearestDx * outerDir < rx * lerp(1.36, 1.30, closeMorph) &&
+            Math.abs(ny - (lidY - (nearestDx * outerDir - rx * 0.72) * wingAngle)) < lerp(0.016, 0.022, closeMorph);
+
+          if ((Math.abs(nearestDx) < rx * lerp(1.18, 1.08, closeMorph) && Math.abs(ny - lidY) < lashThick) || outerWing) {
+            lum = 0.015;
+          } else if (happyArcBlend < 0.72 && ny > lidY && ny < lowerLidY) {
+            const openVis = (1 - smoothstep(0.84, 0.98, eyeBlink)) * (1 - happyArcBlend);
+            if (openVis > 0.02) {
+              const ix = normDx;
               const iy = dyEye / eyeRy;
               const eyeBallSq = ix * ix + iy * iy;
               if (eyeBallSq < 1.0) {
                 // Deep dark anime iris (80% width) + crisp upper-left catchlight dot + clean sclera contrast
                 const irisX = (nearestDx - gx * 0.35) / (rx * 0.80);
                 const irisY = (dyEye - gy * 0.25) / (eyeRy * 0.88);
+                let eyeLum: number;
                 if (irisX * irisX + irisY * irisY < 1.0) {
                   const g1x = nx - (nearestEyeX - rx * 0.24 + gx * 0.4);
                   const g1y = ny - (eyeY - eyeRy * 0.20 + gy * 0.4);
                   const r1 = rx * 0.21;
                   if (g1x * g1x + g1y * g1y < r1 * r1) {
-                    lum = 1.0;
+                    eyeLum = 1.0;
                   } else if (dyEye > eyeRy * 0.48 && Math.abs(nearestDx) < rx * 0.40) {
-                    lum = 0.36; // Subtle lower iris sheen
+                    eyeLum = 0.36; // Subtle lower iris sheen
                   } else {
-                    lum = 0.02;
+                    eyeLum = 0.02;
                   }
                 } else {
-                  lum = 0.92; // Clean sclera corner highlight
+                  eyeLum = 0.92; // Clean sclera corner highlight
                 }
-              } else if (Math.abs(nearestDx) < rx * 0.78 && Math.abs(ny - (eyeY + eyeRy * 0.98)) < 0.012) {
-                // Delicate lower lash anchor
-                lum = 0.10;
+                lum = lerp(lum, eyeLum, openVis);
               }
             }
+          } else if (
+            happyArcBlend < 0.35 &&
+            lowerClose < 0.90 &&
+            Math.abs(nearestDx) < rx * 0.78 &&
+            Math.abs(ny - lowerLidY) < 0.012
+          ) {
+            // Delicate lower lash anchor rising subtly until eyelids meet
+            lum = lerp(lum, 0.10, (1 - lowerClose) * (1 - happyArcBlend));
           }
         }
 

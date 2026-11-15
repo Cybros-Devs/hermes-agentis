@@ -269,4 +269,82 @@ test('createBrailleShapeAnimator steps through 6 separated idle actions and rend
   }
 });
 
+test('braille shape blinking reaches full closure dwell and morphs continuously across 0.79->0.82 without snapping', () => {
+  const anim = createBrailleShapeAnimator();
+  let peakBlink = 0;
+  for (let i = 0; i < 160; i++) {
+    const st = anim.step(
+      {
+        shape: 'clover',
+        time: i / 30,
+        mood: 'happy',
+        eyeStyle: 'open',
+        viseme: 'closed',
+        energy: 0.08,
+        isSpeaking: false,
+        isThinking: false,
+        isDragging: false,
+      },
+      1 / 30
+    );
+    peakBlink = Math.max(peakBlink, st.blink);
+  }
+  assert.ok(peakBlink >= 0.95, `Expected braille shape blink to reach >= 0.95 full closure, got ${peakBlink}`);
+
+  const baseMotion = anim.step(
+    {
+      shape: 'clover',
+      time: 0.2,
+      mood: 'neutral',
+      eyeStyle: 'open',
+      viseme: 'closed',
+      energy: 0.08,
+      isSpeaking: false,
+      isThinking: false,
+      isDragging: false,
+    },
+    1 / 30
+  );
+
+  const countDiffs = (a: string, b: string): number => {
+    let diff = 0;
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i] !== b[i]) diff++;
+    }
+    return diff;
+  };
+
+  const renderAtBlink = (b: number, eyeState: 'open' | 'happy' = 'open') =>
+    renderBrailleShape({
+      shape: 'clover',
+      cols: 46,
+      rows: 26,
+      time: 0.2,
+      mood: 'neutral',
+      eyeState,
+      motion: { ...baseMotion, blink: b, squint: 0 },
+    }).lines.join('\n');
+
+  const fOpen = renderAtBlink(0);
+  const fMid = renderAtBlink(0.5);
+  const f79 = renderAtBlink(0.79);
+  const f82 = renderAtBlink(0.82);
+  const fClosed = renderAtBlink(1.0);
+
+  assert.notEqual(fOpen, fMid, 'Mid-blink must differ from open');
+  assert.notEqual(fMid, fClosed, 'Closed blink must differ from mid-blink');
+  const diff79to82 = countDiffs(f79, f82);
+  const diffOpenToClosed = countDiffs(fOpen, fClosed);
+  assert.ok(
+    diff79to82 <= Math.max(14, Math.floor(diffOpenToClosed * 0.32)),
+    `Expected smooth continuous morph across 0.79->0.82 without binary snap (diff79to82=${diff79to82}, openToClosed=${diffOpenToClosed})`
+  );
+
+  // Happy ^ ^ arc should also morph smoothly into closed blink
+  const fHappyOpen = renderAtBlink(0, 'happy');
+  const fHappyMid = renderAtBlink(0.35, 'happy');
+  const fHappyClosed = renderAtBlink(1.0, 'happy');
+  assert.notEqual(fHappyOpen, fHappyMid, 'Happy arc should smoothly transition during blink');
+  assert.notEqual(fHappyMid, fHappyClosed, 'Happy arc should reach full closed lash');
+});
 
