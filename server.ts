@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import path from "node:path";
+import { createServer as createHttpServer } from "node:http";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,18 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT || 3000);
+function parseArgFlag(name: string): string | undefined {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === `--${name}` && args[i + 1]) return args[i + 1];
+    if (arg.startsWith(`--${name}=`)) return arg.slice(name.length + 3);
+  }
+  return undefined;
+}
+
+const PORT = Number(parseArgFlag("port") || process.env.PORT || 3000);
+const HOST = parseArgFlag("host") || "0.0.0.0";
 
 const HERMES_API_URL = (process.env.HERMES_API_URL || "http://127.0.0.1:8642").replace(/\/+$/, "");
 const HERMES_API_KEY = process.env.HERMES_API_KEY || "";
@@ -1513,10 +1525,14 @@ async function createServer() {
     });
   });
 
+  const httpServer = createHttpServer(app);
+
+  let vite: { close: () => Promise<void>; middlewares: express.RequestHandler } | null = null;
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
+    const hmrConfig = process.env.DISABLE_HMR === "true" ? false : { server: httpServer };
+    vite = await createViteServer({
+      server: { middlewareMode: true, hmr: hmrConfig },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -1528,9 +1544,18 @@ async function createServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Hermes Duet server running on http://0.0.0.0:${PORT}`);
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`Hermes Duet server running on http://${HOST}:${PORT}`);
   });
+
+  const shutdown = () => {
+    httpServer.close(() => {
+      void vite?.close().finally(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(0), 2000).unref();
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 createServer().catch((err) => {
