@@ -32,10 +32,12 @@ export interface ChannelTaskSummary {
 }
 
 export interface TaskStatusDisplay {
-  label: 'Working' | 'Queued' | 'Paused' | 'Done';
+  label: 'Working' | 'Queued' | 'Waiting' | 'Paused' | 'Done' | 'Failed' | 'Cancelled';
   pulseState: 'thinking' | 'live' | 'idle';
-  tone: 'amber' | 'emerald' | 'slate';
+  tone: 'amber' | 'emerald' | 'slate' | 'rose';
 }
+
+export type TaskConfirmationState = 'confirmed' | 'needs-confirm' | 'open';
 
 /**
  * Formats an elapsed duration between createdAtMs and nowMs into a compact
@@ -72,7 +74,34 @@ export function formatStartClock(createdAtMs: number | undefined): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+export function getTaskKindLabel(task: BackgroundTask): string {
+  if (task.background === false) return 'In chat';
+  return task.kind || 'Background';
+}
+
+export function getTaskConfirmationState(task: BackgroundTask): TaskConfirmationState {
+  if (task.confirmedAtMs) return 'confirmed';
+  if (task.status === 'completed' || task.rawStatus === 'done') {
+    if (task.rawStatus === 'failed' || task.rawStatus === 'cancelled') return 'open';
+    return 'needs-confirm';
+  }
+  return 'open';
+}
+
+export function getTaskConfirmationLabel(task: BackgroundTask): string {
+  const state = getTaskConfirmationState(task);
+  if (state === 'confirmed') return 'Confirmed by you';
+  if (state === 'needs-confirm') return 'Looks done — confirm';
+  return 'Open';
+}
+
 export function getTaskStatusDisplay(task: BackgroundTask): TaskStatusDisplay {
+  if (task.rawStatus === 'failed') {
+    return { label: 'Failed', pulseState: 'idle', tone: 'rose' };
+  }
+  if (task.rawStatus === 'cancelled') {
+    return { label: 'Cancelled', pulseState: 'idle', tone: 'slate' };
+  }
   if (task.status === 'running') {
     if (task.rawStatus === 'queued') {
       return { label: 'Queued', pulseState: 'thinking', tone: 'amber' };
@@ -80,6 +109,9 @@ export function getTaskStatusDisplay(task: BackgroundTask): TaskStatusDisplay {
     return { label: 'Working', pulseState: 'thinking', tone: 'amber' };
   }
   if (task.status === 'paused') {
+    if (task.rawStatus === 'waiting') {
+      return { label: 'Waiting', pulseState: 'idle', tone: 'amber' };
+    }
     return { label: 'Paused', pulseState: 'idle', tone: 'slate' };
   }
   return { label: 'Done', pulseState: 'live', tone: 'emerald' };
@@ -92,7 +124,7 @@ export function getTaskStatusDisplay(task: BackgroundTask): TaskStatusDisplay {
 export function resolveTaskStepBreakdown(task: BackgroundTask): TaskStepBreakdown {
   const rawSteps = task.steps ?? [];
   if (rawSteps.length > 0) {
-    if (task.status === 'completed') {
+    if (task.status === 'completed' && task.rawStatus !== 'failed' && task.rawStatus !== 'cancelled') {
       const steps: ResolvedTaskStep[] = rawSteps.map((s) => ({
         text: s.text,
         state: 'done',
@@ -112,7 +144,9 @@ export function resolveTaskStepBreakdown(task: BackgroundTask): TaskStepBreakdow
 
     const steps: ResolvedTaskStep[] = rawSteps.map((s, idx) => {
       if (s.done) return { text: s.text, state: 'done' };
-      if (idx === activeIdx) return { text: s.text, state: 'active' };
+      if (idx === activeIdx && task.rawStatus !== 'cancelled') {
+        return { text: s.text, state: 'active' };
+      }
       return { text: s.text, state: 'pending' };
     });
 
@@ -152,7 +186,8 @@ export function resolveTaskStepBreakdown(task: BackgroundTask): TaskStepBreakdow
 
 /**
  * Strictly scopes tasks to the given thread/channel category and orders them
- * with active running tasks first, followed by paused, then completed.
+ * with active running tasks first, followed by paused/waiting, then completed
+ * (unconfirmed "needs-confirm" before confirmed).
  */
 export function partitionChannelTasks(
   tasks: BackgroundTask[],
@@ -164,7 +199,14 @@ export function partitionChannelTasks(
 
   const running = scoped.filter((t) => t.status === 'running').sort(byRecency);
   const paused = scoped.filter((t) => t.status === 'paused').sort(byRecency);
-  const completed = scoped.filter((t) => t.status === 'completed').sort(byRecency);
+  const completed = scoped
+    .filter((t) => t.status === 'completed')
+    .sort((a, b) => {
+      const aNeeds = getTaskConfirmationState(a) === 'needs-confirm' ? 0 : 1;
+      const bNeeds = getTaskConfirmationState(b) === 'needs-confirm' ? 0 : 1;
+      if (aNeeds !== bNeeds) return aNeeds - bNeeds;
+      return byRecency(a, b);
+    });
 
   return {
     running,

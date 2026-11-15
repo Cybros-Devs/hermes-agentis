@@ -84,6 +84,8 @@ export interface BackgroundTask {
   channelId: ChannelId;
   sessionId?: string;
   kind?: string;
+  background?: boolean;
+  handoverId?: string;
   title: string;
   status: 'running' | 'completed' | 'paused';
   rawStatus?: string;
@@ -92,6 +94,8 @@ export interface BackgroundTask {
   lastStep: string;
   steps?: TaskStepItem[];
   result?: string;
+  agentDoneAtMs?: number;
+  confirmedAtMs?: number;
   createdAtMs?: number;
   updatedAtMs?: number;
   updatedAt: string;

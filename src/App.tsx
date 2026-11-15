@@ -404,6 +404,10 @@ export default function App() {
     resetHermesSession,
     deleteHermesSession,
     actOnCard: duetActOnCard,
+    confirmTask: duetConfirmTask,
+    reopenTask: duetReopenTask,
+    cancelTask: duetCancelTask,
+    steerTask: duetSteerTask,
   } = duet;
 
   useEffect(() => {
@@ -1121,6 +1125,106 @@ export default function App() {
     );
   }, []);
 
+  const handleConfirmTask = useCallback(
+    (id: string) => {
+      const now = Date.now();
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                status: 'completed',
+                rawStatus: 'done',
+                agentDoneAtMs: t.agentDoneAtMs ?? now,
+                confirmedAtMs: now,
+                updatedAtMs: now,
+                updatedAt: nowTime(),
+              }
+            : t
+        )
+      );
+      if (duetConnected) {
+        void duetConfirmTask(id).catch(() => {});
+      }
+    },
+    [duetConfirmTask, duetConnected]
+  );
+
+  const handleReopenTask = useCallback(
+    (id: string) => {
+      const now = Date.now();
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                confirmedAtMs: undefined,
+                status: t.agentDoneAtMs ? 'completed' : 'paused',
+                rawStatus: t.agentDoneAtMs ? 'done' : 'waiting',
+                updatedAtMs: now,
+                updatedAt: nowTime(),
+              }
+            : t
+        )
+      );
+      if (duetConnected) {
+        void duetReopenTask(id).catch(() => {});
+      }
+    },
+    [duetConnected, duetReopenTask]
+  );
+
+  const handleCancelTask = useCallback(
+    (id: string) => {
+      const now = Date.now();
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                status: 'completed',
+                rawStatus: 'cancelled',
+                lastStep: 'Cancelled by operator',
+                updatedAtMs: now,
+                updatedAt: nowTime(),
+              }
+            : t
+        )
+      );
+      if (duetConnected) {
+        void duetCancelTask(id).catch(() => {});
+      }
+    },
+    [duetCancelTask, duetConnected]
+  );
+
+  const handleSteerTask = useCallback(
+    async (id: string, text: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      const now = Date.now();
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t;
+          const nextSteps = [...(t.steps ?? []), { text: `Steer: ${clean}`, done: false }];
+          const doneCount = nextSteps.filter((s) => s.done).length;
+          return {
+            ...t,
+            steps: nextSteps,
+            progressLabel: `${doneCount}/${nextSteps.length}`,
+            progress: Math.round((doneCount / Math.max(1, nextSteps.length)) * 100),
+            updatedAtMs: now,
+            updatedAt: nowTime(),
+          };
+        })
+      );
+      if (duetConnected) {
+        await duetSteerTask(id, clean).catch(() => {});
+      }
+    },
+    [duetConnected, duetSteerTask]
+  );
+
   const handleRunBriefCommand = useCallback(
     (command: string, briefId: string) => {
       setBrief((prev) =>
@@ -1463,6 +1567,10 @@ export default function App() {
             onRejectCard={handleRejectCard}
             onRunBriefCommand={handleRunBriefCommand}
             onToggleTaskStatus={handleToggleTaskStatus}
+            onConfirmTask={handleConfirmTask}
+            onReopenTask={handleReopenTask}
+            onCancelTask={handleCancelTask}
+            onSteerTask={handleSteerTask}
             onToggleListening={voice.toggleListening}
             onToggleMute={voice.toggleMute}
             onStopSpeaking={() => {

@@ -4,6 +4,9 @@ import type { BackgroundTask } from '../types/hermes';
 import {
   formatElapsedDuration,
   formatStartClock,
+  getTaskConfirmationLabel,
+  getTaskConfirmationState,
+  getTaskKindLabel,
   getTaskStatusDisplay,
   partitionChannelTasks,
   resolveTaskStepBreakdown,
@@ -16,6 +19,7 @@ const SAMPLE_TASKS: BackgroundTask[] = [
     channelId: 'launch',
     sessionId: 'duet-run-409',
     kind: 'Background',
+    background: true,
     title: 'Rebuild standing morning-brief.html (save_page)',
     status: 'running',
     progress: 67,
@@ -38,8 +42,10 @@ const SAMPLE_TASKS: BackgroundTask[] = [
     channelId: 'research',
     title: 'Index ~/.hermes/skills/ & MCP connectors',
     status: 'completed',
+    rawStatus: 'done',
     progress: 100,
     lastStep: 'Synced 4 skills',
+    agentDoneAtMs: 1_699_999_900_000,
     createdAtMs: 1_699_999_000_000,
     updatedAtMs: 1_699_999_900_000,
     updatedAt: '13:45',
@@ -53,6 +59,7 @@ const SAMPLE_TASKS: BackgroundTask[] = [
     channelId: 'ops',
     title: 'Audit ~/Downloads watcher rule',
     status: 'paused',
+    rawStatus: 'waiting',
     progress: 40,
     lastStep: 'Waiting on confirmation',
     createdAtMs: 1_699_999_500_000,
@@ -108,7 +115,7 @@ test('resolveTaskStepBreakdown marks completed, single active, and pending steps
   assert.equal(fallbackBreakdown.steps[0]?.state, 'active');
 });
 
-test('partitionChannelTasks strictly isolates tasks to their owning thread', () => {
+test('partitionChannelTasks strictly isolates tasks to their owning thread and orders unconfirmed first', () => {
   const launch = partitionChannelTasks(SAMPLE_TASKS, 'launch');
   assert.equal(launch.running.length, 1);
   assert.equal(launch.paused.length, 0);
@@ -121,6 +128,16 @@ test('partitionChannelTasks strictly isolates tasks to their owning thread', () 
   const ops = partitionChannelTasks(SAMPLE_TASKS, 'ops');
   assert.equal(ops.paused.length, 1);
   assert.equal(ops.paused[0]?.id, 'task-103');
+
+  const confirmedOlder: BackgroundTask = {
+    ...SAMPLE_TASKS[1],
+    id: 'task-confirmed',
+    confirmedAtMs: 1_700_000_500_000,
+    updatedAtMs: 1_700_000_500_000,
+  };
+  const researchOrdered = partitionChannelTasks([confirmedOlder, SAMPLE_TASKS[1]], 'research');
+  assert.equal(researchOrdered.completed[0]?.id, 'task-102');
+  assert.equal(researchOrdered.completed[1]?.id, 'task-confirmed');
 });
 
 test('summarizeChannelTaskActivity highlights active threads for sidebar indicators', () => {
@@ -146,12 +163,36 @@ test('summarizeChannelTaskActivity highlights active threads for sidebar indicat
   assert.equal(summary.research.hasActiveTask, false);
 });
 
-test('getTaskStatusDisplay maps task states cleanly', () => {
+test('getTaskStatusDisplay and confirmation helpers align with hermes-duet semantics', () => {
   assert.equal(getTaskStatusDisplay(SAMPLE_TASKS[0]).label, 'Working');
   assert.equal(
     getTaskStatusDisplay({ ...SAMPLE_TASKS[0], rawStatus: 'queued' }).label,
     'Queued'
   );
-  assert.equal(getTaskStatusDisplay(SAMPLE_TASKS[2]).label, 'Paused');
+  assert.equal(getTaskStatusDisplay(SAMPLE_TASKS[2]).label, 'Waiting');
+  assert.equal(getTaskStatusDisplay({ ...SAMPLE_TASKS[2], rawStatus: 'paused' }).label, 'Paused');
   assert.equal(getTaskStatusDisplay(SAMPLE_TASKS[1]).label, 'Done');
+  assert.equal(getTaskStatusDisplay({ ...SAMPLE_TASKS[1], rawStatus: 'failed' }).label, 'Failed');
+  assert.equal(
+    getTaskStatusDisplay({ ...SAMPLE_TASKS[1], rawStatus: 'cancelled' }).label,
+    'Cancelled'
+  );
+
+  assert.equal(getTaskKindLabel(SAMPLE_TASKS[0]), 'Background');
+  assert.equal(getTaskKindLabel({ ...SAMPLE_TASKS[0], background: false }), 'In chat');
+
+  assert.equal(getTaskConfirmationState(SAMPLE_TASKS[0]), 'open');
+  assert.equal(getTaskConfirmationLabel(SAMPLE_TASKS[0]), 'Open');
+
+  assert.equal(getTaskConfirmationState(SAMPLE_TASKS[1]), 'needs-confirm');
+  assert.equal(getTaskConfirmationLabel(SAMPLE_TASKS[1]), 'Looks done — confirm');
+
+  assert.equal(
+    getTaskConfirmationState({ ...SAMPLE_TASKS[1], confirmedAtMs: 1_700_000_000_000 }),
+    'confirmed'
+  );
+  assert.equal(
+    getTaskConfirmationLabel({ ...SAMPLE_TASKS[1], confirmedAtMs: 1_700_000_000_000 }),
+    'Confirmed by you'
+  );
 });

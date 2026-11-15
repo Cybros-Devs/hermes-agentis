@@ -46,11 +46,15 @@ interface DuetTask {
   title: string;
   status: string;
   kind?: string;
+  background?: boolean;
+  handover_id?: string;
   session_id?: string;
   progress?: string;
   steps?: { text: string; done?: boolean }[];
   result?: string;
   channel_id?: string;
+  agent_done_at?: number;
+  confirmed_at?: number;
   created_at: number;
   updated_at?: number;
 }
@@ -208,7 +212,9 @@ function mapTask(t: DuetTask, aliases?: ReadonlyMap<string, string>): Background
     id: t.id,
     channelId: resolvedChannelId,
     sessionId: t.session_id,
-    kind: t.kind ?? 'Background',
+    kind: t.kind ?? (t.background === false ? 'In chat' : 'Background'),
+    background: t.background,
+    handoverId: t.handover_id,
     title: t.title,
     status,
     rawStatus: t.status,
@@ -217,6 +223,8 @@ function mapTask(t: DuetTask, aliases?: ReadonlyMap<string, string>): Background
     lastStep,
     steps: t.steps,
     result: t.result,
+    agentDoneAtMs: t.agent_done_at,
+    confirmedAtMs: t.confirmed_at,
     createdAtMs: t.created_at,
     updatedAtMs: t.updated_at ?? t.created_at,
     updatedAt: hhmm(t.updated_at ?? t.created_at),
@@ -607,6 +615,40 @@ export function useDuet(opts: UseDuetOptions) {
     return res.json();
   }, []);
 
+  const confirmTask = useCallback(async (taskId: string) => {
+    const res = await fetch(`/api/duet/tasks/${encodeURIComponent(taskId)}/confirm`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(`confirm task failed: HTTP ${res.status}`);
+    return (await res.json()) as { ok: boolean; task?: DuetTask };
+  }, []);
+
+  const reopenTask = useCallback(async (taskId: string) => {
+    const res = await fetch(`/api/duet/tasks/${encodeURIComponent(taskId)}/reopen`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(`reopen task failed: HTTP ${res.status}`);
+    return (await res.json()) as { ok: boolean; task?: DuetTask };
+  }, []);
+
+  const cancelTask = useCallback(async (taskId: string) => {
+    const res = await fetch(`/api/duet/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(`cancel task failed: HTTP ${res.status}`);
+    return (await res.json()) as { ok: boolean; task?: DuetTask };
+  }, []);
+
+  const steerTask = useCallback(async (taskId: string, text: string) => {
+    const res = await fetch(`/api/duet/tasks/${encodeURIComponent(taskId)}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`steer task failed: HTTP ${res.status}`);
+    return (await res.json()) as { ok: boolean; task?: DuetTask };
+  }, []);
+
   // Linked mode: derive live dot state from real channels + item stats.
   // Standalone mode keeps the server-tracked sessions untouched.
   const sessionsOut = useMemo<HermesAgentSession[]>(() => {
@@ -648,6 +690,10 @@ export function useDuet(opts: UseDuetOptions) {
       resetHermesSession,
       deleteHermesSession,
       actOnCard,
+      confirmTask,
+      reopenTask,
+      cancelTask,
+      steerTask,
     }),
     [
       initialLoading,
@@ -664,6 +710,10 @@ export function useDuet(opts: UseDuetOptions) {
       resetHermesSession,
       deleteHermesSession,
       actOnCard,
+      confirmTask,
+      reopenTask,
+      cancelTask,
+      steerTask,
     ]
   );
 }

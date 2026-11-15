@@ -333,11 +333,15 @@ interface StandaloneDuetTask {
   title: string;
   status: string;
   kind?: string;
+  background?: boolean;
+  handover_id?: string;
   session_id?: string;
   progress?: string;
   steps?: { text: string; done?: boolean }[];
   result?: string;
   channel_id?: string;
+  agent_done_at?: number;
+  confirmed_at?: number;
   created_at: number;
   updated_at?: number;
 }
@@ -451,6 +455,7 @@ const standaloneTasks: StandaloneDuetTask[] = [
     title: "Rebuild standing morning-brief.html (save_page)",
     status: "running",
     kind: "Background",
+    background: true,
     session_id: "hermes-launch",
     progress: "4/6",
     channel_id: "launch",
@@ -470,9 +475,11 @@ const standaloneTasks: StandaloneDuetTask[] = [
     title: "Index ~/.hermes/skills/ & MCP connectors",
     status: "done",
     kind: "Background",
+    background: true,
     session_id: "hermes-research",
     progress: "3/3",
     channel_id: "research",
+    agent_done_at: standaloneBootTime - 1_920_000,
     created_at: standaloneBootTime - 2_700_000,
     updated_at: standaloneBootTime - 1_920_000,
     steps: [
@@ -486,6 +493,7 @@ const standaloneTasks: StandaloneDuetTask[] = [
     title: "Audit ~/Downloads watcher rule (cronjob_manage)",
     status: "waiting",
     kind: "Cron",
+    background: true,
     session_id: "hermes-ops",
     progress: "2/5",
     channel_id: "ops",
@@ -1323,6 +1331,125 @@ async function createServer() {
     item.updated_at = Date.now();
     broadcastStandaloneEvent({ type: "item", item });
     res.status(200).json({ ok: true, item });
+  });
+
+  // Task lifecycle controls (mirrors hermes-duet /api/tasks/:id/{confirm,reopen,cancel,message})
+  app.post("/api/duet/tasks/:taskId/confirm", async (req, res) => {
+    const taskId = req.params.taskId;
+    try {
+      const r = await duetFetch(`/api/tasks/${encodeURIComponent(taskId)}/confirm`, {
+        method: "POST",
+      });
+      if (r.ok) {
+        res.status(200).json(await r.json());
+        return;
+      }
+    } catch {
+      // Fall through to standalone task confirmation
+    }
+
+    const task = standaloneTasks.find((t) => t.id === taskId);
+    if (!task) {
+      res.status(404).json({ error: "task not found" });
+      return;
+    }
+    const now = Date.now();
+    task.status = "done";
+    task.agent_done_at = task.agent_done_at ?? now;
+    task.confirmed_at = now;
+    task.updated_at = now;
+    broadcastStandaloneEvent({ type: "task", task });
+    res.status(200).json({ ok: true, task });
+  });
+
+  app.post("/api/duet/tasks/:taskId/reopen", async (req, res) => {
+    const taskId = req.params.taskId;
+    try {
+      const r = await duetFetch(`/api/tasks/${encodeURIComponent(taskId)}/reopen`, {
+        method: "POST",
+      });
+      if (r.ok) {
+        res.status(200).json(await r.json());
+        return;
+      }
+    } catch {
+      // Fall through to standalone task reopen
+    }
+
+    const task = standaloneTasks.find((t) => t.id === taskId);
+    if (!task) {
+      res.status(404).json({ error: "task not found" });
+      return;
+    }
+    delete task.confirmed_at;
+    task.status = task.agent_done_at ? "done" : "waiting";
+    task.updated_at = Date.now();
+    broadcastStandaloneEvent({ type: "task", task });
+    res.status(200).json({ ok: true, task });
+  });
+
+  app.post("/api/duet/tasks/:taskId/cancel", async (req, res) => {
+    const taskId = req.params.taskId;
+    try {
+      const r = await duetFetch(`/api/tasks/${encodeURIComponent(taskId)}/cancel`, {
+        method: "POST",
+      });
+      if (r.ok) {
+        res.status(200).json(await r.json());
+        return;
+      }
+    } catch {
+      // Fall through to standalone task cancellation
+    }
+
+    const task = standaloneTasks.find((t) => t.id === taskId);
+    if (!task) {
+      res.status(404).json({ error: "task not found" });
+      return;
+    }
+    task.status = "cancelled";
+    task.updated_at = Date.now();
+    broadcastStandaloneEvent({ type: "task", task });
+    res.status(200).json({ ok: true, task });
+  });
+
+  app.post("/api/duet/tasks/:taskId/message", async (req, res) => {
+    const taskId = req.params.taskId;
+    const { text } = (req.body ?? {}) as { text?: string };
+    if (!text || typeof text !== "string" || !text.trim()) {
+      res.status(400).json({ error: "text is required" });
+      return;
+    }
+    try {
+      const r = await duetFetch(`/api/tasks/${encodeURIComponent(taskId)}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text.trim() }),
+      });
+      if (r.ok || r.status === 409) {
+        res.status(r.status).json(await r.json());
+        return;
+      }
+    } catch {
+      // Fall through to standalone task steering
+    }
+
+    const task = standaloneTasks.find((t) => t.id === taskId);
+    if (!task) {
+      res.status(404).json({ error: "task not found" });
+      return;
+    }
+    if (task.status !== "running" && task.status !== "queued" && task.status !== "waiting") {
+      res.status(409).json({ error: "task is not active" });
+      return;
+    }
+    const clean = text.trim();
+    task.steps = [...(task.steps ?? []), { text: `Steer: ${clean}`, done: false }];
+    const doneCount = task.steps.filter((s) => s.done).length;
+    task.progress = `${doneCount}/${task.steps.length}`;
+    task.updated_at = Date.now();
+    broadcastStandaloneEvent({ type: "task", task });
+    res.status(200).json({ ok: true, task });
   });
 
   // SSE passthrough: live items/tasks/channels from the Duet server (or standalone SSE hub).

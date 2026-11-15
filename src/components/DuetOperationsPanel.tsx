@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Check, X, Play, Pause, Hash, CheckCircle2 } from 'lucide-react';
+import { Check, X, Hash, CheckCircle2 } from 'lucide-react';
 import type {
   ApprovalCard,
-  BackgroundTask,
   BriefDecision,
   Channel,
   ChannelId,
@@ -13,11 +12,6 @@ import {
   INITIAL_HERMES_MEMORY,
   INITIAL_HERMES_SKILLS,
 } from '../utils/cliEngine';
-import {
-  formatElapsedDuration,
-  getTaskStatusDisplay,
-  resolveTaskStepBreakdown,
-} from '../utils/taskInsights';
 import { EmptyState, MorphTabs, StaggerItem, StatusPulse, type MorphTabItem } from './ui';
 
 interface DuetOperationsPanelProps {
@@ -29,12 +23,10 @@ interface DuetOperationsPanelProps {
   onRejectCard: (id: string) => void;
   brief: BriefDecision[];
   onRunBriefCommand: (command: string, briefId: string) => void;
-  tasks: BackgroundTask[];
-  onToggleTaskStatus: (id: string) => void;
   gatewayStatus?: HermesGatewayStatus | null;
 }
 
-type OpsTab = 'approvals' | 'brief' | 'tasks' | 'runtime';
+type OpsTab = 'approvals' | 'brief' | 'runtime';
 
 export function DuetOperationsPanel({
   channels,
@@ -45,8 +37,6 @@ export function DuetOperationsPanel({
   onRejectCard,
   brief,
   onRunBriefCommand,
-  tasks,
-  onToggleTaskStatus,
   gatewayStatus,
 }: DuetOperationsPanelProps) {
   const [activeTab, setActiveTab] = useState<OpsTab>('approvals');
@@ -54,12 +44,10 @@ export function DuetOperationsPanel({
 
   const pendingApprovals = approvals.filter((a) => a.status === 'pending').length;
   const openBriefCount = brief.filter((b) => !b.resolved).length;
-  const runningTasksCount = tasks.filter((t) => t.status === 'running').length;
 
   const opsTabs: MorphTabItem<OpsTab>[] = [
     { id: 'approvals', label: `MCP Gates (${pendingApprovals})` },
     { id: 'brief', label: `post_brief (${openBriefCount})` },
-    { id: 'tasks', label: `Runs (${runningTasksCount})` },
     { id: 'runtime', label: 'Hermes Agent' },
   ];
 
@@ -251,84 +239,6 @@ export function DuetOperationsPanel({
                 </button>
               </div>
             </StaggerItem>
-          ))}
-
-        {activeTab === 'tasks' &&
-          (tasks.length === 0 ? (
-            <EmptyState
-              title="No active background runs"
-              description="Subagent runs and cron jobs will stream progress here."
-            />
-          ) : (
-            tasks.map((task, idx) => {
-              const breakdown = resolveTaskStepBreakdown(task);
-              const statusDisplay = getTaskStatusDisplay(task);
-              const elapsed = formatElapsedDuration(
-                task.createdAtMs,
-                task.status === 'running' ? Date.now() : (task.updatedAtMs ?? Date.now())
-              );
-              return (
-                <StaggerItem key={task.id} index={idx}>
-                  <div className="rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 transition-colors p-3.5 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-emerald-100/55 tabular-nums">
-                          <StatusPulse state={statusDisplay.pulseState} size="sm" />
-                          <span className={statusDisplay.tone === 'amber' ? 'text-amber-300 font-semibold' : 'text-[#6EE7B7]'}>
-                            {statusDisplay.label}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span>#{task.channelId}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{breakdown.ratioLabel}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>up {elapsed}</span>
-                        </div>
-                        <h3 className="text-sm font-medium text-white mt-0.5">{task.title}</h3>
-                      </div>
-                      {task.status !== 'completed' && (
-                        <button
-                          type="button"
-                          onClick={() => onToggleTaskStatus(task.id)}
-                          aria-label={
-                            task.status === 'running'
-                              ? `Pause ${task.title}`
-                              : `Resume ${task.title}`
-                          }
-                          className="ui-tactile min-h-[36px] min-w-[36px] rounded-lg bg-black/30 border border-white/10 flex items-center justify-center text-emerald-50 hover:border-[#34D399]/50 hover:text-[#6EE7B7] cursor-pointer"
-                        >
-                          {task.status === 'running' ? (
-                            <Pause className="w-3.5 h-3.5" />
-                          ) : (
-                            <Play className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    <p className="text-xs text-emerald-100/65">{breakdown.activeStepText}</p>
-
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-1.5 rounded-full bg-black/45 overflow-hidden">
-                        <div
-                          className={`h-full w-full origin-left transition-transform duration-300 ease-out ${
-                            task.status === 'completed'
-                              ? 'bg-emerald-400'
-                              : task.status === 'paused'
-                              ? 'bg-emerald-100/35'
-                              : 'bg-amber-400'
-                          }`}
-                          style={{ transform: `scaleX(${Math.max(0, Math.min(1, task.progress / 100))})` }}
-                        />
-                      </div>
-                      <span className="font-mono text-[11px] tabular-nums text-emerald-50/80">
-                        {task.progress}%
-                      </span>
-                    </div>
-                  </div>
-                </StaggerItem>
-              );
-            })
           ))}
 
         {activeTab === 'runtime' && (
