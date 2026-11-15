@@ -134,31 +134,31 @@ function runAudit(captureDir: string | null, prefix = ''): UiUphillReport['detai
   const viewConfigs: Array<{ id: string; clickCode: string; waitSel: string; shotName: string }> = [
     {
       id: 'Home',
-      clickCode: `await page.getByRole('button', { name: 'Home', exact: true }).click({ force: true, timeout: 8000 });`,
+      clickCode: `await page.getByRole('tab', { name: 'Home', exact: true }).click({ force: true, timeout: 8000 });`,
       waitSel: '[data-testid="home-character-overview"]',
       shotName: 'home.png',
     },
     {
       id: 'Canvas',
-      clickCode: `await page.getByRole('button', { name: 'Canvas', exact: true }).click({ force: true, timeout: 8000 });`,
+      clickCode: `await page.getByRole('tab', { name: 'Canvas', exact: true }).click({ force: true, timeout: 8000 });`,
       waitSel: '[data-testid="braille-sessions-canvas"]',
       shotName: 'canvas.png',
     },
     {
       id: 'Thread',
-      clickCode: `await page.getByRole('button', { name: 'Thread', exact: true }).click({ force: true, timeout: 8000 });`,
+      clickCode: `await page.getByRole('tab', { name: 'Thread', exact: true }).click({ force: true, timeout: 8000 });`,
       waitSel: '[data-testid="active-hermes-session-id"]',
       shotName: 'thread.png',
     },
     {
       id: 'Queue',
-      clickCode: `await page.getByRole('button', { name: /^Queue/ }).first().click({ force: true, timeout: 8000 });`,
+      clickCode: `await page.getByRole('tab', { name: /^Queue/ }).first().click({ force: true, timeout: 8000 });`,
       waitSel: '[data-testid="hermes-operations-panel"]',
       shotName: 'queue.png',
     },
     {
       id: 'CLI',
-      clickCode: `await page.getByRole('button', { name: 'CLI', exact: true }).click({ force: true, timeout: 8000 });`,
+      clickCode: `await page.getByRole('tab', { name: 'CLI', exact: true }).click({ force: true, timeout: 8000 });`,
       waitSel: '[data-testid="terminal-stream"]',
       shotName: 'cli.png',
     },
@@ -273,7 +273,7 @@ function runAudit(captureDir: string | null, prefix = ''): UiUphillReport['detai
     [
       'run-code',
       `async (page) => {
-        await page.getByRole('button', { name: 'Home', exact: true }).click({ force: true, timeout: 8000 });
+        await page.getByRole('tab', { name: 'Home', exact: true }).click({ force: true, timeout: 8000 });
         await page.waitForSelector('[data-testid="home-character-overview"]', { timeout: 8000 });
         const t0 = Date.now();
         await page.getByTestId('ui-studio-trigger').first().click({ force: true, timeout: 8000 });
@@ -344,7 +344,7 @@ function runAudit(captureDir: string | null, prefix = ''): UiUphillReport['detai
     [
       'run-code',
       `async (page) => {
-        await page.getByRole('button', { name: 'Canvas', exact: true }).click({ force: true, timeout: 8000 });
+        await page.getByRole('tab', { name: 'Canvas', exact: true }).click({ force: true, timeout: 8000 });
         await page.waitForSelector('[data-testid="braille-sessions-canvas"]', { timeout: 8000 });
         const addBtn = page.getByTestId('canvas-add-button').first();
         if (!(await addBtn.isVisible())) return false;
@@ -366,7 +366,7 @@ function runAudit(captureDir: string | null, prefix = ''): UiUphillReport['detai
     [
       'run-code',
       `async (page) => {
-        await page.getByRole('button', { name: 'Home', exact: true }).click({ force: true, timeout: 8000 });
+        await page.getByRole('tab', { name: 'Home', exact: true }).click({ force: true, timeout: 8000 });
         await page.waitForSelector('[data-testid="home-character-overview"]', { timeout: 8000 });
       }`,
     ],

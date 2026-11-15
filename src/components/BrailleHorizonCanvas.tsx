@@ -336,7 +336,7 @@ export function BrailleHorizonCanvas({
 
       const active = s.isActive;
       const hasPointer = Boolean(look);
-      const interval = active || hasPointer ? 16 : 24;
+      const interval = active || hasPointer ? 16 : 48;
       if (now - lastDraw >= interval) {
         drawFrame(now);
       }

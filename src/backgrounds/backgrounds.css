@@ -22,14 +22,17 @@ body,
 }
 
 .emerald-ambient-bg aside.ui-drawer-shell,
+.emerald-ambient-bg section.ui-drawer-shell,
 .emerald-ambient-bg aside[data-testid="backgrounds-picker"] {
   background-color: rgba(var(--ui-surface-rgb, 10, 22, 19), 0.96);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  contain: layout paint;
 }
 
 .emerald-ambient-bg [data-testid="ascii-stage"] {
   background-color: rgba(var(--ui-surface-rgb, 10, 22, 19), var(--glass-panel-alpha, 0.76));
+  contain: layout paint;
 }
 
 .glass-bg-layer-opacity {

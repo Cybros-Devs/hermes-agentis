@@ -629,8 +629,8 @@ export function AsciiPortraitCanvas({
         isBlinkingRef.current ||
         blinkLookahead;
 
-      // Fluid VSync cadence (~60fps active/materialize, ~45fps calm idle)
-      const minIntervalMs = isReduced ? 220 : isMaterializing ? 18 : activeMotion ? 16 : 22;
+      // Fluid VSync cadence (60fps active/materialize/blink, ~21fps calm idle)
+      const minIntervalMs = isReduced ? 220 : isMaterializing ? 18 : activeMotion ? 16 : 48;
       if (now - lastDraw >= minIntervalMs) {
         drawFrame(now);
       }
@@ -715,7 +715,7 @@ export function AsciiPortraitCanvas({
         <div
           data-testid="portrait-loading-indicator"
           aria-live="polite"
-          className="pointer-events-none -mt-2 mb-1 inline-flex items-center gap-2 rounded-full border border-white/12 bg-black/55 backdrop-blur-md px-3 py-1 font-mono text-[10.5px] text-[#6EE7B7] shadow-[0_6px_20px_rgba(0,0,0,0.45)]"
+          className="pointer-events-none -mt-2 mb-1 inline-flex items-center gap-2 rounded-lg border border-white/12 bg-[#06110D]/92 px-3 py-1 font-mono text-[10.5px] text-[#6EE7B7] shadow-[0_6px_20px_rgba(0,0,0,0.45)]"
         >
           <span
             aria-hidden="true"

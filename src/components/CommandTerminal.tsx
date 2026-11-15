@@ -136,10 +136,10 @@ export function CommandTerminal({
                 <pre
                   className={`whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed ${
                     isUser
-                      ? 'text-white pl-2.5 border-l-2 border-[#34D399]/60'
+                      ? 'text-white rounded-lg bg-[#34D399]/[0.07] border border-[#34D399]/20 px-3 py-2'
                       : isSystem
-                      ? 'text-emerald-50/85 bg-black/30 border border-white/10 border-l-2 border-l-[#34D399]/45 rounded-lg p-2.5'
-                      : 'text-emerald-50/90 pl-2.5 border-l-2 border-white/12'
+                      ? 'text-emerald-50/85 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2'
+                      : 'text-emerald-50/92 pl-0.5'
                   }`}
                 >
                   {isUser ? (
@@ -167,6 +167,14 @@ export function CommandTerminal({
         )}
       </div>
 
+      {/* Compact Terminal Footer */}
+      <div className="px-4 py-2 border-t border-white/[0.07] bg-black/25 flex items-center justify-between gap-3 font-mono text-[10.5px] text-emerald-100/45 tabular-nums shrink-0">
+        <span className="truncate">Tab autocomplete · ↑↓ command history</span>
+        <span className="shrink-0">
+          #{activeChannel} · {scopedEntries.length} {scopedEntries.length === 1 ? 'entry' : 'entries'}
+        </span>
+      </div>
+
       <ScrollToBottomButton
         visible={awayFromBottom}
         compact
@@ -178,7 +186,7 @@ export function CommandTerminal({
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
           }
         }}
-        className="absolute bottom-3 right-4 z-20"
+        className="absolute bottom-11 right-4 z-20"
       />
     </section>
   );

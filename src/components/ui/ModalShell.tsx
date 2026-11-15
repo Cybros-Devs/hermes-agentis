@@ -41,7 +41,7 @@ export function ModalShell({
 
   return (
     <div
-      className={`ui-backdrop-enter fixed inset-0 ${zIndexClass} flex items-end sm:items-center justify-center p-0 sm:p-6 bg-black/72 backdrop-blur-[2px]`}
+      className={`ui-backdrop-enter fixed inset-0 ${zIndexClass} flex items-end sm:items-center justify-center p-0 sm:p-6 bg-[#030907]/82`}
       role="presentation"
       onClick={onClose}
     >

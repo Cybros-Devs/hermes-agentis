@@ -140,15 +140,15 @@ export function ThreadTaskBanner({
       }
       onClick={onToggleOpen}
       className={`ui-tactile inline-flex items-center gap-1.5 rounded-xl border font-mono text-[11px] tabular-nums transition-colors cursor-pointer shrink-0 ${
-        compactMobile ? 'px-2.5 py-1.5' : 'px-3 py-1.5 backdrop-blur-md shadow-[0_8px_22px_rgba(0,0,0,0.35)]'
+        compactMobile ? 'px-2.5 py-1.5' : 'px-3 py-1.5 shadow-[0_8px_22px_rgba(0,0,0,0.38)]'
       } ${
         isOpen
-          ? 'bg-[#34D399]/16 border-[#34D399]/45 text-[#6EE7B7]'
+          ? 'bg-[#0C2119] border-[#34D399]/45 text-[#6EE7B7]'
           : hasRunningTask || activeIsThinking
-          ? 'bg-[#07130F]/92 border-amber-400/35 text-amber-100 hover:border-amber-300/60'
+          ? 'bg-[#07130F]/95 border-amber-400/35 text-amber-100 hover:border-amber-300/60'
           : needsConfirmCount > 0
-          ? 'bg-[#07130F]/90 border-[#34D399]/30 text-emerald-100 hover:border-[#34D399]/55'
-          : 'bg-[#07130F]/82 border-white/12 text-emerald-100/70 hover:text-white hover:border-white/25'
+          ? 'bg-[#07130F]/95 border-[#34D399]/35 text-emerald-100 hover:border-[#34D399]/55'
+          : 'bg-[#07130F]/92 border-white/12 text-emerald-100/75 hover:text-white hover:border-white/25'
       }`}
     >
       <StatusPulse state={triggerPulseState} size="sm" />
@@ -203,7 +203,7 @@ export function ThreadTaskBanner({
       aria-label={`Tasks for #${activeChannel}`}
       data-testid={testId}
       data-channel={activeChannel}
-      className="ui-card-enter w-full rounded-2xl bg-[#07130F]/96 backdrop-blur-xl border border-white/14 shadow-[0_20px_52px_rgba(0,0,0,0.72)] overflow-hidden flex flex-col"
+      className="ui-card-enter w-full rounded-2xl bg-[#07130F]/96 border border-white/14 shadow-[0_18px_46px_rgba(0,0,0,0.68)] overflow-hidden flex flex-col"
     >
       {/* Panel Header with Hide Control */}
       <div className="px-3.5 py-2.5 border-b border-white/10 bg-white/[0.025] flex items-center justify-between gap-2 shrink-0">
@@ -235,7 +235,7 @@ export function ThreadTaskBanner({
         {partition.all.length === 0 && !activeIsThinking ? (
           <div
             data-testid="thread-tasks-empty"
-            className="rounded-xl border border-white/8 bg-white/[0.025] px-3.5 py-4 text-center space-y-1"
+            className="rounded-xl bg-white/[0.02] px-3 py-4 text-center space-y-1"
           >
             <p className="text-xs font-medium text-white/85">No tasks in #{activeChannel}</p>
             <p className="text-[11px] text-emerald-100/50 leading-relaxed">

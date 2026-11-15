@@ -156,7 +156,7 @@ export const CURATED_UI_PRESETS: readonly CuratedUiPreset[] = [
   {
     id: 'emerald-terminal',
     name: 'Emerald Terminal',
-    subtitle: 'Signature smoked-emerald Duet cockpit',
+    subtitle: 'Signature smoked-emerald Hermes cockpit',
     backgroundPresetId: 'aurora-drift',
     backgroundOpacity: 0.64,
     glassBlurPx: 12,

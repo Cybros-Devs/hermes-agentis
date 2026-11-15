@@ -166,8 +166,9 @@ export function SidebarWorkspace({
         ) : (
           <>
             {customSessions.length > 0 && (
-              <div className="px-2 pt-0.5 pb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/40">
-                Sessions
+              <div className="px-2 pt-0.5 pb-1 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/45 tabular-nums">
+                <span>Sessions</span>
+                <span>{customSessions.length}</span>
               </div>
             )}
 
@@ -196,7 +197,7 @@ export function SidebarWorkspace({
                     }
                     className={`ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
                       active
-                        ? 'bg-white/[0.08] border-[#34D399]/35'
+                        ? 'bg-[#34D399]/[0.09] border-[#34D399]/40'
                         : hasActiveWork
                         ? 'bg-amber-400/[0.05] border-amber-400/25 hover:bg-amber-400/[0.09]'
                         : 'border-transparent hover:bg-white/[0.04]'
@@ -213,7 +214,7 @@ export function SidebarWorkspace({
                         </span>
                         <span
                           className={`font-mono text-[10px] tabular-nums shrink-0 ${
-                            hasActiveWork ? 'text-amber-300 font-semibold' : 'text-[#6EE7B7]/75'
+                            hasActiveWork ? 'text-amber-300 font-semibold' : 'text-[#6EE7B7]/80'
                           }`}
                         >
                           {hasActiveWork
@@ -223,7 +224,7 @@ export function SidebarWorkspace({
                             : `#${session.channelId}`}
                         </span>
                       </div>
-                      <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
+                      <div className="font-mono text-[10.5px] text-emerald-100/45 truncate mt-0.5">
                         {session.hermesSessionId}
                       </div>
                     </div>
@@ -233,8 +234,13 @@ export function SidebarWorkspace({
             })}
 
             {(pendingApprovals.length > 0 || openBrief.length > 0) && (
-              <div className="px-2 pt-1.5 pb-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/40">
-                Queue &amp; Lanes
+              <div
+                className={`px-2 pb-0.5 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/45 tabular-nums ${
+                  customSessions.length > 0 ? 'mt-2 pt-2.5 border-t border-white/[0.06]' : 'pt-1.5'
+                }`}
+              >
+                <span>Queue &amp; Lanes</span>
+                <span>{pendingApprovals.length + openBrief.length}</span>
               </div>
             )}
 

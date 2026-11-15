@@ -364,13 +364,10 @@ export function UiCustomizerStudio({
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5">
+                          <span className="flex h-2 w-10 rounded-sm overflow-hidden border border-white/15 shrink-0">
+                            <span className="flex-1" style={{ backgroundColor: presetAccent }} />
                             <span
-                              className="w-3.5 h-3.5 rounded-full border border-white/25 shrink-0"
-                              style={{ backgroundColor: presetAccent }}
-                            />
-                            <span
-                              className="w-3.5 h-3.5 rounded-full border border-white/20 shrink-0"
+                              className="flex-1"
                               style={{ backgroundColor: preset.config.surfaceHex ?? '#0A1613' }}
                             />
                           </span>
@@ -406,8 +403,8 @@ export function UiCustomizerStudio({
                         onClick={() => onApplyPatch({ accentPreset: swatch.id }, 'studio')}
                         aria-label={`Set accent color to ${swatch.label}`}
                         title={swatch.label}
-                        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-transform cursor-pointer ${
-                          active ? 'scale-110 border-white' : 'border-white/20 hover:scale-105'
+                        className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-transform cursor-pointer ${
+                          active ? 'scale-105 border-white' : 'border-white/20 hover:scale-105'
                         }`}
                         style={{ backgroundColor: swatch.accentHex }}
                       >
@@ -416,14 +413,14 @@ export function UiCustomizerStudio({
                     );
                   })}
 
-                  <label className="inline-flex items-center gap-1.5 rounded-full border border-white/14 bg-white/[0.04] px-2.5 py-1 text-[11px] text-emerald-100/80 cursor-pointer hover:border-white/30">
+                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/14 bg-white/[0.04] px-2.5 h-8 text-[11px] text-emerald-100/80 cursor-pointer hover:border-white/30">
                     <span>Custom</span>
                     <input
                       type="color"
                       aria-label="Custom accent hex color"
                       value={config.accentHex}
                       onChange={(e) => onApplyPatch({ accentHex: e.target.value }, 'studio')}
-                      className="w-5 h-5 rounded-full border-0 bg-transparent cursor-pointer p-0"
+                      className="w-4 h-4 rounded border-0 bg-transparent cursor-pointer p-0"
                     />
                   </label>
                 </div>
@@ -466,7 +463,7 @@ export function UiCustomizerStudio({
                   onChange={(val) => onApplyPatch({ borderOpacity: val }, 'studio')}
                 />
                 <SliderRow
-                  label="Neon stage glow"
+                  label="Stage glow intensity"
                   valueLabel={`${Math.round(config.glowIntensity * 100)}%`}
                   min={0}
                   max={2}
@@ -696,16 +693,16 @@ export function UiCustomizerStudio({
                           key={tint ?? 'auto'}
                           type="button"
                           onClick={() => onApplyPatch({ portraitTintHex: tint }, 'studio')}
-                          className={`px-2.5 h-7 rounded-full border text-[10.5px] font-mono cursor-pointer ${
+                          className={`px-2.5 h-7 rounded-lg border text-[10.5px] font-mono cursor-pointer transition-colors ${
                             active
                               ? 'border-white bg-white/15 text-white'
-                              : 'border-white/12 bg-white/[0.03] text-emerald-100/75'
+                              : 'border-white/12 bg-white/[0.03] text-emerald-100/75 hover:border-white/25'
                           }`}
                         >
                           {tint ? (
                             <span className="inline-flex items-center gap-1.5">
                               <span
-                                className="w-2.5 h-2.5 rounded-full"
+                                className="w-2.5 h-2.5 rounded-sm"
                                 style={{ backgroundColor: tint }}
                               />
                               <span>{tint}</span>

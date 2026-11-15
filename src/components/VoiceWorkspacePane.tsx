@@ -653,7 +653,7 @@ export function VoiceWorkspacePane({
               onClick={onOpenStudio}
               data-testid="ui-studio-trigger"
               aria-label="Open Settings"
-              className="h-8 px-2.5 rounded-lg border border-white/12 bg-black/45 backdrop-blur-sm text-xs font-medium text-emerald-100/80 hover:text-white flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+              className="h-8 px-2.5 rounded-lg border border-white/12 bg-[#07130F]/92 text-xs font-medium text-emerald-100/80 hover:text-white flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
             >
               <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
               <span>Settings</span>
@@ -822,7 +822,7 @@ export function VoiceWorkspacePane({
           {uiConfig.portraitVisible ? (
             <div
               ref={portraitWrapRef}
-              className="relative hidden lg:flex flex-col items-center justify-center pt-1 pb-1 shrink-0"
+              className="relative hidden lg:flex flex-col items-center justify-center pt-1 pb-2.5 border-b border-white/[0.06] shrink-0"
             >
               <AsciiPortraitCanvas
                 variant="hero"
@@ -844,7 +844,10 @@ export function VoiceWorkspacePane({
                 <StatusPulse size="md" state={statusPulseState} />
                 <span>{statusText}</span>
                 <span aria-hidden="true" className="text-emerald-100/35">·</span>
-                <span className="font-mono text-[11px] text-[#6EE7B7]" data-testid="active-hermes-session-id">
+                <span
+                  className="px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/10 font-mono text-[11px] text-[#6EE7B7]"
+                  data-testid="active-hermes-session-id"
+                >
                   {activeHermesSessionId}
                 </span>
                 {activeShapeMeta && (
@@ -1076,11 +1079,14 @@ export function VoiceWorkspacePane({
                 style={{ overflowAnchor: 'none' }}
                 className={`ui-view-enter transcript-fade-mask ${
                   showTopFade ? 'ui-transcript-fade-active' : ''
-                } flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-14 lg:px-20 ${
+                } flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-8 lg:px-12 ${
                   threadTasksOpen ? 'lg:pr-[340px] xl:pr-[400px]' : ''
-                } transition-[padding] duration-200 py-3 sm:py-4`}
+                } transition-[padding] duration-200 py-4 sm:py-5`}
               >
-                <div ref={threadListRef} className="space-y-4 sm:space-y-5">
+                <div
+                  ref={threadListRef}
+                  className="max-w-[780px] mx-auto w-full min-h-full flex flex-col justify-end space-y-4 sm:space-y-5"
+                >
                   {timelineBlocks.map((block, idx) => {
                     if (block.kind === 'trace') {
                       return (
@@ -1099,15 +1105,15 @@ export function VoiceWorkspacePane({
                       return (
                         <div
                           key={entry.id}
-                          className="ui-msg-enter ml-auto max-w-[85%] sm:max-w-[66%] rounded-2xl bg-white/[0.07] border border-white/10 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50/90"
+                          className="ui-msg-enter ml-auto max-w-[85%] sm:max-w-[70%] rounded-2xl bg-[#34D399]/[0.09] border border-[#34D399]/22 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-white"
                         >
                           <p className="whitespace-pre-wrap break-words">{entry.text}</p>
                         </div>
                       );
                     }
                     return (
-                      <div key={entry.id} className="ui-msg-enter max-w-[68ch] space-y-2">
-                        <p className="text-[14.5px] sm:text-[16px] leading-[1.6] font-normal text-white/95 whitespace-pre-wrap break-words">
+                      <div key={entry.id} className="ui-msg-enter max-w-[66ch] space-y-1.5">
+                        <p className="text-[14.5px] sm:text-[15.5px] leading-[1.65] font-normal text-white/95 whitespace-pre-wrap break-words">
                           <DecodedText
                             text={entry.text}
                             animate={!entry.id.startsWith('init-') && !entry.streaming}
@@ -1127,7 +1133,7 @@ export function VoiceWorkspacePane({
                   })}
 
                   {voiceState.interimTranscript && (
-                    <div className="ml-auto max-w-[85%] sm:max-w-[66%] rounded-2xl bg-[#34D399]/12 border border-[#34D399]/40 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50">
+                    <div className="ml-auto max-w-[85%] sm:max-w-[70%] rounded-2xl bg-[#34D399]/14 border border-[#34D399]/40 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[13.5px] leading-relaxed text-emerald-50">
                       <p className="whitespace-pre-wrap break-words">{voiceState.interimTranscript}</p>
                     </div>
                   )}

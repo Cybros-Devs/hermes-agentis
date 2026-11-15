@@ -86,4 +86,14 @@ test('normalizeCanvasSessions backfills legacy localStorage entries cleanly', ()
   assert.ok(normalized[0].agentPersona.length > 0);
   assert.equal(normalized[0].xPct, CANVAS_BOUNDS.minX);
   assert.equal(normalized[0].yPct, CANVAS_BOUNDS.maxY);
+
+  const migrated = normalizeCanvasSessions([
+    {
+      id: 'legacy-duet-1',
+      channelId: 'what-being-done-2',
+      hermesSessionId: 'duet-channel-what-being-done-2',
+      name: 'what-being-done-2',
+    },
+  ]);
+  assert.equal(migrated[0].hermesSessionId, 'hermes-what-being-done-2');
 });

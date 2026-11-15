@@ -200,7 +200,9 @@ export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): Canv
       id: typeof item.id === 'string' && item.id ? item.id : `session-${channelId}`,
       channelId,
       hermesSessionId:
-        typeof item.hermesSessionId === 'string' && item.hermesSessionId.trim()
+        typeof item.hermesSessionId === 'string' &&
+        item.hermesSessionId.trim() &&
+        !/^duet(-|$)/i.test(item.hermesSessionId.trim())
           ? item.hermesSessionId.trim()
           : createHermesSessionId(channelId),
       agentPersona:

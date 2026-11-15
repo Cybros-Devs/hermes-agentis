@@ -403,7 +403,7 @@ export function CanvasSessionNode({
         data-testid={`session-input-form-${session.channelId}`}
         className={`mt-1.5 ${
           isChatOpen ? 'w-[min(320px,calc(100vw-2.25rem))] sm:w-[244px]' : 'w-full max-w-[172px] sm:w-[244px] sm:max-w-none'
-        } flex items-center gap-1 rounded-full border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow] ${
+        } flex items-center gap-1 rounded-xl border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow] ${
           isChatOpen || isSelected
             ? 'border-[#34D399]/65 shadow-[0_0_20px_rgba(52,211,153,0.16)]'
             : 'border-white/18 hover:border-[#34D399]/45 focus-within:border-[#4ADE80]'
@@ -423,7 +423,7 @@ export function CanvasSessionNode({
               : `Open #${session.name} chat window`
           }
           title={isChatOpen ? 'Hide chat window' : 'Open chat window'}
-          className={`ui-tactile w-7 h-7 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
+          className={`ui-tactile w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
             isChatOpen
               ? 'bg-white/10 text-[#6EE7B7]'
               : 'bg-white/[0.05] text-emerald-100/75 hover:text-white hover:bg-white/10'
@@ -457,7 +457,7 @@ export function CanvasSessionNode({
             type="submit"
             data-testid={`session-send-${session.channelId}`}
             aria-label={`Send message to #${session.name}`}
-            className="ui-pop-in ui-tactile w-7 h-7 rounded-full bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+            className="ui-pop-in ui-tactile w-7 h-7 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] flex items-center justify-center transition-colors shrink-0 cursor-pointer"
           >
             <ArrowUp className="w-3.5 h-3.5" />
           </button>
@@ -471,7 +471,7 @@ export function CanvasSessionNode({
                 ? `Stop voice input for #${session.name}`
                 : `Voice input for #${session.name}`
             }
-            className={`ui-tactile w-7 h-7 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
+            className={`ui-tactile w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
               isListeningHere || isSpeaking
                 ? 'bg-[#4ADE80] text-[#05140E] shadow-[0_0_12px_rgba(74,222,128,0.45)]'
                 : 'bg-[#227D5A]/80 hover:bg-[#34D399] text-emerald-50 hover:text-[#05140E]'
