@@ -182,10 +182,10 @@ export function BrailleShapeCanvas({
       TonalDotBucketSpec,
       TonalDotBucketSpec,
     ] = [
-      { xy: b0XY, len: 0, hex: '#4D7C0F', alpha: 0.64, diameterScale: 0.74 },
-      { xy: b1XY, len: 0, hex: '#84CC16', alpha: 0.80, diameterScale: 0.86 },
-      { xy: b2XY, len: 0, hex: '#B9EA74', alpha: 0.90, diameterScale: 0.97 },
-      { xy: b3XY, len: 0, hex: '#DCF7B4', alpha: 0.95, diameterScale: 1.07 },
+      { xy: b0XY, len: 0, hex: '#4D7C0F', alpha: 0.74, diameterScale: 0.76 },
+      { xy: b1XY, len: 0, hex: '#84CC16', alpha: 0.86, diameterScale: 0.87 },
+      { xy: b2XY, len: 0, hex: '#B9EA74', alpha: 0.93, diameterScale: 0.98 },
+      { xy: b3XY, len: 0, hex: '#DCF7B4', alpha: 0.96, diameterScale: 1.07 },
       { xy: b4XY, len: 0, hex: '#ECFCCB', alpha: 0.99, diameterScale: 1.16 },
     ];
 
@@ -285,6 +285,7 @@ export function BrailleShapeCanvas({
         viseme: s.viseme,
         energy: smoothEnergy,
         isSpeaking: s.isSpeaking,
+        isThinking: s.isThinking,
         isDragging: s.isDragging,
         gazeX: motion ? motion.gazeX : 0,
         gazeY: motion ? motion.gazeY : 0,
@@ -357,19 +358,19 @@ export function BrailleShapeCanvas({
 
       buckets[0].len = len0;
       buckets[0].hex = palette.low;
-      buckets[0].alpha = 0.64;
+      buckets[0].alpha = 0.74;
 
       buckets[1].len = len1;
-      buckets[1].hex = mixShapeHex(palette.low, palette.mid, 0.55);
-      buckets[1].alpha = 0.80;
+      buckets[1].hex = mixShapeHex(palette.low, palette.mid, 0.58);
+      buckets[1].alpha = 0.86;
 
       buckets[2].len = len2;
       buckets[2].hex = palette.mid;
-      buckets[2].alpha = 0.90;
+      buckets[2].alpha = 0.93;
 
       buckets[3].len = len3;
-      buckets[3].hex = mixShapeHex(palette.mid, palette.high, 0.52);
-      buckets[3].alpha = 0.95;
+      buckets[3].hex = mixShapeHex(palette.mid, palette.high, 0.55);
+      buckets[3].alpha = 0.96;
 
       buckets[4].len = len4;
       buckets[4].hex = palette.high;

@@ -1761,6 +1761,37 @@ function sampleReferenceWithExpression(
     }
   }
 
+  // 9. Soft bust bottom & outer edge feathering into sparse Braille halftone stippling
+  const bottomFeather = 1 - smoothstep(0.83, 0.98, ay);
+  const rightFeather = 1 - smoothstep(0.86, 0.985, ax);
+  const leftFeather = smoothstep(0.015, 0.085, ax);
+  lum *= bottomFeather * rightFeather * leftFeather;
+
+  // 10. Subtle animated Braille acoustic waveform halo outside silhouette when speaking or listening
+  if ((fc.isSpeaking || fc.isListening) && energy > 0.14 && lum < 0.04 && ay < 0.86) {
+    const adx = ax - 0.47;
+    const ady = (ay - 0.43) * 0.92;
+    const adist = Math.hypot(adx, ady);
+    if (adist > 0.415 && adist < 0.495) {
+      const ang = Math.atan2(ady, adx);
+      const waveR =
+        0.445 +
+        Math.sin(ang * 5 + fc.time * 3.8) * (0.012 + energy * 0.014) +
+        Math.cos(ang * 3 - fc.time * 2.4) * 0.008;
+      const ringBand = Math.abs(adist - waveR);
+      if (ringBand < 0.014) {
+        const arcPulse = 0.5 + 0.5 * Math.sin(ang * 4 - fc.time * 4.5);
+        const sideWeight = 0.35 + 0.65 * Math.abs(Math.cos(ang));
+        const env =
+          (1 - smoothstep(0.002, 0.014, ringBand)) *
+          sideWeight *
+          (0.28 + arcPulse * 0.48) *
+          clamp01(energy * 1.15);
+        lum = Math.max(lum, env * (1 - smoothstep(0.74, 0.86, ay)));
+      }
+    }
+  }
+
   return clamp01(lum);
 }
 
@@ -1970,6 +2001,37 @@ function sampleSpriteBankWithExpression(
     const gSq = gx * gx;
     if (gSq < 8) {
       lum = clamp01(lum + fastExpNeg(gSq) * aura * (0.15 + energy * 0.16));
+    }
+  }
+
+  // Soft bust bottom & outer edge feathering into sparse Braille halftone stippling
+  const bottomFeather = 1 - smoothstep(0.83, 0.98, ay);
+  const rightFeather = 1 - smoothstep(0.86, 0.985, ax);
+  const leftFeather = smoothstep(0.015, 0.085, ax);
+  lum *= bottomFeather * rightFeather * leftFeather;
+
+  // Subtle animated Braille acoustic waveform halo outside silhouette when speaking or listening
+  if ((fc.isSpeaking || fc.isListening) && energy > 0.14 && lum < 0.04 && ay < 0.86) {
+    const adx = ax - 0.47;
+    const ady = (ay - 0.43) * 0.92;
+    const adist = Math.hypot(adx, ady);
+    if (adist > 0.415 && adist < 0.495) {
+      const ang = Math.atan2(ady, adx);
+      const waveR =
+        0.445 +
+        Math.sin(ang * 5 + fc.time * 3.8) * (0.012 + energy * 0.014) +
+        Math.cos(ang * 3 - fc.time * 2.4) * 0.008;
+      const ringBand = Math.abs(adist - waveR);
+      if (ringBand < 0.014) {
+        const arcPulse = 0.5 + 0.5 * Math.sin(ang * 4 - fc.time * 4.5);
+        const sideWeight = 0.35 + 0.65 * Math.abs(Math.cos(ang));
+        const env =
+          (1 - smoothstep(0.002, 0.014, ringBand)) *
+          sideWeight *
+          (0.28 + arcPulse * 0.48) *
+          clamp01(energy * 1.15);
+        lum = Math.max(lum, env * (1 - smoothstep(0.74, 0.86, ay)));
+      }
     }
   }
 

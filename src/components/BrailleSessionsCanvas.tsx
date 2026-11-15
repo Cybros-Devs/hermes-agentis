@@ -335,6 +335,15 @@ export function BrailleSessionsCanvas({
                     : selectedSession;
                 const oPos =
                   dragPreview && dragPreview.id === other.id ? dragPreview : other;
+                const sLive =
+                  Boolean(thinkingByChannel[selectedSession.channelId]) ||
+                  hermesByChannel.get(selectedSession.channelId)?.status === 'thinking' ||
+                  (voiceState.isSpeaking && (speakingChannel ?? activeChannel) === selectedSession.channelId);
+                const oLive =
+                  Boolean(thinkingByChannel[other.channelId]) ||
+                  hermesByChannel.get(other.channelId)?.status === 'thinking' ||
+                  (voiceState.isSpeaking && (speakingChannel ?? activeChannel) === other.channelId);
+                const isLinkHot = sLive || oLive;
                 return (
                   <line
                     key={other.id}
@@ -342,9 +351,13 @@ export function BrailleSessionsCanvas({
                     y1={`${sPos.yPct}%`}
                     x2={`${oPos.xPct}%`}
                     y2={`${oPos.yPct}%`}
-                    stroke="rgba(110, 231, 183, 0.14)"
-                    strokeWidth="1"
-                    strokeDasharray="4 6"
+                    stroke={
+                      isLinkHot
+                        ? 'rgba(52, 211, 153, 0.38)'
+                        : 'rgba(110, 231, 183, 0.16)'
+                    }
+                    strokeWidth={isLinkHot ? '1.35' : '1'}
+                    strokeDasharray={isLinkHot ? '5 4' : '4 6'}
                     className="ui-constellation-line"
                   />
                 );

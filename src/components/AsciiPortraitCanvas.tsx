@@ -460,7 +460,7 @@ export function AsciiPortraitCanvas({
 
       const activeTint =
         !isThumb &&
-        (isLoadingVisual || s.isListening || (s.isSpeaking && smoothEnergy > 0.35));
+        (isLoadingVisual || s.isListening || (s.isSpeaking && smoothEnergy > 0.22));
 
       let len0 = 0;
       let len1 = 0;

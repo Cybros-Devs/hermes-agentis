@@ -691,6 +691,63 @@ test('sprite-bank focused half-lid & full blink preserve both eyes cleanly and b
   assert.ok(afterClicks.headPitch < 0.20, `Expected bounded headPitch after rapid clicks, got ${afterClicks.headPitch}`);
 });
 
+test('reference-backed portrait feathers lower/right edges and renders speaking acoustic halo outside silhouette', () => {
+  const size = 96;
+  const rgba = new Uint8ClampedArray(size * size * 4);
+  // Solid white box spanning into lower-right boundary [16..94] x [16..94]
+  for (let y = 16; y <= 94; y++) {
+    for (let x = 16; x <= 94; x++) {
+      const idx = (y * size + x) * 4;
+      const isBorder = x === 16 || x === 94 || y === 16 || y === 94;
+      rgba[idx] = isBorder ? 0 : 210;
+      rgba[idx + 1] = isBorder ? 0 : 210;
+      rgba[idx + 2] = isBorder ? 0 : 210;
+      rgba[idx + 3] = 255;
+    }
+  }
+  const field = buildPortraitSourceFromRgba(rgba, size, size);
+
+  const idleFrame = renderHalftonePortrait({
+    cols: 80,
+    rows: 40,
+    time: 0.4,
+    mood: 'neutral',
+    viseme: 'closed',
+    eyeState: 'open',
+    energy: 0.05,
+    isSpeaking: false,
+    isListening: false,
+    sourceField: field,
+  });
+
+  // Very bottom row of bust should taper cleanly toward dark instead of full hard cutoff
+  let bottomSum = 0;
+  for (let c = 0; c < idleFrame.cols; c++) {
+    bottomSum += idleFrame.cells[(idleFrame.rows - 1) * idleFrame.cols + c];
+  }
+  const bottomAvg = bottomSum / idleFrame.cols;
+  assert.ok(bottomAvg < 40, `Expected feathered bottom row luminance < 40, got ${bottomAvg}`);
+
+  const speakFrame = renderHalftonePortrait({
+    cols: 80,
+    rows: 40,
+    time: 0.4,
+    mood: 'speaking',
+    viseme: 'wide',
+    eyeState: 'open',
+    energy: 0.9,
+    isSpeaking: true,
+    isListening: false,
+    sourceField: field,
+  });
+  assert.notEqual(
+    idleFrame.lines.join('\n'),
+    speakFrame.lines.join('\n'),
+    'Speaking portrait with halo and mouth articulation must differ from idle'
+  );
+});
+
+
 
 
 

@@ -73,14 +73,27 @@ export interface BriefDecision {
   resolved: boolean;
 }
 
+export interface TaskStepItem {
+  text: string;
+  done?: boolean;
+  active?: boolean;
+}
+
 export interface BackgroundTask {
   id: string;
   channelId: ChannelId;
   sessionId?: string;
+  kind?: string;
   title: string;
   status: 'running' | 'completed' | 'paused';
+  rawStatus?: string;
   progress: number;
+  progressLabel?: string;
   lastStep: string;
+  steps?: TaskStepItem[];
+  result?: string;
+  createdAtMs?: number;
+  updatedAtMs?: number;
   updatedAt: string;
 }
 

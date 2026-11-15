@@ -8,6 +8,7 @@ interface BackgroundLayerProps {
 }
 
 const BRAILLE_CASCADE = ['⣿', '⣾', '⣷', '⣶', '⣦', '⣤', '⣄', '⡀', '⠁'];
+const BRAILLE_CASCADE_ALT = ['⣿', '⠿', '⠟', '⠏', '⠇', '⠃', '⠁'];
 const cachedBackdropBitmaps = new Map<string, string>();
 
 function drawRadialEllipse(
@@ -288,32 +289,33 @@ export const BackgroundLayer = memo(function BackgroundLayer({
 
         // Soft glowing lead micro-halo behind foreground droplets
         if (isNear && col.y >= -stepY && col.y <= height + stepY) {
-          ctx.fillStyle = 'rgba(167, 243, 208, 0.14)';
+          ctx.fillStyle = 'rgba(167, 243, 208, 0.20)';
           ctx.beginPath();
-          ctx.arc(col.x, col.y, 6.5, 0, Math.PI * 2);
+          ctx.arc(col.x, col.y, 7.5, 0, Math.PI * 2);
           ctx.fill();
         }
 
-        const cascadeMax = BRAILLE_CASCADE.length - 1;
+        const cascade = (col.seed & 1) === 0 ? BRAILLE_CASCADE : BRAILLE_CASCADE_ALT;
+        const cascadeMax = cascade.length - 1;
         for (let k = 0; k < col.length; k++) {
           const py = col.y - k * stepY;
           if (py < -stepY || py > height + stepY) continue;
           const tailPos = k / Math.max(1, col.length - 1);
-          const fade = Math.pow(1 - tailPos, 1.35);
-          const baseAlpha = isNear ? 0.09 + fade * 0.25 : 0.05 + fade * 0.14;
+          const fade = Math.pow(1 - tailPos, 1.25);
+          const baseAlpha = isNear ? 0.12 + fade * 0.32 : 0.07 + fade * 0.18;
 
-          // Progressive Braille density decay down the trail with gentle lead shimmer
+          // Progressive Braille density decay down the trail with gentle shimmer
           const shimmerOffset =
-            k === 0 && ((Math.floor(elapsedSec * 2.2 + col.seed) & 3) === 0) ? 1 : 0;
+            k === 0 && ((Math.floor(elapsedSec * 2.4 + col.seed) & 3) === 0) ? 1 : 0;
           const tierIdx = Math.min(
             cascadeMax,
             Math.max(0, Math.round(tailPos * cascadeMax) + shimmerOffset)
           );
-          const glyph = BRAILLE_CASCADE[tierIdx];
+          const glyph = cascade[tierIdx];
 
           ctx.fillStyle =
             k === 0
-              ? `rgba(167, 243, 208, ${Math.min(0.42, baseAlpha + 0.09).toFixed(3)})`
+              ? `rgba(209, 250, 229, ${Math.min(0.54, baseAlpha + 0.11).toFixed(3)})`
               : isNear
               ? `rgba(110, 231, 183, ${baseAlpha.toFixed(3)})`
               : `rgba(52, 211, 153, ${baseAlpha.toFixed(3)})`;

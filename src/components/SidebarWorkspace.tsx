@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, Plus } from 'lucide-react';
 import type {
   ApprovalCard,
@@ -9,6 +9,7 @@ import type {
   ExpressionMood,
 } from '../types/hermes';
 import type { CanvasSession } from '../utils/canvasSessions';
+import { summarizeChannelTaskActivity } from '../utils/taskInsights';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { StaggerItem, StatusPulse, getStaggerVars } from './ui';
 
@@ -28,7 +29,6 @@ interface SidebarWorkspaceProps {
   isSpeaking: boolean;
   isListening: boolean;
   selectedItemId: string | null;
-  onSelectTask: (task: BackgroundTask) => void;
   onSelectApproval: (card: ApprovalCard) => void;
   onSelectBrief: (item: BriefDecision) => void;
   onNewTask: () => void;
@@ -57,7 +57,6 @@ export function SidebarWorkspace({
   isSpeaking,
   isListening,
   selectedItemId,
-  onSelectTask,
   onSelectApproval,
   onSelectBrief,
   onNewTask,
@@ -67,7 +66,6 @@ export function SidebarWorkspace({
   homeSessionDraft = false,
   queueVisible = true,
   channelsVisible = true,
-  sidebarPosition = 'left',
 }: SidebarWorkspaceProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const openBrief = brief.filter((b) => !b.resolved).slice(0, 2);
@@ -76,6 +74,13 @@ export function SidebarWorkspace({
     .filter((s) => s.isCore === false && s.channelId !== 'daemon')
     .slice()
     .reverse();
+
+  const activityByChannel = useMemo(
+    () => summarizeChannelTaskActivity(tasks, channels, thinkingByChannel),
+    [tasks, channels, thinkingByChannel]
+  );
+
+  const activeChannelActivity = activityByChannel[activeChannel];
 
   useEffect(() => {
     activeChannelBtnRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -139,9 +144,12 @@ export function SidebarWorkspace({
               <span className="text-[13px] font-semibold text-white shrink-0">Hermes Duet</span>
               <span
                 data-testid="sidebar-active-lane"
-                className="font-mono text-[11px] text-[#6EE7B7] tabular-nums truncate min-w-0 text-right"
+                className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[#6EE7B7] tabular-nums truncate min-w-0 text-right"
               >
-                {homeSessionDraft ? 'new session' : `#${activeChannel}`}
+                {!homeSessionDraft && activeChannelActivity?.hasActiveTask && (
+                  <StatusPulse state="thinking" size="sm" />
+                )}
+                <span>{homeSessionDraft ? 'new session' : `#${activeChannel}`}</span>
               </span>
             </div>
             <p className="text-xs text-emerald-100/50 truncate mt-0.5">{lastSpokenLine}</p>
@@ -149,7 +157,7 @@ export function SidebarWorkspace({
         </button>
       </div>
 
-      {/* Calm Scannable Queue */}
+      {/* Calm Scannable Sessions & Approval Gates (Tasks live strictly inside their Thread) */}
       <div className="flex-1 overflow-y-auto cyber-scroll px-3 py-3 space-y-1.5">
         {!queueVisible ? (
           <div className="px-2.5 py-6 text-center text-[11px] text-emerald-100/40">
@@ -167,12 +175,20 @@ export function SidebarWorkspace({
               const active =
                 !homeSessionDraft &&
                 (selectedItemId === session.id || activeChannel === session.channelId);
-              const isThinking = Boolean(thinkingByChannel[session.channelId]);
+              const channelActivity = activityByChannel[session.channelId];
+              const hasActiveWork = Boolean(channelActivity?.hasActiveTask);
+              const runningCount = channelActivity?.runningCount ?? 0;
               return (
                 <StaggerItem key={session.id} index={idx}>
                   <button
                     type="button"
                     data-testid={`sidebar-session-${session.channelId}`}
+                    data-has-task={String(hasActiveWork)}
+                    title={
+                      hasActiveWork
+                        ? `${session.topic} · task running in #${session.channelId}`
+                        : session.topic
+                    }
                     onClick={() =>
                       onSelectSession
                         ? onSelectSession(session)
@@ -181,11 +197,13 @@ export function SidebarWorkspace({
                     className={`ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
                       active
                         ? 'bg-white/[0.08] border-[#34D399]/35'
+                        : hasActiveWork
+                        ? 'bg-amber-400/[0.05] border-amber-400/25 hover:bg-amber-400/[0.09]'
                         : 'border-transparent hover:bg-white/[0.04]'
                     }`}
                   >
                     <StatusPulse
-                      state={isThinking ? 'thinking' : active ? 'live' : 'idle'}
+                      state={hasActiveWork ? 'thinking' : active ? 'live' : 'idle'}
                       className="mt-1.5"
                     />
                     <div className="min-w-0 flex-1">
@@ -193,8 +211,16 @@ export function SidebarWorkspace({
                         <span className="text-[13px] font-medium text-white truncate">
                           {session.topic}
                         </span>
-                        <span className="font-mono text-[10px] text-[#6EE7B7]/75 shrink-0">
-                          {isThinking ? 'live' : `#${session.channelId}`}
+                        <span
+                          className={`font-mono text-[10px] tabular-nums shrink-0 ${
+                            hasActiveWork ? 'text-amber-300 font-semibold' : 'text-[#6EE7B7]/75'
+                          }`}
+                        >
+                          {hasActiveWork
+                            ? runningCount > 1
+                              ? `${runningCount} tasks`
+                              : 'working'
+                            : `#${session.channelId}`}
                         </span>
                       </div>
                       <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
@@ -206,7 +232,7 @@ export function SidebarWorkspace({
               );
             })}
 
-            {(pendingApprovals.length > 0 || tasks.length > 0 || openBrief.length > 0) && (
+            {(pendingApprovals.length > 0 || openBrief.length > 0) && (
               <div className="px-2 pt-1.5 pb-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/40">
                 Queue &amp; Lanes
               </div>
@@ -237,44 +263,13 @@ export function SidebarWorkspace({
               );
             })}
 
-            {tasks.map((task, idx) => {
-              const active = selectedItemId === task.id;
-              const isRunning = task.status === 'running';
-              return (
-                <button
-                  key={task.id}
-                  type="button"
-                  style={getStaggerVars(idx + pendingApprovals.length)}
-                  onClick={() => onSelectTask(task)}
-                  className={`ui-stagger-enter ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
-                    active
-                      ? 'bg-white/[0.08] border-[#34D399]/35'
-                      : 'border-transparent hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <StatusPulse state={isRunning ? 'live' : 'idle'} className="mt-1.5" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[13px] text-emerald-50/85 truncate">{task.title}</span>
-                      <span className="font-mono text-[11px] text-emerald-100/40 tabular-nums shrink-0">
-                        {task.progress}%
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-emerald-100/45 truncate mt-0.5">
-                      #{task.channelId}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-
             {openBrief.map((item, idx) => {
               const active = selectedItemId === item.id;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  style={getStaggerVars(idx + pendingApprovals.length + tasks.length)}
+                  style={getStaggerVars(idx + pendingApprovals.length)}
                   onClick={() => onSelectBrief(item)}
                   className={`ui-stagger-enter ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
                     active
@@ -294,26 +289,61 @@ export function SidebarWorkspace({
         )}
       </div>
 
-      {/* Minimal Channel / Session Switcher Footer */}
+      {/* Minimal Channel / Session Switcher Footer with Thread-Level Active-Task Indicator */}
       {channelsVisible && (
-        <div className="py-2.5 px-3 border-t border-white/8 flex items-end justify-between gap-1.5 font-mono text-[10.5px]">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 max-h-[104px] overflow-y-auto cyber-scroll">
+        <div className="py-2.5 px-3 border-t border-white/8 flex items-end justify-between gap-1 font-mono text-[9.5px]">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 min-w-0 max-h-[104px] overflow-y-auto cyber-scroll">
             {channels.map((ch) => {
               const active = !homeSessionDraft && ch.id === activeChannel;
               const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
+              const channelActivity = activityByChannel[ch.id];
+              const hasActiveWork = Boolean(channelActivity?.hasActiveTask);
+              const runningCount = channelActivity?.runningCount ?? 0;
               return (
                 <button
                   key={ch.id}
                   ref={active ? activeChannelBtnRef : undefined}
                   type="button"
                   data-testid={`sidebar-channel-${ch.id}`}
+                  data-has-task={String(hasActiveWork)}
+                  aria-label={
+                    hasActiveWork
+                      ? `${label} (${runningCount || 1} task running)`
+                      : label
+                  }
+                  title={
+                    hasActiveWork
+                      ? `Task running in ${label}${
+                          channelActivity?.primaryTitle
+                            ? `: ${channelActivity.primaryTitle}`
+                            : ''
+                        }`
+                      : ch.description || label
+                  }
                   onClick={() => onSelectChannel(ch.id)}
-                  className={`ui-tactile transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
-                    active ? 'text-[#4ADE80] font-semibold' : 'text-emerald-100/50 hover:text-white'
+                  className={`ui-tactile transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1 rounded-md py-0.5 ${
+                    active && hasActiveWork
+                      ? 'px-1.5 bg-amber-400/14 border border-amber-400/40 text-amber-200 font-semibold'
+                      : active
+                      ? 'px-0.5 text-[#4ADE80] font-semibold'
+                      : hasActiveWork
+                      ? 'px-1.5 bg-amber-400/10 border border-amber-400/30 text-amber-200 hover:bg-amber-400/18 hover:text-amber-100 font-medium'
+                      : 'px-0.5 text-emerald-100/50 hover:text-white'
                   }`}
                 >
-                  {active && <span aria-hidden="true" className="w-1 h-1 rounded-full bg-[#4ADE80]" />}
+                  {hasActiveWork ? (
+                    <StatusPulse state="thinking" size="sm" />
+                  ) : (
+                    active && (
+                      <span aria-hidden="true" className="w-1 h-1 rounded-full bg-[#4ADE80]" />
+                    )
+                  )}
                   <span>{label}</span>
+                  {hasActiveWork && runningCount > 1 && (
+                    <span className="text-[9.5px] text-amber-300/90 tabular-nums">
+                      ·{runningCount}
+                    </span>
+                  )}
                 </button>
               );
             })}

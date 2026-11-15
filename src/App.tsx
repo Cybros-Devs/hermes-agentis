@@ -1104,6 +1104,7 @@ export default function App() {
   }, [updateSpokenLine]);
 
   const handleToggleTaskStatus = useCallback((id: string) => {
+    const updatedMs = Date.now();
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id !== id || t.status === 'completed') return t;
@@ -1111,7 +1112,9 @@ export default function App() {
         return {
           ...t,
           status: nextStatus,
+          rawStatus: nextStatus === 'running' ? 'running' : 'waiting',
           lastStep: nextStatus === 'running' ? 'Lane resumed on host worker' : 'Paused by operator',
+          updatedAtMs: updatedMs,
           updatedAt: nowTime(),
         };
       })
@@ -1387,17 +1390,6 @@ export default function App() {
               isSpeaking={voice.voiceState.isSpeaking}
               isListening={voice.voiceState.isListening}
               selectedItemId={selectedItemId}
-              onSelectTask={(task) => {
-                setSelectedItemId(task.id);
-                setHomeSessionDraft(false);
-                setActiveChannel(task.channelId);
-                setPanelView('voice');
-                setThreadVisitNonce((n) => n + 1);
-                setMobileSidebarOpen(false);
-                if (duetConnected) {
-                  void loadChannelHistory(task.channelId);
-                }
-              }}
               onSelectApproval={(card) => {
                 setSelectedItemId(card.id);
                 setHomeSessionDraft(false);

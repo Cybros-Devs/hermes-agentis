@@ -11,11 +11,13 @@ import {
   VolumeX,
 } from 'lucide-react';
 import type {
+  BackgroundTask,
   ChannelId,
   ExpressionMood,
   MouthViseme,
 } from '../types/hermes';
 import type { CanvasSession } from '../utils/canvasSessions';
+import { summarizeChannelTaskActivity } from '../utils/taskInsights';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleShapeCanvas } from './BrailleShapeCanvas';
 import { StatusPulse } from './ui';
@@ -35,6 +37,7 @@ interface MobileWorkspaceBarProps {
   showThinking: boolean;
   canvasSessions: CanvasSession[];
   thinkingByChannel: Record<string, boolean>;
+  tasks?: BackgroundTask[];
   homeSessionDraft?: boolean;
   onChangePanelView: (view: WorkspacePanelView) => void;
   onSelectChannel: (channelId: ChannelId) => void;
@@ -68,6 +71,7 @@ export function MobileWorkspaceBar({
   showThinking,
   canvasSessions,
   thinkingByChannel,
+  tasks = [],
   homeSessionDraft = false,
   onChangePanelView,
   onSelectChannel,
@@ -82,7 +86,14 @@ export function MobileWorkspaceBar({
   const maxAvatars = 4;
   const visibleSessions = canvasSessions.slice(0, maxAvatars);
   const extraCount = Math.max(0, canvasSessions.length - maxAvatars);
-  const runningCount = canvasSessions.filter((s) => Boolean(thinkingByChannel[s.channelId])).length;
+  const activityByChannel = summarizeChannelTaskActivity(
+    tasks,
+    canvasSessions.map((s) => ({ id: s.channelId })),
+    thinkingByChannel
+  );
+  const runningCount = canvasSessions.filter((s) =>
+    Boolean(activityByChannel[s.channelId]?.hasActiveTask)
+  ).length;
   const isHomeNewDraft = panelView === 'home' && homeSessionDraft;
 
   const views: { id: WorkspacePanelView; label: string }[] = [
@@ -293,7 +304,7 @@ export function MobileWorkspaceBar({
           <div className="flex items-center -space-x-2 shrink-0">
             {visibleSessions.map((session) => {
               const isActive = session.channelId === activeChannel;
-              const isThinkingHere = Boolean(thinkingByChannel[session.channelId]);
+              const isThinkingHere = Boolean(activityByChannel[session.channelId]?.hasActiveTask);
               return (
                 <button
                   key={session.id}

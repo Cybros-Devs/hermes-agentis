@@ -348,3 +348,74 @@ test('braille shape blinking reaches full closure dwell and morphs continuously 
   assert.notEqual(fHappyMid, fHappyClosed, 'Happy arc should reach full closed lash');
 });
 
+test('renderBrailleShape adds orbiting cognition sparks when thinking and acoustic arcs when speaking', () => {
+  const calm = renderBrailleShape({
+    shape: 'pebble',
+    cols: 46,
+    rows: 26,
+    time: 0.4,
+    mood: 'neutral',
+    eyeState: 'sleepy',
+    viseme: 'closed',
+    energy: 0.08,
+    isSpeaking: false,
+    isThinking: false,
+  }).lines.join('\n');
+
+  const thinkingA = renderBrailleShape({
+    shape: 'pebble',
+    cols: 46,
+    rows: 26,
+    time: 0.4,
+    mood: 'thinking',
+    eyeState: 'sleepy',
+    viseme: 'closed',
+    energy: 0.08,
+    isSpeaking: false,
+    isThinking: true,
+  }).lines.join('\n');
+
+  const thinkingB = renderBrailleShape({
+    shape: 'pebble',
+    cols: 46,
+    rows: 26,
+    time: 1.1,
+    mood: 'thinking',
+    eyeState: 'sleepy',
+    viseme: 'closed',
+    energy: 0.08,
+    isSpeaking: false,
+    isThinking: true,
+  }).lines.join('\n');
+
+  assert.notEqual(calm, thinkingA, 'Thinking state should render orbiting Braille cognition sparks');
+  assert.notEqual(thinkingA, thinkingB, 'Thinking cognition sparks should animate across time');
+
+  const speaking = renderBrailleShape({
+    shape: 'clover',
+    cols: 46,
+    rows: 26,
+    time: 0.55,
+    mood: 'speaking',
+    eyeState: 'open',
+    viseme: 'wide',
+    energy: 0.82,
+    isSpeaking: true,
+    isThinking: false,
+  }).lines.join('\n');
+  const silent = renderBrailleShape({
+    shape: 'clover',
+    cols: 46,
+    rows: 26,
+    time: 0.55,
+    mood: 'neutral',
+    eyeState: 'open',
+    viseme: 'closed',
+    energy: 0.08,
+    isSpeaking: false,
+    isThinking: false,
+  }).lines.join('\n');
+  assert.notEqual(silent, speaking, 'Speaking state should add acoustic ripple arcs and mouth articulation');
+});
+
+

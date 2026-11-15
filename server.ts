@@ -332,11 +332,14 @@ interface StandaloneDuetTask {
   id: string;
   title: string;
   status: string;
+  kind?: string;
+  session_id?: string;
   progress?: string;
   steps?: { text: string; done?: boolean }[];
   result?: string;
   channel_id?: string;
   created_at: number;
+  updated_at?: number;
 }
 
 interface StandaloneDuetChannel {
@@ -447,28 +450,54 @@ const standaloneTasks: StandaloneDuetTask[] = [
     id: "task-101",
     title: "Rebuild standing morning-brief.html (save_page)",
     status: "running",
-    progress: "72",
+    kind: "Background",
+    session_id: "hermes-launch",
+    progress: "4/6",
     channel_id: "launch",
-    created_at: standaloneBootTime - 240_000,
-    steps: [{ text: "Streaming update_task delta across Playwright parity lane", done: false }],
+    created_at: standaloneBootTime - 878_000,
+    updated_at: standaloneBootTime - 18_000,
+    steps: [
+      { text: "Collect overnight thread summaries & approval outcomes", done: true },
+      { text: "Compile static morning-brief.html bundle via save_page", done: true },
+      { text: "Verify desktop 1440×900 layout & contrast hierarchy", done: true },
+      { text: "Capture mobile 390×844 snapshot & scroll bounds", done: true },
+      { text: "Streaming update_task delta across Playwright parity lane", done: false },
+      { text: "Publish final save_page artifact to #launch brief archive", done: false },
+    ],
   },
   {
     id: "task-102",
     title: "Index ~/.hermes/skills/ & MCP connectors",
     status: "done",
-    progress: "100",
+    kind: "Background",
+    session_id: "hermes-research",
+    progress: "3/3",
     channel_id: "research",
-    created_at: standaloneBootTime - 600_000,
-    steps: [{ text: "Synced 4 skills and mcp_servers.duet capabilities to #research", done: true }],
+    created_at: standaloneBootTime - 2_700_000,
+    updated_at: standaloneBootTime - 1_920_000,
+    steps: [
+      { text: "Scan ~/.hermes/skills/ SKILL.md manifests", done: true },
+      { text: "Validate mcp_servers.duet JSON-RPC schemas", done: true },
+      { text: "Synced 4 skills and mcp_servers.duet capabilities to #research", done: true },
+    ],
   },
   {
     id: "task-103",
     title: "Audit ~/Downloads watcher rule (cronjob_manage)",
     status: "waiting",
-    progress: "40",
+    kind: "Cron",
+    session_id: "hermes-ops",
+    progress: "2/5",
     channel_id: "ops",
-    created_at: standaloneBootTime - 420_000,
-    steps: [{ text: "Waiting on confirmation to route invoice PDFs into #ops", done: false }],
+    created_at: standaloneBootTime - 1_680_000,
+    updated_at: standaloneBootTime - 420_000,
+    steps: [
+      { text: "Inspect active cronjob_manage watcher schedule (*/30 9-18 * * 1-5)", done: true },
+      { text: "Scan ~/Downloads for matching invoice & receipt patterns", done: true },
+      { text: "Waiting on confirmation to route invoice PDFs into #ops", done: false },
+      { text: "Attach PDF summary cards to mcp__duet__request_approval", done: false },
+      { text: "Persist watcher filter rules to MEMORY.md", done: false },
+    ],
   },
 ];
 

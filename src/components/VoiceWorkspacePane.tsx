@@ -41,6 +41,7 @@ import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
 import { groupThreadTimeline } from '../utils/threadTrace';
 import { computeThreadScrollPin } from '../utils/threadScroll';
 import { shouldShowScrollTopFade } from '../utils/motionChoreography';
+import { partitionChannelTasks } from '../utils/taskInsights';
 import { DEFAULT_UI_CONFIG, type UiCustomizationConfig } from '../utils/uiCustomization';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
@@ -49,6 +50,7 @@ import { DecodedText } from './DecodedText';
 import { DuetOperationsPanel } from './DuetOperationsPanel';
 import { CommandTerminal } from './CommandTerminal';
 import { MobileWorkspaceBar } from './MobileWorkspaceBar';
+import { ThreadTaskBanner } from './ThreadTaskBanner';
 import { ThreadTraceTree } from './ThreadTraceTree';
 import {
   MorphTabs,
@@ -461,18 +463,29 @@ export function VoiceWorkspacePane({
     ? 'listening'
     : 'idle';
 
+  const activeChannelRunningTaskCount = useMemo(
+    () => partitionChannelTasks(tasks, activeChannel).running.length,
+    [tasks, activeChannel]
+  );
+
   const navTabItems: MorphTabItem<WorkspacePanelView>[] = useMemo(
     () => [
       { id: 'home', label: 'Home' },
       { id: 'canvas', label: 'Canvas' },
-      { id: 'voice', label: 'Thread' },
+      {
+        id: 'voice',
+        label:
+          activeChannelRunningTaskCount > 0
+            ? `Thread (${activeChannelRunningTaskCount})`
+            : 'Thread',
+      },
       {
         id: 'queue',
         label: pendingApprovals.length > 0 ? `Queue (${pendingApprovals.length})` : 'Queue',
       },
       { id: 'cli', label: 'CLI' },
     ],
-    [pendingApprovals.length]
+    [activeChannelRunningTaskCount, pendingApprovals.length]
   );
 
   const handlePointerMove = (e: React.PointerEvent<HTMLElement>) => {
@@ -524,6 +537,7 @@ export function VoiceWorkspacePane({
         showThinking={showThinking}
         canvasSessions={canvasSessions}
         thinkingByChannel={thinkingByChannel}
+        tasks={tasks}
         homeSessionDraft={homeSessionDraft}
         onChangePanelView={onChangePanelView}
         onSelectChannel={onSelectChannel}
@@ -911,6 +925,16 @@ export function VoiceWorkspacePane({
             </div>
           ) : (
             <div className="relative flex-1 min-h-0 flex flex-col">
+              <ThreadTaskBanner
+                activeChannel={activeChannel}
+                activeSessionId={activeHermesSessionId}
+                tasks={tasks}
+                activeIsThinking={activeIsThinking}
+                workingSeconds={workingSeconds}
+                onToggleTaskStatus={onToggleTaskStatus}
+                onStopSpeaking={onStopSpeaking}
+              />
+
               <div
                 key={`view-voice-${activeChannel}`}
                 ref={scrollRef}
@@ -1092,7 +1116,7 @@ export function VoiceWorkspacePane({
       {isHomeOverview && uiConfig.horizonVisible && (
         <div
           data-testid="horizon-wave-container"
-          className="pointer-events-none absolute inset-x-0 bottom-[106px] lg:bottom-[68px] h-[112px] sm:h-[144px] z-0 overflow-hidden"
+          className="pointer-events-none absolute inset-x-0 bottom-[106px] lg:bottom-[68px] h-[124px] sm:h-[164px] z-0 overflow-hidden"
           style={{ opacity: uiConfig.horizonOpacity }}
         >
           <BrailleHorizonCanvas

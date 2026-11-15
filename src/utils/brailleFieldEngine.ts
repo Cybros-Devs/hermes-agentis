@@ -265,12 +265,11 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       Math.cos(ux * 8.2 + time * 1.18) * c3Amp -
       bandBoost * 0.42;
 
-    colShimmer[sx] = (0.88 + shimmerScale * Math.sin(ux * 22 - time * 3.4)) * 0.94;
+    colShimmer[sx] = (0.94 + shimmerScale * Math.sin(ux * 22 - time * 3.4)) * 0.98;
+    const sparkleGate = Math.sin(ux * 54 - time * 4.6) * Math.cos(ux * 31 + time * 2.9);
     colMist[sx] =
       energy > 0.14
-        ? clamp01(0.5 + 0.5 * Math.sin(ux * 54 - time * 4.6) * Math.cos(ux * 31 + time * 2.9)) *
-          energy *
-          0.32
+        ? clamp01(0.42 + 0.58 * sparkleGate) * energy * 0.42
         : 0;
 
     const rippleU = ux * 42 - time * 2.25;
@@ -281,8 +280,8 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
   for (let sy = 0; sy < subH; sy++) {
     const uy = (sy + 0.5) * invSubH; // 0 (top) .. 1 (bottom)
     // Top fade guarantees row 0 fades completely into dark background while keeping fluid horizon
-    const topFade = smoothstep(0.08, 0.44, uy);
-    const bottomTaper = 1 - smoothstep(0.64, 0.98, uy);
+    const topFade = smoothstep(0.08, 0.42, uy);
+    const bottomTaper = 1 - smoothstep(0.66, 0.98, uy);
     const fadeEnvelope = topFade * bottomTaper;
     const rowOff = sy * subW;
 
@@ -291,7 +290,7 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       continue;
     }
 
-    const bottomAnchorWeight = smoothstep(0.35, 0.9, uy) * 0.11;
+    const bottomAnchorWeight = smoothstep(0.35, 0.9, uy) * 0.10;
     const rippleV = uy * 18;
     const sinV = Math.sin(rippleV);
     const cosV = Math.cos(rippleV);
@@ -305,22 +304,24 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       const d2 = uy > crest2 ? uy - crest2 : crest2 - uy;
       const d3 = uy > crest3 ? uy - crest3 : crest3 - uy;
 
-      const s1 = d1 * 27;
-      const s2 = d2 * 23;
-      const s3 = d3 * 21;
-      const line1 = s1 < 2.83 ? fastFieldExpNeg(s1 * s1) * colShimmer[sx] : 0;
-      const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * 0.74 : 0;
-      const line3 = s3 < 2.83 ? fastFieldExpNeg(s3 * s3) * 0.60 : 0;
+      const s1 = d1 * 29;
+      const s2 = d2 * 24;
+      const s3 = d3 * 22;
+      const line1 = s1 < 2.83 ? fastFieldExpNeg(s1 * s1) * Math.min(1.06, colShimmer[sx] * 1.06) : 0;
+      const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * 0.72 : 0;
+      const line3 = s3 < 2.83 ? fastFieldExpNeg(s3 * s3) * 0.54 : 0;
 
-      // Subtle rising mist spray just above the primary wave crest when speaking/active
+      // Subtle rising mist spray + crisp peak glint just above the primary wave crest when active
       let mist = 0;
       const mistOffset = crest1 - uy;
-      if (mistOffset > 0.01 && mistOffset < 0.14 && colMist[sx] > 0.02) {
-        mist = colMist[sx] * fastFieldExpNeg(mistOffset * mistOffset * 180);
+      if (mistOffset > 0.008 && mistOffset < 0.16 && colMist[sx] > 0.02) {
+        mist = colMist[sx] * fastFieldExpNeg(mistOffset * mistOffset * 165);
       }
 
-      const fill1 = uy > crest1 ? smoothstep(crest1, crest1 + 0.3, uy) * 0.22 : 0;
-      const fill2 = uy > crest2 ? smoothstep(crest2, crest2 + 0.24, uy) * 0.2 : 0;
+      // Valley trough attenuation right below crest1 deepens separation between crest1 and crest2
+      const troughAtten = uy > crest1 && uy < crest2 ? 0.65 + 0.35 * smoothstep(crest1, crest2, uy) : 1;
+      const fill1 = uy > crest1 ? smoothstep(crest1, crest1 + 0.34, uy) * 0.16 * troughAtten : 0;
+      const fill2 = uy > crest2 ? smoothstep(crest2, crest2 + 0.28, uy) * 0.15 : 0;
       const sinRipple = colSinU[sx] * cosV + colCosU[sx] * sinV;
       const fineRipple = (0.5 + 0.5 * sinRipple) * bottomAnchorWeight;
 

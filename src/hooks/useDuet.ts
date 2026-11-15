@@ -45,11 +45,14 @@ interface DuetTask {
   id: string;
   title: string;
   status: string;
+  kind?: string;
+  session_id?: string;
   progress?: string;
   steps?: { text: string; done?: boolean }[];
   result?: string;
   channel_id?: string;
   created_at: number;
+  updated_at?: number;
 }
 interface DuetChannel {
   id: string;
@@ -189,19 +192,34 @@ function mapTask(t: DuetTask, aliases?: ReadonlyMap<string, string>): Background
   const status: BackgroundTask['status'] =
     t.status === 'running' || t.status === 'queued'
       ? 'running'
-      : t.status === 'waiting'
+      : t.status === 'waiting' || t.status === 'paused'
       ? 'paused'
       : 'completed';
+  const activeOrNext = (t.steps ?? []).find((s) => !s.done);
   const lastDone = [...(t.steps ?? [])].reverse().find((s) => s.done);
-  const lastStep = lastDone?.text ?? (t.steps ?? []).slice(-1)[0]?.text ?? (t.result ?? '').slice(0, 80) ?? t.status;
+  const lastStep =
+    (status === 'running' ? activeOrNext?.text : undefined) ??
+    lastDone?.text ??
+    (t.steps ?? []).slice(-1)[0]?.text ??
+    (t.result ?? '').slice(0, 100) ??
+    t.status;
+  const resolvedChannelId = normalizeDuetChannelId(t.channel_id, aliases);
   return {
     id: t.id,
-    channelId: normalizeDuetChannelId(t.channel_id, aliases),
+    channelId: resolvedChannelId,
+    sessionId: t.session_id,
+    kind: t.kind ?? 'Background',
     title: t.title,
     status,
+    rawStatus: t.status,
     progress: taskProgress(t),
+    progressLabel: t.progress,
     lastStep,
-    updatedAt: hhmm(t.created_at),
+    steps: t.steps,
+    result: t.result,
+    createdAtMs: t.created_at,
+    updatedAtMs: t.updated_at ?? t.created_at,
+    updatedAt: hhmm(t.updated_at ?? t.created_at),
   };
 }
 

@@ -147,10 +147,10 @@ export const BRAILLE_TINT_PALETTE: Record<
   },
   lavender: {
     label: 'Iris',
-    low: '#6D28D9',
-    mid: '#A78BFA',
-    high: '#EDE9FE',
-    glow: 'rgba(167, 139, 250, 0.24)',
+    low: '#7C3AED',
+    mid: '#C4B5FD',
+    high: '#F5F3FF',
+    glow: 'rgba(196, 181, 253, 0.28)',
   },
   coral: {
     label: 'Coral',
@@ -168,17 +168,17 @@ export const BRAILLE_TINT_PALETTE: Record<
   },
   cyan: {
     label: 'Glacier',
-    low: '#0369A1',
+    low: '#0284C7',
     mid: '#38BDF8',
     high: '#E0F2FE',
-    glow: 'rgba(56, 189, 248, 0.24)',
+    glow: 'rgba(56, 189, 248, 0.26)',
   },
   periwinkle: {
     label: 'Periwinkle',
-    low: '#4338CA',
-    mid: '#818CF8',
-    high: '#E0E7FF',
-    glow: 'rgba(129, 140, 248, 0.24)',
+    low: '#4F46E5',
+    mid: '#A5B4FC',
+    high: '#EEF2FF',
+    glow: 'rgba(165, 180, 252, 0.28)',
   },
   amber: {
     label: 'Honey',
@@ -243,6 +243,7 @@ export interface BrailleShapeRenderParams {
   viseme?: MouthViseme;
   energy?: number;
   isSpeaking?: boolean;
+  isThinking?: boolean;
   isDragging?: boolean;
   gazeX?: number;
   gazeY?: number;
@@ -1351,6 +1352,7 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
     viseme = 'closed',
     energy = 0.08,
     isSpeaking = false,
+    isThinking = false,
     isDragging = false,
     gazeX = 0,
     gazeY = 0,
@@ -1496,9 +1498,41 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
         ? evaluateDynamicFeature(nx, ny, shape, pose, profile.chinY, mouthXBase)
         : null;
 
+      // Outside-bust status Braille VFX: orbiting cognition sparks (thinking) & acoustic ripple arcs (speaking)
+      let statusVfxLum = 0;
+      if (isThinking && ny < -0.25 && ny > -0.84) {
+        const orbitBase = time * 2.1;
+        for (let k = 0; k < 3; k++) {
+          const ang = orbitBase + k * ((Math.PI * 2) / 3);
+          const ox = Math.cos(ang) * 0.52;
+          const oy = -0.58 + Math.sin(ang) * 0.10;
+          const dSpark = sdCircle(nx, ny, ox, oy, 0.036);
+          if (dSpark < 0.020) {
+            const covSpark = clamp01(1 - (dSpark + 0.004) / 0.024);
+            statusVfxLum = Math.max(statusVfxLum, covSpark * (0.78 + 0.20 * Math.sin(time * 4.5 + k)));
+          }
+        }
+      }
+      if (isSpeaking && energy > 0.14 && ny > -0.18 && ny < 0.34) {
+        const absX = Math.abs(nx);
+        if (absX > 0.48 && absX < 0.84) {
+          const arcPhase = (time * 2.2) % 1;
+          const rInner = 0.50 + arcPhase * 0.14;
+          const rOuter = 0.56 + ((arcPhase + 0.5) % 1) * 0.16;
+          const rad = Math.hypot(nx * 0.92, (ny - 0.06) * 1.15);
+          const bandW = 0.016;
+          const ringA = Math.abs(rad - rInner) < bandW ? (1 - Math.abs(rad - rInner) / bandW) * (1 - arcPhase) : 0;
+          const phaseB = (arcPhase + 0.5) % 1;
+          const ringB = Math.abs(rad - rOuter) < bandW ? (1 - Math.abs(rad - rOuter) / bandW) * (1 - phaseB) : 0;
+          const vFade = 1 - smoothstep(0.14, 0.28, Math.abs(ny - 0.06));
+          statusVfxLum = Math.max(statusVfxLum, (ringA + ringB) * vFade * clamp01(0.45 + energy * 0.55));
+        }
+      }
+
       const d = evaluateShapeSdf(shape, nx, ny, pose);
       if (d > 0.030) {
-        subLum[rowOff + sx] = dyn && dyn.cov > 0.01 ? dyn.lum * dyn.cov : 0;
+        const baseOut = dyn && dyn.cov > 0.01 ? dyn.lum * dyn.cov : 0;
+        subLum[rowOff + sx] = Math.max(baseOut, statusVfxLum);
         continue;
       }
 
@@ -1507,7 +1541,8 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
       const bottomFade = ny > 0.72 ? clamp01(1 - (ny - 0.72) / 0.12) : 1;
       const alphaCov = edgeCov * bottomFade;
       if (alphaCov <= 0.01) {
-        subLum[rowOff + sx] = dyn ? dyn.lum * dyn.cov : 0;
+        const baseOut = dyn ? dyn.lum * dyn.cov : 0;
+        subLum[rowOff + sx] = Math.max(baseOut, statusVfxLum);
         continue;
       }
 
@@ -1584,9 +1619,9 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
       } else {
         // High-contrast dark manga hair interior + crisp outer rim outline
         const isOuterRim = d > -0.068;
-        const rimBoost = isOuterRim ? clamp01(1 + d / 0.068) * 0.44 : 0;
-        const strandShade = 0.042 * Math.max(0, Math.sin(nx * 36 - ny * 8));
-        lum = 0.14 + rimBoost + strandShade;
+        const rimBoost = isOuterRim ? clamp01(1 + d / 0.068) * 0.48 : 0;
+        const strandShade = 0.052 * Math.max(0, Math.sin(nx * 36 - ny * 8));
+        lum = 0.18 + rimBoost + strandShade;
 
         // Serrated / jagged manga hair-shine band curving across crown & bangs
         if (ny > profile.shineY - 0.10 && ny < profile.shineY + 0.10 && Math.abs(nx) < 0.44) {
