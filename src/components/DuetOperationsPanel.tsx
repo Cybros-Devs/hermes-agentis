@@ -53,7 +53,8 @@ export function DuetOperationsPanel({
   return (
     <section
       aria-label="Hermes Duet Operations"
-      className="flex flex-col rounded-xl bg-[#0B1714]/80 border border-white/10 overflow-hidden"
+      data-testid="duet-operations-panel"
+      className="flex flex-col rounded-xl bg-[#0B1714]/90 border border-white/12 overflow-hidden shadow-[0_12px_36px_rgba(0,0,0,0.35)]"
     >
       {/* Channel & Session Lane Strip */}
       <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/8 bg-black/20 overflow-x-auto">
@@ -131,7 +132,10 @@ export function DuetOperationsPanel({
       </div>
 
       {/* Tab Content */}
-      <div className="p-3 sm:p-3.5 space-y-2.5 lg:max-h-[420px] overflow-y-auto cyber-scroll">
+      <div
+        key={activeTab}
+        className="ui-card-enter p-3 sm:p-3.5 space-y-2 lg:max-h-[min(56vh,520px)] overflow-y-auto cyber-scroll"
+      >
         {activeTab === 'approvals' &&
           approvals.map((card) => {
             const currentDraft = draftEdits[card.id] ?? card.draft;
@@ -140,7 +144,7 @@ export function DuetOperationsPanel({
               <div
                 key={card.id}
                 data-testid={`approval-card-${card.id}`}
-                className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2.5"
+                className="rounded-xl bg-white/[0.04] border border-white/10 p-3 space-y-2"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -303,16 +307,16 @@ export function DuetOperationsPanel({
               <p className="text-xs text-emerald-100/60">{task.lastStep}</p>
 
               <div className="flex items-center gap-3">
-                <div className="flex-1 h-1.5 rounded-full bg-black/40 overflow-hidden">
+                <div className="flex-1 h-1.5 rounded-full bg-black/45 overflow-hidden">
                   <div
-                    className={`h-full transition-all ${
+                    className={`h-full w-full origin-left transition-transform duration-300 ease-out ${
                       task.status === 'completed'
                         ? 'bg-emerald-400'
                         : task.status === 'paused'
                         ? 'bg-emerald-100/35'
                         : 'bg-[#34D399]'
                     }`}
-                    style={{ width: `${task.progress}%` }}
+                    style={{ transform: `scaleX(${Math.max(0, Math.min(1, task.progress / 100))})` }}
                   />
                 </div>
                 <span className="font-mono text-[11px] tabular-nums text-emerald-50/80">

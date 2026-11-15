@@ -31,7 +31,9 @@ export interface BrailleHorizonFrame {
   cells: Uint8Array;
 }
 
-const BRAILLE_BITMASK = [0x01, 0x08, 0x02, 0x10, 0x04, 0x20, 0x40, 0x80];
+const BRAILLE_CHAR_TABLE: string[] = Array.from({ length: 256 }, (_, i) =>
+  i === 0 ? ' ' : String.fromCharCode(0x2800 + i)
+);
 
 const BAYER_4X4 = [
   0.0 / 16, 8.0 / 16, 2.0 / 16, 10.0 / 16,
@@ -39,6 +41,23 @@ const BAYER_4X4 = [
   3.0 / 16, 11.0 / 16, 1.0 / 16, 9.0 / 16,
   15.0 / 16, 7.0 / 16, 13.0 / 16, 5.0 / 16,
 ];
+
+const FIELD_EXP_MAX = 8;
+const FIELD_EXP_SIZE = 512;
+const FIELD_EXP_SCALE = FIELD_EXP_SIZE / FIELD_EXP_MAX;
+const FIELD_EXP_LUT = new Float32Array(FIELD_EXP_SIZE + 1);
+for (let i = 0; i <= FIELD_EXP_SIZE; i++) {
+  FIELD_EXP_LUT[i] = Math.exp(-(i * FIELD_EXP_MAX) / FIELD_EXP_SIZE);
+}
+
+function fastFieldExpNeg(x: number): number {
+  if (x <= 0) return 1;
+  if (x >= FIELD_EXP_MAX) return 0;
+  const f = x * FIELD_EXP_SCALE;
+  const idx = f | 0;
+  const v0 = FIELD_EXP_LUT[idx];
+  return v0 + (FIELD_EXP_LUT[idx + 1] - v0) * (f - idx);
+}
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -113,11 +132,31 @@ export function createHorizonAnimator() {
 
 let horizonBufCap = 0;
 let horizonSubLum = new Float32Array(0);
+let horizonColCap = 0;
+let colCrest1 = new Float32Array(0);
+let colCrest2 = new Float32Array(0);
+let colCrest3 = new Float32Array(0);
+let colShimmer = new Float32Array(0);
+let colSinU = new Float32Array(0);
+let colCosU = new Float32Array(0);
+let horizonRowChars: string[] = [];
 
-function ensureHorizonSubBuffer(len: number): Float32Array {
-  if (len > horizonBufCap) {
-    horizonBufCap = len;
-    horizonSubLum = new Float32Array(len);
+function ensureHorizonBuffers(subLen: number, subW: number, cols: number): Float32Array {
+  if (subLen > horizonBufCap) {
+    horizonBufCap = subLen;
+    horizonSubLum = new Float32Array(subLen);
+  }
+  if (subW > horizonColCap) {
+    horizonColCap = subW;
+    colCrest1 = new Float32Array(subW);
+    colCrest2 = new Float32Array(subW);
+    colCrest3 = new Float32Array(subW);
+    colShimmer = new Float32Array(subW);
+    colSinU = new Float32Array(subW);
+    colCosU = new Float32Array(subW);
+  }
+  if (horizonRowChars.length !== cols) {
+    horizonRowChars = new Array<string>(cols);
   }
   return horizonSubLum;
 }
@@ -138,104 +177,145 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
   const lines: string[] = new Array(rows);
   const cells = new Uint8Array(cols * rows);
 
-  const subLum = ensureHorizonSubBuffer(subW * subH);
+  const subLum = ensureHorizonBuffers(subW * subH, subW, cols);
+  const rowChars = horizonRowChars;
   const pxTarget = (pointerX + 1) * 0.5;
   const pyBoost = (1 - clamp01((pointerY + 1) * 0.5)) * 0.08;
   const voiceAmp = 0.08 + energy * 0.24;
   const bandLen = bands?.length ?? 0;
+  const invSubW = 1 / subW;
+  const invSubH = 1 / subH;
+  const cursorWeight = 0.12 + pyBoost;
+  const c1Amp = 0.14 + voiceAmp * 0.36;
+  const c2Amp = 0.11 + voiceAmp * 0.26;
+  const c3Amp = 0.07 + voiceAmp * 0.22;
+  const shimmerScale = 0.16 * (0.35 + energy * 0.65);
+
+  // Precompute all x-only wave terms once per column instead of subH times per pixel
+  for (let sx = 0; sx < subW; sx++) {
+    const ux = (sx + 0.5) * invSubW;
+    const dxPtr = ux - pxTarget;
+    const ptrArg = dxPtr * dxPtr * 18;
+    const cursorWave = ptrArg < 8 ? fastFieldExpNeg(ptrArg) * cursorWeight : 0;
+
+    let bandBoost = 0;
+    if (bandLen > 0) {
+      const fIdx = ux * (bandLen - 1);
+      const i0 = fIdx | 0;
+      const i1 = i0 + 1 < bandLen ? i0 + 1 : bandLen - 1;
+      const frac = fIdx - i0;
+      const smoothFrac = frac * frac * (3 - 2 * frac);
+      const b0 = bands![i0] ?? 0;
+      const b1 = bands![i1] ?? b0;
+      bandBoost = (b0 + (b1 - b0) * smoothFrac) * 0.15;
+    }
+
+    colCrest1[sx] =
+      0.44 -
+      Math.sin(ux * 6.2 + time * 0.92) * c1Amp -
+      Math.cos(ux * 13.0 - time * 1.32) * 0.055 -
+      cursorWave -
+      bandBoost;
+
+    colCrest2[sx] =
+      0.60 -
+      Math.sin(ux * 4.5 - time * 0.68 + 1.4) * c2Amp -
+      Math.sin(ux * 19.0 + time * 1.9) * 0.035 -
+      cursorWave * 0.65 -
+      bandBoost * 0.55;
+
+    colCrest3[sx] =
+      0.74 -
+      Math.cos(ux * 8.2 + time * 1.18) * c3Amp -
+      bandBoost * 0.4;
+
+    colShimmer[sx] = (0.88 + shimmerScale * Math.sin(ux * 22 - time * 3.4)) * 0.92;
+
+    const rippleU = ux * 42 - time * 2.25;
+    colSinU[sx] = Math.sin(rippleU);
+    colCosU[sx] = Math.cos(rippleU);
+  }
 
   for (let sy = 0; sy < subH; sy++) {
-    const uy = (sy + 0.5) / subH; // 0 (top) .. 1 (bottom)
+    const uy = (sy + 0.5) * invSubH; // 0 (top) .. 1 (bottom)
     // Soft fade at top AND bottom edge so footer prompt links keep crisp legibility
     const topFade = smoothstep(0.06, 0.42, uy);
     const bottomTaper = 1 - smoothstep(0.64, 0.98, uy);
-    const bottomAnchor = smoothstep(0.35, 0.9, uy);
+    const fadeEnvelope = topFade * bottomTaper;
     const rowOff = sy * subW;
 
+    if (fadeEnvelope <= 0.001) {
+      subLum.fill(0, rowOff, rowOff + subW);
+      continue;
+    }
+
+    const bottomAnchorWeight = smoothstep(0.35, 0.9, uy) * 0.11;
+    const rippleV = uy * 18;
+    const sinV = Math.sin(rippleV);
+    const cosV = Math.cos(rippleV);
+
     for (let sx = 0; sx < subW; sx++) {
-      const ux = (sx + 0.5) / subW;
-      const dxPtr = ux - pxTarget;
-      const cursorWave = Math.exp(-(dxPtr * dxPtr) * 18) * (0.12 + pyBoost);
+      const crest1 = colCrest1[sx];
+      const crest2 = colCrest2[sx];
+      const crest3 = colCrest3[sx];
 
-      let bandBoost = 0;
-      if (bandLen > 0) {
-        const fIdx = ux * (bandLen - 1);
-        const i0 = Math.floor(fIdx);
-        const i1 = Math.min(bandLen - 1, i0 + 1);
-        const frac = fIdx - i0;
-        const smoothFrac = frac * frac * (3 - 2 * frac);
-        const b0 = bands?.[i0] ?? 0;
-        const b1 = bands?.[i1] ?? b0;
-        bandBoost = (b0 + (b1 - b0) * smoothFrac) * 0.15;
-      }
+      const d1 = uy > crest1 ? uy - crest1 : crest1 - uy;
+      const d2 = uy > crest2 ? uy - crest2 : crest2 - uy;
+      const d3 = uy > crest3 ? uy - crest3 : crest3 - uy;
 
-      // Primary flowing crest + secondary harmonic contour + acoustic ripple
-      const crest1 =
-        0.44 -
-        Math.sin(ux * 6.2 + time * 0.92) * (0.14 + voiceAmp * 0.36) -
-        Math.cos(ux * 13.0 - time * 1.32) * 0.055 -
-        cursorWave -
-        bandBoost;
-
-      const crest2 =
-        0.60 -
-        Math.sin(ux * 4.5 - time * 0.68 + 1.4) * (0.11 + voiceAmp * 0.26) -
-        Math.sin(ux * 19.0 + time * 1.9) * 0.035 -
-        cursorWave * 0.65 -
-        bandBoost * 0.55;
-
-      const crest3 =
-        0.74 -
-        Math.cos(ux * 8.2 + time * 1.18) * (0.07 + voiceAmp * 0.22) -
-        bandBoost * 0.4;
-
-      const d1 = Math.abs(uy - crest1);
-      const d2 = Math.abs(uy - crest2);
-      const d3 = Math.abs(uy - crest3);
-
-      // Luminous contour lines + soft under-crest halftone gradient + traveling pulse glints
-      const crestShimmer =
-        0.88 + 0.16 * Math.sin(ux * 22 - time * 3.4) * (0.35 + energy * 0.65);
-      const line1 = Math.exp(-((d1 * 28) ** 2)) * 0.92 * crestShimmer;
-      const line2 = Math.exp(-((d2 * 24) ** 2)) * 0.72;
-      const line3 = Math.exp(-((d3 * 22) ** 2)) * 0.58;
+      const s1 = d1 * 28;
+      const s2 = d2 * 24;
+      const s3 = d3 * 22;
+      const line1 = s1 < 2.83 ? fastFieldExpNeg(s1 * s1) * colShimmer[sx] : 0;
+      const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * 0.72 : 0;
+      const line3 = s3 < 2.83 ? fastFieldExpNeg(s3 * s3) * 0.58 : 0;
 
       const fill1 = uy > crest1 ? smoothstep(crest1, crest1 + 0.3, uy) * 0.22 : 0;
       const fill2 = uy > crest2 ? smoothstep(crest2, crest2 + 0.24, uy) * 0.2 : 0;
-      const fineRipple =
-        (0.5 + 0.5 * Math.sin(ux * 42 + uy * 18 - time * 2.25)) * bottomAnchor * 0.11;
+      const sinRipple = colSinU[sx] * cosV + colCosU[sx] * sinV;
+      const fineRipple = (0.5 + 0.5 * sinRipple) * bottomAnchorWeight;
 
-      const lum = clamp01(
-        (Math.max(line1, line2, line3) + fill1 + fill2 + fineRipple) * topFade * bottomTaper
-      );
+      const maxLine = line1 > line2 ? (line1 > line3 ? line1 : line3) : line2 > line3 ? line2 : line3;
+      const lum = clamp01((maxLine + fill1 + fill2 + fineRipple) * fadeEnvelope);
       subLum[rowOff + sx] = lum;
     }
   }
 
   for (let r = 0; r < rows; r++) {
-    let line = '';
+    const r0 = r * 4 * subW;
+    const r1 = r0 + subW;
+    const r2 = r1 + subW;
+    const r3 = r2 + subW;
+    const cellRowOff = r * cols;
+
     for (let c = 0; c < cols; c++) {
+      const c2 = c * 2;
+      const c2_1 = c2 + 1;
+      const bCol = (c & 1) * 2;
+      const l00 = subLum[r0 + c2];
+      const l01 = subLum[r0 + c2_1];
+      const l10 = subLum[r1 + c2];
+      const l11 = subLum[r1 + c2_1];
+      const l20 = subLum[r2 + c2];
+      const l21 = subLum[r2 + c2_1];
+      const l30 = subLum[r3 + c2];
+      const l31 = subLum[r3 + c2_1];
+
+      const lumSum = l00 + l01 + l10 + l11 + l20 + l21 + l30 + l31;
       let bits = 0;
-      let lumSum = 0;
-      for (let py = 0; py < 4; py++) {
-        const sy = r * 4 + py;
-        const rowOff = sy * subW;
-        const bitBase = py * 2;
-        const bayerRow = (sy & 3) * 4;
-        for (let px = 0; px < 2; px++) {
-          const sx = c * 2 + px;
-          const lum = subLum[rowOff + sx];
-          lumSum += lum;
-          const thresh = 0.14 + BAYER_4X4[bayerRow + (sx & 3)] * 0.76;
-          if (lum > thresh) {
-            bits |= BRAILLE_BITMASK[bitBase + px];
-          }
-        }
-      }
-      cells[r * cols + c] = Math.round((lumSum * 0.125) * 255);
-      line += bits === 0 ? ' ' : String.fromCharCode(0x2800 + bits);
+      if (l00 > 0.14 + BAYER_4X4[bCol] * 0.76) bits |= 0x01;
+      if (l01 > 0.14 + BAYER_4X4[bCol + 1] * 0.76) bits |= 0x08;
+      if (l10 > 0.14 + BAYER_4X4[4 + bCol] * 0.76) bits |= 0x02;
+      if (l11 > 0.14 + BAYER_4X4[5 + bCol] * 0.76) bits |= 0x10;
+      if (l20 > 0.14 + BAYER_4X4[8 + bCol] * 0.76) bits |= 0x04;
+      if (l21 > 0.14 + BAYER_4X4[9 + bCol] * 0.76) bits |= 0x20;
+      if (l30 > 0.14 + BAYER_4X4[12 + bCol] * 0.76) bits |= 0x40;
+      if (l31 > 0.14 + BAYER_4X4[13 + bCol] * 0.76) bits |= 0x80;
+
+      cells[cellRowOff + c] = (lumSum * 31.875 + 0.5) | 0;
+      rowChars[c] = BRAILLE_CHAR_TABLE[bits];
     }
-    lines[r] = line;
+    lines[r] = rowChars.join('');
   }
 
   return { cols, rows, lines, cells };

@@ -12,6 +12,11 @@ import {
   type BrailleShapeKind,
   type BrailleShapeTint,
 } from '../utils/brailleShapesEngine';
+import {
+  createRasterSurface,
+  rasterizeDotBucketsToSurface,
+  type DotBucketSpec,
+} from '../utils/brailleCanvasRaster';
 
 interface BrailleShapeCanvasProps {
   shape: BrailleShapeKind;
@@ -116,7 +121,7 @@ export function BrailleShapeCanvas({
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = width * dpr;
     canvas.height = height * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const surface = createRasterSurface(ctx, canvas.width, canvas.height);
 
     const cellW = width / cols;
     const cellH = height / rows;
@@ -141,6 +146,18 @@ export function BrailleShapeCanvas({
     let activeIdleBusy = false;
     let activeBlinkBusy = false;
     let rafId = 0;
+    let hiddenTimerId = 0;
+    let lastReducedKey = '';
+
+    const maxDots = cols * rows * 8;
+    const lowXY = new Float32Array(maxDots * 2);
+    const midXY = new Float32Array(maxDots * 2);
+    const highXY = new Float32Array(maxDots * 2);
+    const buckets: [DotBucketSpec, DotBucketSpec, DotBucketSpec] = [
+      { xy: lowXY, len: 0, hex: '#86EFAC', alpha: 0.78 },
+      { xy: midXY, len: 0, hex: '#E6F0EC', alpha: 0.92 },
+      { xy: highXY, len: 0, hex: '#FFFFFF', alpha: 0.98 },
+    ];
 
     const drawFrame = (now: number) => {
       const s = stateRef.current;
@@ -244,12 +261,10 @@ export function BrailleShapeCanvas({
         motion,
       });
 
-      ctx.clearRect(0, 0, width, height);
-
       const palette = BRAILLE_TINT_PALETTE[s.tint];
-      const pHigh = new Path2D();
-      const pMid = new Path2D();
-      const pLow = new Path2D();
+      let lowLen = 0;
+      let midLen = 0;
+      let highLen = 0;
 
       for (let r = 0; r < frame.rows; r++) {
         const line = frame.lines[r];
@@ -262,47 +277,82 @@ export function BrailleShapeCanvas({
           if (bits <= 0 || bits > 0xff) continue;
 
           const bright = frame.cells[rowOff + c] / 255;
-          const targetPath = bright > 0.64 ? pHigh : bright > 0.36 ? pMid : pLow;
           const baseX = c * cellW;
 
-          for (let k = 0; k < 8; k++) {
-            const [px, py, mask] = SUBPIXEL_BITS[k];
-            if (bits & mask) {
-              const cx = baseX + (px + 0.5) * dotW - dotRadius;
-              const cy = baseY + (py + 0.5) * dotH - dotRadius;
-              targetPath.rect(cx, cy, dotDiameter, dotDiameter);
+          if (bright > 0.64) {
+            for (let k = 0; k < 8; k++) {
+              const [px, py, mask] = SUBPIXEL_BITS[k];
+              if (bits & mask) {
+                highXY[highLen++] = baseX + (px + 0.5) * dotW - dotRadius;
+                highXY[highLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+              }
+            }
+          } else if (bright > 0.36) {
+            for (let k = 0; k < 8; k++) {
+              const [px, py, mask] = SUBPIXEL_BITS[k];
+              if (bits & mask) {
+                midXY[midLen++] = baseX + (px + 0.5) * dotW - dotRadius;
+                midXY[midLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+              }
+            }
+          } else {
+            for (let k = 0; k < 8; k++) {
+              const [px, py, mask] = SUBPIXEL_BITS[k];
+              if (bits & mask) {
+                lowXY[lowLen++] = baseX + (px + 0.5) * dotW - dotRadius;
+                lowXY[lowLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+              }
             }
           }
         }
       }
 
-      ctx.fillStyle = palette.low;
-      ctx.globalAlpha = 0.78;
-      ctx.fill(pLow);
+      buckets[0].len = lowLen;
+      buckets[0].hex = palette.low;
+      buckets[0].alpha = 0.78;
+      buckets[1].len = midLen;
+      buckets[1].hex = palette.mid;
+      buckets[1].alpha = 0.92;
+      buckets[2].len = highLen;
+      buckets[2].hex = palette.high;
+      buckets[2].alpha = 0.98;
 
-      ctx.fillStyle = palette.mid;
-      ctx.globalAlpha = 0.92;
-      ctx.fill(pMid);
-
-      ctx.fillStyle = palette.high;
-      ctx.globalAlpha = 0.98;
-      ctx.fill(pHigh);
-
-      ctx.globalAlpha = 1;
+      rasterizeDotBucketsToSurface(surface, buckets, dpr, dotDiameter);
+      ctx.putImageData(surface.imageData, 0, 0);
     };
 
     drawFrame(startTime);
     if (isPreview) return;
 
+    const scheduleNext = () => {
+      rafId = window.requestAnimationFrame(loop);
+    };
+
     const loop = (now: number) => {
-      if (typeof document !== 'undefined' && document.hidden) {
+      if (
+        (typeof document !== 'undefined' && document.hidden) ||
+        (canvas.offsetWidth === 0 && canvas.offsetHeight === 0)
+      ) {
         lastDraw = now;
-        rafId = window.requestAnimationFrame(loop);
+        hiddenTimerId = window.setTimeout(scheduleNext, 200);
         return;
       }
 
       const s = stateRef.current;
       const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
+      if (isReduced) {
+        const reducedKey = `${s.shape}|${s.tint}|${s.mood}|${s.eyeStyle}|${s.viseme}|${Math.round(
+          s.energy * 100
+        )}|${s.isSpeaking}|${s.isThinking}|${s.isDragging}|${s.isHovered}`;
+        if (reducedKey !== lastReducedKey) {
+          lastReducedKey = reducedKey;
+          drawFrame(now);
+        }
+        hiddenTimerId = window.setTimeout(scheduleNext, 200);
+        return;
+      }
+      lastReducedKey = '';
+
       if (prevDragActive && !s.isDragging) {
         settleUntilMs = now + 900;
       }
@@ -321,7 +371,7 @@ export function BrailleShapeCanvas({
         s.isThinking ||
         s.isHovered ||
         activeIdleBusy;
-      const minInterval = isReduced ? 320 : fastMotion ? 16 : activeMotion ? 36 : 68;
+      const minInterval = fastMotion ? 20 : activeMotion ? 36 : 68;
       if (now - lastDraw >= minInterval) {
         drawFrame(now);
       }
@@ -331,6 +381,7 @@ export function BrailleShapeCanvas({
     rafId = window.requestAnimationFrame(loop);
     return () => {
       window.cancelAnimationFrame(rafId);
+      if (hiddenTimerId) window.clearTimeout(hiddenTimerId);
     };
   }, [variant]);
 

@@ -393,8 +393,8 @@ export function createBrailleShapeAnimator() {
           idlePose.wideEyes * 0.55
       );
 
-      // Asymmetric fast lid close (rate 50) / graceful lid lift (rate 20)
-      const blinkRate = targetBlink > state.blink ? 50 : 20;
+      // Asymmetric fast lid close (rate 44) / graceful lid lift (rate 18)
+      const blinkRate = targetBlink > state.blink ? 44 : 18;
       state.blink = expApproach(state.blink, targetBlink, blinkRate, clampedDt);
       state.squint = expApproach(state.squint, targetSquint, 10, clampedDt);
       state.wide = expApproach(state.wide, targetWide, 12, clampedDt);
@@ -412,8 +412,8 @@ export function createBrailleShapeAnimator() {
         targetMouthOpenForViseme(input.viseme, input.energy, input.isSpeaking),
         idleMouthTarget
       );
-      const mouthStiffness = targetMouth > state.mouthOpen ? 160 : 122;
-      const mouthDamping = 24.5;
+      const mouthStiffness = targetMouth > state.mouthOpen ? 132 : 108;
+      const mouthDamping = 23.0;
       mouthVel += ((targetMouth - state.mouthOpen) * mouthStiffness - mouthVel * mouthDamping) * clampedDt;
       state.mouthOpen = clamp01(state.mouthOpen + mouthVel * clampedDt);
 
@@ -1297,13 +1297,38 @@ function evaluateDynamicFeature(
   return null;
 }
 
+const BRAILLE_CHAR_TABLE: string[] = Array.from({ length: 256 }, (_, i) =>
+  i === 0 ? ' ' : String.fromCharCode(0x2800 + i)
+);
+
+const SHAPE_EXP_MAX = 8;
+const SHAPE_EXP_SIZE = 512;
+const SHAPE_EXP_SCALE = SHAPE_EXP_SIZE / SHAPE_EXP_MAX;
+const SHAPE_EXP_LUT = new Float32Array(SHAPE_EXP_SIZE + 1);
+for (let i = 0; i <= SHAPE_EXP_SIZE; i++) {
+  SHAPE_EXP_LUT[i] = Math.exp(-(i * SHAPE_EXP_MAX) / SHAPE_EXP_SIZE);
+}
+
+function fastShapeExpNeg(x: number): number {
+  if (x <= 0) return 1;
+  if (x >= SHAPE_EXP_MAX) return 0;
+  const f = x * SHAPE_EXP_SCALE;
+  const idx = f | 0;
+  const v0 = SHAPE_EXP_LUT[idx];
+  return v0 + (SHAPE_EXP_LUT[idx + 1] - v0) * (f - idx);
+}
+
 let shapeBufCap = 0;
 let shapeSubLum = new Float32Array(0);
+let shapeRowChars: string[] = [];
 
-function ensureShapeSubBuffer(len: number): Float32Array {
+function ensureShapeSubBuffer(len: number, cols: number): Float32Array {
   if (len > shapeBufCap) {
     shapeBufCap = len;
     shapeSubLum = new Float32Array(len);
+  }
+  if (shapeRowChars.length !== cols) {
+    shapeRowChars = new Array<string>(cols);
   }
   return shapeSubLum;
 }
@@ -1331,7 +1356,8 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
 
   const subW = cols * 2;
   const subH = rows * 4;
-  const subLum = ensureShapeSubBuffer(subW * subH);
+  const subLum = ensureShapeSubBuffer(subW * subH, cols);
+  const rowChars = shapeRowChars;
   const lines: string[] = new Array(rows);
   const cells = new Uint8Array(cols * rows);
 
@@ -1413,24 +1439,37 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
     pose.hand !== 'none' ||
     pose.prop !== 'none';
 
+  const invSubW = 1 / subW;
+  const invSubH = 1 / subH;
+  const invScaleX = 1 / scaleX;
+  const invScaleY = 1 / scaleY;
+  const headShiftX = pose.headX * 0.5;
+  const minBoundX = hasDynamicOverlay ? -0.94 : shape === 'star' ? -0.88 : -0.78;
+  const maxBoundX = hasDynamicOverlay ? 0.94 : shape === 'star' ? 0.88 : 0.78;
+  const minBoundY = hasDynamicOverlay ? -0.88 : -0.84;
+
   for (let sy = 0; sy < subH; sy++) {
-    const nyRaw = ((sy + 0.5) / subH) * 2 - 1;
-    const nyScaled = (nyRaw - bounceY) / scaleY;
+    const nyRaw = ((sy + 0.5) * invSubH) * 2 - 1;
+    const nyScaled = (nyRaw - bounceY) * invScaleY;
     const rowOff = sy * subW;
 
-    for (let sx = 0; sx < subW; sx++) {
-      const nxRaw = ((sx + 0.5) / subW) * 2 - 1;
-      const nxScaled = nxRaw / scaleX;
+    if (nyScaled < -0.98 || nyScaled > 0.90) {
+      subLum.fill(0, rowOff, rowOff + subW);
+      continue;
+    }
 
-      const dxp = nxScaled - pose.headX * 0.5;
+    for (let sx = 0; sx < subW; sx++) {
+      const nxRaw = ((sx + 0.5) * invSubW) * 2 - 1;
+      const nxScaled = nxRaw * invScaleX;
+
+      const dxp = nxScaled - headShiftX;
       const dyp = nyScaled - pivotY;
       let nx = dxp * cosT - dyp * sinT;
       let ny = dxp * sinT + dyp * cosT + pivotY;
 
       if (hairLag !== 0) {
-        const upperZone = ny < -0.22 ? (-0.22 - ny) * 0.55 : 0;
-        const lowerZone = ny > 0.22 ? (ny - 0.22) * 0.55 : 0;
-        nx += hairLag * (upperZone - lowerZone);
+        if (ny < -0.22) nx += hairLag * (-0.22 - ny) * 0.55;
+        else if (ny > 0.22) nx -= hairLag * (ny - 0.22) * 0.55;
       }
 
       if (haloFloat !== 0 && shape === 'trapezoid' && ny < -0.48) {
@@ -1438,11 +1477,11 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
       }
       if (earTwitch !== 0 && ny < -0.24) {
         const earZone = smoothstep(-0.24, -0.58, ny);
-        nx += Math.sign(nx || 1) * earTwitch * earZone * 0.13;
+        nx += (nx < 0 ? -1 : 1) * earTwitch * earZone * 0.13;
         ny += earTwitch * earZone * 0.08;
       }
 
-      if (nx > 0.94 || nx < -0.94 || ny < -0.88 || ny > 0.80) {
+      if (nx > maxBoundX || nx < minBoundX || ny < minBoundY || ny > 0.80) {
         subLum[rowOff + sx] = 0;
         continue;
       }
@@ -1454,11 +1493,7 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
 
       const d = evaluateShapeSdf(shape, nx, ny, pose);
       if (d > 0.030) {
-        if (dyn && dyn.cov > 0.01) {
-          subLum[rowOff + sx] = dyn.lum * dyn.cov;
-        } else {
-          subLum[rowOff + sx] = 0;
-        }
+        subLum[rowOff + sx] = dyn && dyn.cov > 0.01 ? dyn.lum * dyn.cov : 0;
         continue;
       }
 
@@ -1508,7 +1543,10 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
         // Halftone manga skin shading (0.50–0.74) so sclera, dark iris, and specular catchlight pop crisply
         const templeDist = (nx - profile.faceCx) * -turnSign;
         const templeShadow = smoothstep(0.08, 0.27, templeDist) * 0.24;
-        const cheekGlow = Math.exp(-((nx - profile.faceCx - turn * 0.12) ** 2 + (ny - (profile.eyeY + 0.11)) ** 2) * 18) * 0.08;
+        const cgx = nx - profile.faceCx - turn * 0.12;
+        const cgy = ny - (profile.eyeY + 0.11);
+        const cDistSq18 = (cgx * cgx + cgy * cgy) * 18;
+        const cheekGlow = cDistSq18 < 8 ? fastShapeExpNeg(cDistSq18) * 0.08 : 0;
         lum = clamp(0.71 - templeShadow + cheekGlow, 0.44, 0.78);
 
         // Soft cast shadow directly beneath the bang fringe
@@ -1818,9 +1856,9 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
         }
       }
 
-      // Composite foreground hand gesture over lower face / chest when active
+      // Smooth continuous composite for foreground hand gestures (no hard threshold pop)
       let finalLum = lum * alphaCov;
-      if (dyn && dyn.cov > 0.25 && pose.hand !== 'none') {
+      if (dyn && dyn.cov > 0.01 && pose.hand !== 'none') {
         finalLum = lerp(finalLum, dyn.lum, dyn.cov);
       }
       subLum[rowOff + sx] = finalLum;
@@ -1828,7 +1866,6 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
   }
 
   for (let r = 0; r < rows; r++) {
-    let line = '';
     const r0 = r * 4 * subW;
     const r1 = r0 + subW;
     const r2 = r1 + subW;
@@ -1850,7 +1887,7 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
       const lumSum = l00 + l01 + l10 + l11 + l20 + l21 + l30 + l31;
       if (lumSum <= 0.12) {
         cells[cellRowOff + c] = 0;
-        line += ' ';
+        rowChars[c] = ' ';
         continue;
       }
 
@@ -1864,10 +1901,10 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
       if (l30 > BAYER_THRESH[12 + bCol]) bits |= 0x40;
       if (l31 > BAYER_THRESH[13 + bCol]) bits |= 0x80;
 
-      cells[cellRowOff + c] = Math.round(lumSum * 31.875);
-      line += bits === 0 ? ' ' : String.fromCharCode(0x2800 + bits);
+      cells[cellRowOff + c] = (lumSum * 31.875 + 0.5) | 0;
+      rowChars[c] = BRAILLE_CHAR_TABLE[bits];
     }
-    lines[r] = line;
+    lines[r] = rowChars.join('');
   }
 
   return { cols, rows, lines, cells };

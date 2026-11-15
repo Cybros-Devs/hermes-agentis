@@ -202,8 +202,8 @@ export function CanvasSessionNode({
         {/* Ground Contact Shadow */}
         <div
           aria-hidden="true"
-          className={`pointer-events-none rounded-full transition-all duration-150 -mt-1.5 ${
-            isDragged ? 'w-12 h-2 opacity-35 blur-[3px]' : 'w-18 h-2.5 opacity-60 blur-[2px]'
+          className={`pointer-events-none w-18 h-2.5 rounded-full transition-[transform,opacity] duration-150 ease-out -mt-1.5 ${
+            isDragged ? 'scale-x-[0.68] scale-y-[0.82] opacity-35' : 'scale-100 opacity-60'
           }`}
           style={{
             background:
@@ -241,7 +241,7 @@ export function CanvasSessionNode({
           data-testid={`session-chat-${session.channelId}`}
           onPointerDown={(e) => e.stopPropagation()}
           onWheelCapture={(e) => e.stopPropagation()}
-          className="ui-chat-pop mt-2 w-[min(280px,calc(100vw-2.5rem))] rounded-xl bg-[#07120F]/94 border border-[#34D399]/35 backdrop-blur-md shadow-[0_14px_34px_rgba(0,0,0,0.58)] overflow-hidden flex flex-col"
+          className="ui-chat-pop mt-2 w-[min(280px,calc(100vw-2.5rem))] rounded-xl bg-[#07120F]/96 border border-[#34D399]/35 shadow-[0_14px_34px_rgba(0,0,0,0.58)] overflow-hidden flex flex-col"
         >
           {/* Individual Window Header */}
           <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 border-b border-white/8 bg-white/[0.02]">
@@ -381,7 +381,7 @@ export function CanvasSessionNode({
         data-testid={`session-input-form-${session.channelId}`}
         className={`mt-1.5 ${
           isChatOpen ? 'w-[min(320px,calc(100vw-2.25rem))] sm:w-[244px]' : 'w-full max-w-[172px] sm:w-[244px] sm:max-w-none'
-        } flex items-center gap-1 rounded-full border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-all ${
+        } flex items-center gap-1 rounded-full border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow] ${
           isChatOpen || isSelected
             ? 'border-[#34D399]/65 shadow-[0_0_20px_rgba(52,211,153,0.16)]'
             : 'border-white/18 hover:border-[#34D399]/45 focus-within:border-[#4ADE80]'

@@ -59,15 +59,15 @@ export function CommandTerminal({
   return (
     <section
       aria-label="Hermes Command Line Interface"
-      className="flex flex-col h-full rounded-xl bg-[#0B1714]/80 border border-white/10 overflow-hidden"
+      className="flex flex-col h-full rounded-xl bg-[#0B1714]/90 border border-white/12 overflow-hidden shadow-[0_12px_36px_rgba(0,0,0,0.35)]"
     >
       {/* Terminal Header & Quick Commands */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-white/8 bg-black/20">
-        <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/80">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-white/10 bg-black/35">
+        <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/85">
           <Terminal className="w-3.5 h-3.5 text-[#34D399]" />
           <span className="font-semibold text-white">hermes-agent</span>
-          <span className="text-emerald-100/35">·</span>
-          <span className="text-emerald-100/60">{activeSessionId || `hermes-${activeChannel}`}</span>
+          <span className="text-emerald-100/40">·</span>
+          <span className="text-emerald-100/75">{activeSessionId || `hermes-${activeChannel}`}</span>
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto">
@@ -76,7 +76,7 @@ export function CommandTerminal({
               key={cmd}
               type="button"
               onClick={() => onSubmitInput(cmd)}
-              className="px-2.5 py-1 rounded-md bg-white/[0.05] border border-white/10 font-mono text-[11px] text-emerald-50/80 hover:border-[#34D399]/55 hover:text-[#6EE7B7] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/14 font-mono text-[11px] text-emerald-50/90 hover:border-[#34D399]/60 hover:text-[#6EE7B7] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {cmd}
             </button>
@@ -105,14 +105,14 @@ export function CommandTerminal({
             const isSystem = entry.role === 'system';
 
             return (
-              <div key={entry.id} className="space-y-1">
-                <div className="flex items-center gap-2 text-[11px] text-emerald-100/45">
+              <div key={entry.id} className="ui-msg-enter space-y-1">
+                <div className="flex items-center gap-2 text-[11px] text-emerald-100/60">
                   <span
                     className={
                       isUser
                         ? 'text-[#6EE7B7] font-semibold'
                         : isSystem
-                        ? 'text-emerald-100/65 font-semibold'
+                        ? 'text-emerald-200/75 font-semibold'
                         : 'text-white font-semibold'
                     }
                   >
@@ -126,10 +126,10 @@ export function CommandTerminal({
                 <pre
                   className={`whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed ${
                     isUser
-                      ? 'text-white'
+                      ? 'text-white pl-2.5 border-l-2 border-[#34D399]/60'
                       : isSystem
-                      ? 'text-emerald-50/85 bg-black/30 border border-white/10 rounded-lg p-2.5'
-                      : 'text-emerald-50/90'
+                      ? 'text-emerald-50/85 bg-black/30 border border-white/10 border-l-2 border-l-[#34D399]/45 rounded-lg p-2.5'
+                      : 'text-emerald-50/90 pl-2.5 border-l-2 border-white/12'
                   }`}
                 >
                   {isUser ? (

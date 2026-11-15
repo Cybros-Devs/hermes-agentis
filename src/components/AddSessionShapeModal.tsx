@@ -80,7 +80,7 @@ export function AddSessionShapeModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="ui-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/72 p-4"
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -90,7 +90,7 @@ export function AddSessionShapeModal({
         open
         aria-modal="true"
         aria-labelledby="add-braille-session-title"
-        className="relative m-0 w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl bg-[#0A1613] border border-[#34D399]/35 text-[#ECF3F0] shadow-[0_24px_80px_rgba(0,0,0,0.75)] overflow-hidden"
+        className="ui-modal-enter relative m-0 w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl bg-[#0A1613] border border-[#34D399]/35 text-[#ECF3F0] shadow-[0_24px_80px_rgba(0,0,0,0.75)] overflow-hidden"
       >
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 shrink-0">
           <div>

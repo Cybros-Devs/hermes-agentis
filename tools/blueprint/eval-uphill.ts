@@ -2,6 +2,10 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExpressionMood, EyeState, MouthViseme } from '../../src/types/hermes';
+import {
+  renderAscii3DFrame,
+  type AsciiShaderMode,
+} from '../../src/utils/ascii3dEngine';
 import { amplitudeToViseme, resolveEyeState } from '../../src/utils/asciiCharacter';
 import {
   buildPortraitSourceFromRgba,
@@ -11,8 +15,24 @@ import {
   type PortraitSourceField,
 } from '../../src/utils/asciiPortraitEngine';
 import * as fieldEngine from '../../src/utils/brailleFieldEngine';
+import {
+  IDLE_ACTION_SLOT_SECONDS,
+  IDLE_ACTIVE_END_SECONDS,
+  IDLE_ANIMATION_SETS,
+  IDLE_SET_ORDER,
+  evaluateIdleActionStep,
+} from '../../src/utils/brailleIdleLoops';
 import * as shapesEngine from '../../src/utils/brailleShapesEngine';
 import type { BrailleShapeKind } from '../../src/utils/brailleShapesEngine';
+import {
+  blendLoadingToPortraitFrame,
+  computeMaterializeProgress,
+  renderPortraitLoadingFrame,
+} from '../../src/utils/portraitLoadingEngine';
+import {
+  computeDecodeFrame,
+  getDecodeDurationMs,
+} from '../../src/utils/textDecodeEngine';
 
 interface ShapeAnimatorLike {
   step: (
@@ -712,6 +732,445 @@ function evaluatePerfBudget(heroAvgMs: number, stageAvgMs: number, shapeAvgMs: n
   return Number(clamp(heroScore + stageScore + shapeScore, 0, 15).toFixed(2));
 }
 
+export interface ComponentEvaluatorResult {
+  id: string;
+  score: number;
+  maxScore: number;
+  metrics: Record<string, unknown>;
+}
+
+export interface ComponentEvaluatorContext {
+  repoRoot: string;
+  sourceField: PortraitSourceField;
+}
+
+export interface ComponentEvaluator {
+  id: string;
+  maxScore: number;
+  evaluate: (ctx: ComponentEvaluatorContext) => ComponentEvaluatorResult;
+}
+
+function evalAllBrailleShapes(): ComponentEvaluatorResult {
+  const catalog = shapesEngine.BRAILLE_SHAPE_CATALOG;
+  const makeAnimator = () => shapesEngine.createBrailleShapeAnimator();
+  const dt = 1 / 30;
+  const signatures = new Map<BrailleShapeKind, string>();
+  const shapeJerks: number[] = [];
+  let totalClips = 0;
+
+  for (const meta of catalog) {
+    const anim = makeAnimator();
+    let prevCells: Uint8Array | null = null;
+    const diffs: number[] = [];
+
+    for (let i = 0; i < 60; i++) {
+      const t = i * dt;
+      const isSpeaking = i >= 30 && i < 50;
+      const isDragging = i >= 12 && i < 24;
+      const mood: ExpressionMood = isSpeaking ? 'speaking' : 'happy';
+      const energy = isSpeaking ? 0.55 : 0.08;
+      const viseme = amplitudeToViseme(energy, mood, i, isSpeaking);
+      const st = anim.step(
+        {
+          time: t,
+          mood,
+          eyeStyle: meta.defaultEyeStyle,
+          viseme,
+          energy,
+          isSpeaking,
+          isThinking: false,
+          isDragging,
+          dragVelX: isDragging ? Math.sin(i * 0.4) * 1.1 : 0,
+          dragVelY: 0,
+        },
+        dt
+      );
+      const frame = shapesEngine.renderBrailleShape({
+        shape: meta.kind,
+        cols: 34,
+        rows: 17,
+        time: t,
+        mood,
+        eyeState: st.blink > 0.72 ? 'blink' : meta.defaultEyeStyle,
+        viseme,
+        energy,
+        isSpeaking,
+        isDragging,
+        gazeX: st.gazeX,
+        gazeY: st.gazeY,
+        motion: st,
+      });
+      if (i === 5) {
+        signatures.set(meta.kind, frame.lines.join('\n'));
+      }
+      if (i % 15 === 0) {
+        totalClips += countBoundaryTouches(frame.lines, 17, 34);
+      }
+      if (prevCells) diffs.push(cellsMeanAbsDiff(prevCells, frame.cells));
+      prevCells = frame.cells;
+    }
+    shapeJerks.push(computeJerkMetrics(diffs).jerkRatio);
+  }
+
+  // Pairwise silhouette uniqueness across all N shapes
+  const sigArr = [...signatures.values()];
+  let pairCount = 0;
+  let distinctPairs = 0;
+  for (let a = 0; a < sigArr.length; a++) {
+    for (let b = a + 1; b < sigArr.length; b++) {
+      pairCount++;
+      if (sigArr[a] !== sigArr[b]) distinctPairs++;
+    }
+  }
+  const uniquenessRatio = pairCount > 0 ? distinctPairs / pairCount : 1;
+  const meanJerk = shapeJerks.reduce((a, b) => a + b, 0) / Math.max(1, shapeJerks.length);
+  const clipPenalty = Math.min(4, totalClips * 0.2);
+  const score = clamp(uniquenessRatio * 10 + clamp01(1 - Math.max(0, meanJerk - 0.55) / 1.2) * 6 + (4 - clipPenalty), 0, 20);
+
+  return {
+    id: 'brailleShapesAll9',
+    score: Number(score.toFixed(2)),
+    maxScore: 20,
+    metrics: {
+      shapeCount: catalog.length,
+      distinctPairs,
+      pairCount,
+      meanJerkRatio: Number(meanJerk.toFixed(3)),
+      totalClips,
+    },
+  };
+}
+
+function evalAllIdleLoops(): ComponentEvaluatorResult {
+  let actionCount = 0;
+  let smoothEaseInOutCount = 0;
+  let calmRestCount = 0;
+  let reducedZeroCount = 0;
+  let smoothMotionCount = 0;
+
+  for (const setId of IDLE_SET_ORDER) {
+    const meta = IDLE_ANIMATION_SETS[setId];
+    for (let idx = 0; idx < meta.actions.length; idx++) {
+      actionCount++;
+      const baseT = idx * IDLE_ACTION_SLOT_SECONDS;
+      const fStart = evaluateIdleActionStep(setId, baseT + 0.01);
+      const fPeak = evaluateIdleActionStep(setId, baseT + 1.55);
+      const fEnd = evaluateIdleActionStep(setId, baseT + IDLE_ACTIVE_END_SECONDS - 0.02);
+      const fRest = evaluateIdleActionStep(setId, baseT + IDLE_ACTIVE_END_SECONDS + 0.25);
+      const fReduced = evaluateIdleActionStep(setId, baseT + 1.55, true);
+
+      if (fStart.envelope < 0.15 && fPeak.envelope > 0.95 && fEnd.envelope < 0.15) {
+        smoothEaseInOutCount++;
+      }
+      if (
+        fRest.isResting &&
+        Math.abs(fRest.pose.headX) < 1e-6 &&
+        Math.abs(fRest.pose.tilt) < 1e-6 &&
+        fRest.pose.hand === 'none'
+      ) {
+        calmRestCount++;
+      }
+      if (fReduced.isResting && fReduced.envelope === 0 && Math.abs(fReduced.pose.tilt) < 1e-6) {
+        reducedZeroCount++;
+      }
+
+      // Check step continuity across active phase
+      let maxTiltJump = 0;
+      let prevTilt = 0;
+      for (let s = 0; s <= 15; s++) {
+        const st = evaluateIdleActionStep(setId, baseT + s * 0.2);
+        if (s > 0) maxTiltJump = Math.max(maxTiltJump, Math.abs(st.pose.tilt - prevTilt));
+        prevTilt = st.pose.tilt;
+      }
+      if (maxTiltJump < 0.12) smoothMotionCount++;
+    }
+  }
+
+  const totalRatio =
+    (smoothEaseInOutCount + calmRestCount + reducedZeroCount + smoothMotionCount) /
+    Math.max(1, actionCount * 4);
+  const score = clamp(totalRatio * 15, 0, 15);
+
+  return {
+    id: 'brailleIdleLoops36',
+    score: Number(score.toFixed(2)),
+    maxScore: 15,
+    metrics: {
+      setCount: IDLE_SET_ORDER.length,
+      actionCount,
+      smoothEaseInOutCount,
+      calmRestCount,
+      reducedZeroCount,
+      smoothMotionCount,
+    },
+  };
+}
+
+function evalAscii3dViewport(): ComponentEvaluatorResult {
+  const modes: AsciiShaderMode[] = ['solid', 'wire', 'depth', 'holo', 'norm'];
+  const modeSignatures = new Set<string>();
+  const perfTimes: number[] = [];
+
+  for (const shaderMode of modes) {
+    const t0 = performance.now();
+    const f = renderAscii3DFrame({
+      cols: 60,
+      rows: 26,
+      time: 0.85,
+      yaw: 0.25,
+      pitch: 0.1,
+      zoom: 1,
+      mood: 'speaking',
+      viseme: 'mid',
+      eyeState: 'open',
+      energy: 0.65,
+      isSpeaking: true,
+      isListening: false,
+      shaderMode,
+    });
+    perfTimes.push(performance.now() - t0);
+    const nonSpace = f.cells.filter((c) => c.ch !== ' ').length;
+    if (nonSpace > 60) {
+      modeSignatures.add(f.cells.map((c) => c.ch).join(''));
+    }
+  }
+
+  // Orbit yaw continuity across 16 steps
+  const yawDiffs: number[] = [];
+  let prevStr = '';
+  for (let i = 0; i < 16; i++) {
+    const f = renderAscii3DFrame({
+      cols: 48,
+      rows: 22,
+      time: i * 0.033,
+      yaw: -0.4 + i * 0.055,
+      pitch: 0.08,
+      zoom: 1,
+      mood: 'happy',
+      viseme: 'closed',
+      eyeState: 'open',
+      energy: 0.2,
+      isSpeaking: false,
+      isListening: false,
+      shaderMode: 'solid',
+    });
+    const cur = f.cells.map((c) => c.ch).join('');
+    if (prevStr) {
+      let diff = 0;
+      for (let k = 0; k < cur.length; k++) if (cur[k] !== prevStr[k]) diff++;
+      yawDiffs.push(diff / Math.max(1, cur.length));
+    }
+    prevStr = cur;
+  }
+
+  const meanModeMs = perfTimes.reduce((a, b) => a + b, 0) / Math.max(1, perfTimes.length);
+  const jerk = computeJerkMetrics(yawDiffs);
+  const distinctScore = (modeSignatures.size / modes.length) * 8;
+  const smoothScore = clamp01(1 - Math.max(0, jerk.jerkRatio - 0.35) / 1.2) * 6;
+  const perfScore = clamp01((24 - meanModeMs) / (24 - 6)) * 6;
+  const score = clamp(distinctScore + smoothScore + perfScore, 0, 20);
+
+  return {
+    id: 'ascii3dEngine',
+    score: Number(score.toFixed(2)),
+    maxScore: 20,
+    metrics: {
+      modesTested: modes.length,
+      distinctModes: modeSignatures.size,
+      meanModeMs: Number(meanModeMs.toFixed(2)),
+      orbitJerkRatio: jerk.jerkRatio,
+    },
+  };
+}
+
+function evalPortraitLoadingAndBlend(ctx: ComponentEvaluatorContext): ComponentEvaluatorResult {
+  const readyPortrait = renderHalftonePortrait({
+    cols: 48,
+    rows: 22,
+    time: 0.5,
+    mood: 'happy',
+    viseme: 'closed',
+    eyeState: 'open',
+    energy: 0.1,
+    isSpeaking: false,
+    isListening: false,
+    sourceField: ctx.sourceField,
+  });
+
+  const l0 = renderPortraitLoadingFrame({ cols: 48, rows: 22, time: 0.1, variant: 'stage', status: 'loading' });
+  const l1 = renderPortraitLoadingFrame({ cols: 48, rows: 22, time: 0.45, variant: 'stage', status: 'loading' });
+  const err = renderPortraitLoadingFrame({ cols: 48, rows: 22, time: 0.1, variant: 'stage', status: 'error' });
+
+  const animatesOverTime = lineSignatureDiff(l0.lines, l1.lines) > 0.02;
+  const distinctError = lineSignatureDiff(l0.lines, err.lines) > 0.04;
+
+  // Monotonic materialization curve + immediate reduced motion reveal
+  const pMid = computeMaterializeProgress(0.21, false);
+  const pDone = computeMaterializeProgress(0.5, false);
+  const pReduced = computeMaterializeProgress(0.01, true);
+  const monotonicOk = pMid > 0.4 && pMid < 0.99 && pDone === 1 && pReduced === 1;
+
+  // Blend dissolves smoothly without snapping prematurely
+  const bMid = blendLoadingToPortraitFrame(l0, readyPortrait, 0.5);
+  const diffFromLoader = lineSignatureDiff(l0.lines, bMid.lines);
+  const diffFromFinal = lineSignatureDiff(readyPortrait.lines, bMid.lines);
+  const blendSmooth = diffFromLoader > 0.05 && diffFromFinal > 0.05;
+
+  const score =
+    (animatesOverTime ? 4 : 0) +
+    (distinctError ? 3 : 0) +
+    (monotonicOk ? 4 : 0) +
+    (blendSmooth ? 4 : 0);
+
+  return {
+    id: 'portraitLoading',
+    score: Number(score.toFixed(2)),
+    maxScore: 15,
+    metrics: {
+      animatesOverTime,
+      distinctError,
+      monotonicOk,
+      blendSmooth,
+      diffFromLoader: Number(diffFromLoader.toFixed(3)),
+      diffFromFinal: Number(diffFromFinal.toFixed(3)),
+    },
+  };
+}
+
+function evalTextDecodeEngine(): ComponentEvaluatorResult {
+  const sample = 'Routing request cleanly\nacross active session lanes.';
+  const dur = getDecodeDurationMs(sample);
+  const fStart = computeDecodeFrame(sample, 0.1, 1);
+  const fMid = computeDecodeFrame(sample, 0.55, 2);
+  const fMid2 = computeDecodeFrame(sample, 0.55, 5);
+  const fEnd = computeDecodeFrame(sample, 1.0, 9);
+
+  const monotonicSettled = fStart.settled.length < fMid.settled.length && fEnd.settled === sample && fEnd.done;
+  const frontierMutates = fMid.frontier.length > 0 && fMid.frontier !== fMid2.frontier;
+  const newlinesPreserved =
+    fMid.settled.includes('\n') || fMid.frontier.includes('\n') || !sample.slice(0, fMid.settled.length).includes('\n');
+  const durationBounded = dur >= 380 && dur <= 1150;
+
+  const score =
+    (monotonicSettled ? 3 : 0) +
+    (frontierMutates ? 3 : 0) +
+    (newlinesPreserved ? 2 : 0) +
+    (durationBounded ? 2 : 0);
+
+  return {
+    id: 'textDecode',
+    score: Number(score.toFixed(2)),
+    maxScore: 10,
+    metrics: {
+      durMs: dur,
+      monotonicSettled,
+      frontierMutates,
+      newlinesPreserved,
+      durationBounded,
+    },
+  };
+}
+
+function evalCssAndComponentAudit(ctx: ComponentEvaluatorContext): ComponentEvaluatorResult {
+  const cssFiles = [
+    path.join(ctx.repoRoot, 'src', 'index.css'),
+    path.join(ctx.repoRoot, 'src', 'backgrounds', 'backgrounds.css'),
+    path.join(ctx.repoRoot, 'src', 'onboarding', 'onboarding.css'),
+  ];
+  let reducedMediaCount = 0;
+  let dataUiReducedCount = 0;
+  let paintHeavyMesh = 0;
+  let viewEnterFast = false;
+
+  for (const f of cssFiles) {
+    if (!fs.existsSync(f)) continue;
+    const raw = fs.readFileSync(f, 'utf8');
+    if (raw.includes('prefers-reduced-motion: reduce')) reducedMediaCount++;
+    if (raw.includes('data-ui-motion="reduced"')) dataUiReducedCount++;
+    if (raw.includes('background-position') && raw.includes('glassMeshDrift')) paintHeavyMesh++;
+    const viewEnterMatch = raw.match(/@keyframes\s+uiViewEnter\s*\{[\s\S]*?\n\}/);
+    if (viewEnterMatch && !viewEnterMatch[0].includes('opacity: 0;')) viewEnterFast = true;
+  }
+
+  const componentsDir = path.join(ctx.repoRoot, 'src', 'components');
+  const compFiles = fs.existsSync(componentsDir)
+    ? fs.readdirSync(componentsDir).filter((n) => n.endsWith('.tsx'))
+    : [];
+
+  let blur2xlHits = 0;
+  let transitionWidthHeightHits = 0;
+  let unguardedPulseSpinHits = 0;
+  let interactiveComponentCount = 0;
+
+  for (const name of compFiles) {
+    const raw = fs.readFileSync(path.join(componentsDir, name), 'utf8');
+    if (raw.includes('<button') || raw.includes('<dialog') || raw.includes('<canvas')) {
+      interactiveComponentCount++;
+    }
+    const b2Matches = raw.match(/backdrop-blur-2xl/g);
+    if (b2Matches) blur2xlHits += b2Matches.length;
+
+    // Detect transition-all on elements that bind width/height inline style
+    if (/transition-all[\s\S]{0,160}style=\{\{\s*(width|height):/.test(raw)) {
+      transitionWidthHeightHits++;
+    }
+    // Check animate-pulse or animate-spin without motion-safe-only
+    for (const line of raw.split('\n')) {
+      if ((line.includes('animate-pulse') || line.includes('animate-spin')) && !line.includes('motion-safe-only')) {
+        unguardedPulseSpinHits++;
+      }
+    }
+  }
+
+  const reducedCoverageScore =
+    (reducedMediaCount / 3) * 4 + (dataUiReducedCount / 3) * 5 + (viewEnterFast ? 2 : 0);
+  const gpuCleanScore = clamp(
+    9 -
+      blur2xlHits * 3 -
+      transitionWidthHeightHits * 2 -
+      unguardedPulseSpinHits * 1.5 -
+      paintHeavyMesh * 2,
+    0,
+    9
+  );
+  const score = clamp(reducedCoverageScore + gpuCleanScore, 0, 20);
+
+  return {
+    id: 'cssAndComponentAudit',
+    score: Number(score.toFixed(2)),
+    maxScore: 20,
+    metrics: {
+      cssFilesAudited: cssFiles.length,
+      componentFilesAudited: compFiles.length,
+      interactiveComponentCount,
+      reducedMediaCount,
+      dataUiReducedCount,
+      blur2xlHits,
+      transitionWidthHeightHits,
+      unguardedPulseSpinHits,
+      paintHeavyMesh,
+      viewEnterFast,
+    },
+  };
+}
+
+export const COMPONENT_EVALUATORS: ComponentEvaluator[] = [
+  { id: 'brailleShapesAll9', maxScore: 20, evaluate: () => evalAllBrailleShapes() },
+  { id: 'brailleIdleLoops36', maxScore: 15, evaluate: () => evalAllIdleLoops() },
+  { id: 'ascii3dEngine', maxScore: 20, evaluate: () => evalAscii3dViewport() },
+  { id: 'portraitLoading', maxScore: 15, evaluate: (ctx) => evalPortraitLoadingAndBlend(ctx) },
+  { id: 'textDecode', maxScore: 10, evaluate: () => evalTextDecodeEngine() },
+  { id: 'cssAndComponentAudit', maxScore: 20, evaluate: (ctx) => evalCssAndComponentAudit(ctx) },
+];
+
+export function evaluateExtendedComponents(ctx: ComponentEvaluatorContext) {
+  const results = COMPONENT_EVALUATORS.map((ev) => ev.evaluate(ctx));
+  const rawTotal = results.reduce((acc, r) => acc + r.score, 0);
+  const rawMax = results.reduce((acc, r) => acc + r.maxScore, 0);
+  const extendedScore = rawMax > 0 ? Number(((rawTotal / rawMax) * 100).toFixed(2)) : 0;
+  return { extendedScore, maxExtendedScore: 100, results };
+}
+
 function main() {
   const args = process.argv.slice(2);
   let label = 'gen';
@@ -754,6 +1213,8 @@ function main() {
     ).toFixed(2)
   );
 
+  const extended = evaluateExtendedComponents({ repoRoot, sourceField });
+
   const stripPath = path.join(uiDir, `uphill-${label}-shapes.png`);
   writeStripPng(shapesRes.stripFrames, stripPath, 6);
 
@@ -761,6 +1222,8 @@ function main() {
     label,
     totalScore,
     maxScore: 100,
+    extendedScore: extended.extendedScore,
+    maxExtendedScore: extended.maxExtendedScore,
     breakdown: {
       portraitContinuity_20: portraitRes.continuityScore,
       portraitExpression_15: portraitRes.expressionScore,
@@ -769,10 +1232,12 @@ function main() {
       horizonFluidity_10: horizonRes.horizonScore,
       renderPerfBudget_15: perfScore,
     },
+    extendedBreakdown: Object.fromEntries(extended.results.map((r) => [`${r.id}_${r.maxScore}`, r.score])),
     details: {
       portrait: portraitRes.metrics,
       shapes: shapesRes.metrics,
       horizon: horizonRes.metrics,
+      components: extended.results,
     },
     stripPath,
   };
@@ -784,6 +1249,10 @@ function main() {
   if (baselinePath && fs.existsSync(baselinePath)) {
     const base = JSON.parse(fs.readFileSync(baselinePath, 'utf8')) as typeof report;
     const deltaTotal = Number((totalScore - base.totalScore).toFixed(2));
+    const deltaExtended =
+      typeof base.extendedScore === 'number'
+        ? Number((extended.extendedScore - base.extendedScore).toFixed(2))
+        : null;
     const breakdownDelta = {
       portraitContinuity: Number((report.breakdown.portraitContinuity_20 - base.breakdown.portraitContinuity_20).toFixed(2)),
       portraitExpression: Number((report.breakdown.portraitExpression_15 - base.breakdown.portraitExpression_15).toFixed(2)),
@@ -793,10 +1262,32 @@ function main() {
       renderPerfBudget: Number((report.breakdown.renderPerfBudget_15 - base.breakdown.renderPerfBudget_15).toFixed(2)),
     };
     const verdict = deltaTotal > 0.25 ? `UPHILL (+${deltaTotal}) -> KEEP` : `FLAT/REGRESSION (${deltaTotal}) -> REVERT`;
-    comparison = { baseline: base.label, baseScore: base.totalScore, deltaTotal, breakdownDelta, verdict };
+    comparison = { baseline: base.label, baseScore: base.totalScore, deltaTotal, deltaExtended, breakdownDelta, verdict };
   }
 
-  console.log(JSON.stringify({ reportPath: outPath, totalScore, breakdown: report.breakdown, details: report.details, comparison }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        reportPath: outPath,
+        totalScore,
+        extendedScore: extended.extendedScore,
+        breakdown: report.breakdown,
+        extendedBreakdown: report.extendedBreakdown,
+        details: report.details,
+        comparison,
+      },
+      null,
+      2
+    )
+  );
 }
 
-main();
+const isDirectCli =
+  typeof process !== 'undefined' &&
+  Array.isArray(process.argv) &&
+  process.argv[1]?.endsWith('eval-uphill.ts');
+
+if (isDirectCli) {
+  main();
+}
+

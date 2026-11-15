@@ -188,10 +188,10 @@ export function VoiceWorkspacePane({
   const activeIsSpeaking = isHomeNewDraft ? false : rawIsSpeaking;
 
   useEffect(() => {
-    const intervalMs = activeIsSpeaking ? 42 : 120;
+    if (!activeIsSpeaking) return;
     const id = window.setInterval(() => {
       setTick((t) => (t + 1) % 10000);
-    }, intervalMs);
+    }, 42);
     return () => window.clearInterval(id);
   }, [activeIsSpeaking]);
 
@@ -532,10 +532,10 @@ export function VoiceWorkspacePane({
                   type="button"
                   onClick={() => onChangePanelView(tab.id)}
                   aria-current={active ? 'page' : undefined}
-                  className={`text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer pb-0.5 ${
+                  className={`px-2 py-1 rounded-md text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
                     active
-                      ? 'text-[#6EE7B7] font-medium border-b border-[#34D399]'
-                      : 'text-emerald-100/60 hover:text-white border-b border-transparent'
+                      ? 'bg-[#34D399]/12 border-[#34D399]/40 text-[#6EE7B7] font-medium'
+                      : 'border-transparent text-emerald-100/65 hover:text-white hover:bg-white/[0.04]'
                   }`}
                 >
                   {tab.label}
@@ -623,7 +623,9 @@ export function VoiceWorkspacePane({
             >
               <div
                 aria-hidden="true"
-                className="ui-halo-pulse absolute inset-0 -m-10 rounded-full pointer-events-none"
+                className={`absolute inset-0 -m-10 rounded-full pointer-events-none ${
+                  activeIsSpeaking || voiceState.isListening ? 'ui-halo-pulse' : ''
+                }`}
                 style={{
                   background:
                     'radial-gradient(circle at 50% 48%, rgba(var(--ui-accent-rgb), 0.16) 0%, rgba(var(--ui-accent-rgb), 0.05) 44%, transparent 72%)',
@@ -779,6 +781,7 @@ export function VoiceWorkspacePane({
                 tintHex={effectivePortraitTint}
                 speedScale={uiConfig.animationSpeed}
                 reducedMotionOverride={uiConfig.reducedMotion}
+                onStatusChange={setPortraitStatus}
                 onClick={onCycleMood}
               />
 
@@ -836,6 +839,7 @@ export function VoiceWorkspacePane({
                     tintHex={effectivePortraitTint}
                     speedScale={uiConfig.animationSpeed}
                     reducedMotionOverride={uiConfig.reducedMotion}
+                    onStatusChange={setPortraitStatus}
                     onClick={onCycleMood}
                   />
                 </div>
@@ -1124,11 +1128,11 @@ export function VoiceWorkspacePane({
         >
           <form
             onSubmit={handleSubmit}
-            className={`flex flex-col lg:flex-row lg:items-center gap-1.5 lg:gap-2.5 rounded-[22px] lg:rounded-xl border px-3 py-2.5 lg:px-3.5 lg:py-1.5 backdrop-blur-xl transition-colors ${
+            className={`flex flex-col lg:flex-row lg:items-center gap-1.5 lg:gap-2.5 rounded-[22px] lg:rounded-xl border px-3 py-2.5 lg:px-3.5 lg:py-1.5 transition-colors ${
               uiConfig.composerStyle === 'minimal'
-                ? 'border-white/10 bg-black/30 shadow-none'
+                ? 'border-white/10 bg-[#081310]/82 shadow-none'
                 : uiConfig.composerStyle === 'floating'
-                ? 'border-white/18 bg-black/55 shadow-[0_14px_38px_rgba(0,0,0,0.52)]'
+                ? 'border-white/18 bg-[#081310]/92 shadow-[0_14px_38px_rgba(0,0,0,0.52)]'
                 : 'shadow-[0_-6px_28px_rgba(0,0,0,0.42)] lg:shadow-none'
             } ${
               voiceState.isListening

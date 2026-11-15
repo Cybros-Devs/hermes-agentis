@@ -258,7 +258,7 @@ export function UiCustomizerStudio({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-[2px]"
+      className="ui-backdrop-enter fixed inset-0 z-50 flex justify-end bg-black/55"
       onClick={onClose}
     >
       <aside
@@ -267,7 +267,7 @@ export function UiCustomizerStudio({
         aria-label="UI Customization Studio"
         data-testid="ui-studio-drawer"
         onClick={(e) => e.stopPropagation()}
-        className="ui-drawer-shell w-[min(430px,100vw)] h-full flex flex-col border-l backdrop-blur-2xl shadow-[-16px_0_48px_rgba(0,0,0,0.68)] text-[#ECF3F0]"
+        className="ui-drawer-shell ui-drawer-enter w-[min(430px,100vw)] h-full flex flex-col border-l shadow-[-16px_0_48px_rgba(0,0,0,0.68)] text-[#ECF3F0]"
       >
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-4 py-3.5 border-b border-white/10 shrink-0">
@@ -402,7 +402,7 @@ export function UiCustomizerStudio({
                         <div className="mt-2 text-xs font-semibold text-white truncate">
                           {preset.name}
                         </div>
-                        <div className="text-[10.5px] text-emerald-100/50 truncate mt-0.5">
+                        <div className="text-[10.5px] text-emerald-100/60 leading-snug line-clamp-2 mt-0.5">
                           {preset.subtitle}
                         </div>
                       </button>

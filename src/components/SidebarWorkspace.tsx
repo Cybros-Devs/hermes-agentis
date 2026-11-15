@@ -179,15 +179,15 @@ export function SidebarWorkspace({
                       ? onSelectSession(session)
                       : onSelectChannel(session.channelId)
                   }
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                    active ? 'bg-white/10' : 'hover:bg-white/5'
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border-l-2 transition-colors cursor-pointer ${
+                    active ? 'bg-white/10 border-[#34D399]' : 'border-transparent hover:bg-white/5'
                   }`}
                 >
                   <span
                     aria-hidden="true"
                     className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${
                       isThinking
-                        ? 'bg-amber-400 animate-pulse'
+                        ? 'bg-amber-400 animate-pulse motion-safe-only'
                         : active
                         ? 'bg-[#4ADE80]'
                         : 'bg-[#6EE7B7]/65'
@@ -217,8 +217,8 @@ export function SidebarWorkspace({
                   key={card.id}
                   type="button"
                   onClick={() => onSelectApproval(card)}
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                    active ? 'bg-white/10' : 'hover:bg-white/5'
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border-l-2 transition-colors cursor-pointer ${
+                    active ? 'bg-white/10 border-[#34D399]' : 'border-transparent hover:bg-white/5'
                   }`}
                 >
                   <span
@@ -243,8 +243,8 @@ export function SidebarWorkspace({
                   key={task.id}
                   type="button"
                   onClick={() => onSelectTask(task)}
-                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                    active ? 'bg-white/10' : 'hover:bg-white/5'
+                  className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border-l-2 transition-colors cursor-pointer ${
+                    active ? 'bg-white/10 border-[#34D399]' : 'border-transparent hover:bg-white/5'
                   }`}
                 >
                   <span
@@ -280,8 +280,8 @@ export function SidebarWorkspace({
                     key={item.id}
                     type="button"
                     onClick={() => onSelectBrief(item)}
-                    className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg transition-colors cursor-pointer ${
-                      active ? 'bg-white/10' : 'hover:bg-white/5'
+                    className={`w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-lg border-l-2 transition-colors cursor-pointer ${
+                      active ? 'bg-white/10 border-[#34D399]' : 'border-transparent hover:bg-white/5'
                     }`}
                   >
                     <span
@@ -304,11 +304,11 @@ export function SidebarWorkspace({
       {/* Minimal Channel / Session Switcher Footer */}
       {channelsVisible && (
         <div
-          className={`py-2.5 pl-3.5 border-t border-white/8 flex items-end justify-between gap-2 font-mono text-[11px] ${
-            sidebarPosition === 'right' ? 'pr-12' : 'pr-3.5'
+          className={`py-2.5 pl-3 border-t border-white/8 flex items-end justify-between gap-1.5 font-mono text-[10.5px] ${
+            sidebarPosition === 'right' ? 'pr-12' : 'pr-3'
           }`}
         >
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 min-w-0 max-h-[104px] overflow-y-auto cyber-scroll">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 max-h-[104px] overflow-y-auto cyber-scroll">
             {channels.map((ch) => {
               const active = ch.id === activeChannel;
               const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
@@ -335,8 +335,8 @@ export function SidebarWorkspace({
               {frequencyBands.slice(0, 5).map((band, idx) => (
                 <span
                   key={idx}
-                  className="w-0.5 rounded-[1px] bg-[#4ADE80] transition-all duration-75"
-                  style={{ height: `${Math.max(25, Math.round(band * 100))}%` }}
+                  className="w-0.5 h-full origin-bottom rounded-[1px] bg-[#4ADE80] transition-transform duration-75"
+                  style={{ transform: `scaleY(${Math.max(0.25, Math.min(1, band))})` }}
                 />
               ))}
             </div>

@@ -38,10 +38,10 @@ export function BackgroundPicker({
         aria-expanded={open}
         aria-label="Open Backgrounds picker"
         title="Backgrounds"
-        className={`fixed bottom-[142px] lg:bottom-3 right-3 z-50 w-8 h-8 lg:w-7 lg:h-7 rounded-lg border flex items-center justify-center transition-colors cursor-pointer backdrop-blur-md ${
+        className={`hidden lg:flex fixed bottom-3 right-3 z-50 w-7 h-7 rounded-lg border items-center justify-center transition-colors cursor-pointer ${
           open
-            ? 'border-[#34D399]/60 bg-[#0A1613]/92 text-[#6EE7B7]'
-            : 'border-white/12 bg-[#07120F]/78 text-emerald-100/55 hover:text-white hover:border-white/25'
+            ? 'border-[#34D399]/60 bg-[#0A1613]/95 text-[#6EE7B7]'
+            : 'border-white/12 bg-[#07120F]/88 text-emerald-100/65 hover:text-white hover:border-white/25'
         }`}
       >
         <Layers className="w-3.5 h-3.5" />
@@ -51,7 +51,7 @@ export function BackgroundPicker({
         <aside
           aria-label="Backgrounds"
           data-testid="backgrounds-picker"
-          className="fixed bottom-[182px] lg:bottom-12 right-3 z-50 w-[min(336px,calc(100vw-1.5rem))] max-h-[64vh] lg:max-h-[78vh] overflow-y-auto cyber-scroll rounded-2xl bg-[#091512]/94 border border-white/15 backdrop-blur-xl shadow-[0_20px_56px_rgba(0,0,0,0.65)] p-3.5 space-y-3.5 text-[#ECF3F0]"
+          className="ui-menu-pop fixed bottom-[182px] lg:bottom-12 right-3 z-50 w-[min(336px,calc(100vw-1.5rem))] max-h-[64vh] lg:max-h-[78vh] overflow-y-auto cyber-scroll rounded-2xl bg-[#091512]/96 border border-white/15 shadow-[0_20px_56px_rgba(0,0,0,0.65)] p-3.5 space-y-3.5 text-[#ECF3F0]"
         >
           <div className="flex items-center justify-between gap-2">
             <div>

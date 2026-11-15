@@ -117,20 +117,27 @@ export function smin(a: number, b: number, k: number): number {
 }
 
 function sdEllipsoid(x: number, y: number, z: number, rx: number, ry: number, rz: number): number {
-  const k0 = Math.hypot(x / rx, y / ry, z / rz);
-  if (k0 < 1e-6) return -Math.min(rx, ry, rz);
-  const k1 = Math.hypot(x / (rx * rx), y / (ry * ry), z / (rz * rz));
-  return (k0 * (k0 - 1)) / (k1 || 1);
+  const x0 = x / rx;
+  const y0 = y / ry;
+  const z0 = z / rz;
+  const k0 = Math.sqrt(x0 * x0 + y0 * y0 + z0 * z0);
+  if (k0 < 1e-6) return -(rx < ry ? (rx < rz ? rx : rz) : ry < rz ? ry : rz);
+  const x1 = x0 / rx;
+  const y1 = y0 / ry;
+  const z1 = z0 / rz;
+  const k1 = Math.sqrt(x1 * x1 + y1 * y1 + z1 * z1) || 1;
+  return (k0 * (k0 - 1)) / k1;
 }
 
 function sdBox(x: number, y: number, z: number, bx: number, by: number, bz: number): number {
-  const qx = Math.abs(x) - bx;
-  const qy = Math.abs(y) - by;
-  const qz = Math.abs(z) - bz;
-  return (
-    Math.hypot(qx > 0 ? qx : 0, qy > 0 ? qy : 0, qz > 0 ? qz : 0) +
-    Math.min(Math.max(qx, Math.max(qy, qz)), 0)
-  );
+  const qx = (x < 0 ? -x : x) - bx;
+  const qy = (y < 0 ? -y : y) - by;
+  const qz = (z < 0 ? -z : z) - bz;
+  const px = qx > 0 ? qx : 0;
+  const py = qy > 0 ? qy : 0;
+  const pz = qz > 0 ? qz : 0;
+  const m = qy > qz ? qy : qz;
+  return Math.sqrt(px * px + py * py + pz * pz) + Math.min(qx > m ? qx : m, 0);
 }
 
 function sdCapsule(
@@ -153,12 +160,15 @@ function sdCapsule(
   const baz = bz - az;
   const denom = bax * bax + bay * bay + baz * baz || 1;
   const h = clamp((pax * bax + pay * bay + paz * baz) / denom, 0, 1);
-  return Math.hypot(pax - bax * h, pay - bay * h, paz - baz * h) - r;
+  const dx = pax - bax * h;
+  const dy = pay - bay * h;
+  const dz = paz - baz * h;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz) - r;
 }
 
 function sdTorus(x: number, y: number, z: number, majorR: number, minorR: number): number {
-  const qx = Math.hypot(x, z) - majorR;
-  return Math.hypot(qx, y) - minorR;
+  const qx = Math.sqrt(x * x + z * z) - majorR;
+  return Math.sqrt(qx * qx + y * y) - minorR;
 }
 
 function sdOctahedron(x: number, y: number, z: number, s: number): number {
@@ -337,13 +347,14 @@ function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, ex
   const ax = px < 0 ? -px : px;
   const awx = wx < 0 ? -wx : wx;
 
-  // Conservative spherical bounds for each sub-assembly
-  const bHead = Math.hypot(px, py - 0.1, pz - 0.04) - 0.96;
-  const bTorso = Math.hypot(px, py + 0.85, pz + 0.02) - 1.12;
-  const bWing = Math.hypot(ax - 0.92, py - 0.32, pz + 0.04) - 0.78;
-  const rLen = Math.hypot(wx, wy, wz);
-  const bRings = Math.abs(rLen - 1.52) - 0.36;
-  const bPillars = Math.hypot(awx - 1.56, wy + 0.98, wz + 0.68) - 0.75;
+  // Conservative spherical bounds for each sub-assembly (fast sqrt vs varargs Math.hypot)
+  const bHead = Math.sqrt(px * px + (py - 0.1) * (py - 0.1) + (pz - 0.04) * (pz - 0.04)) - 0.96;
+  const bTorso = Math.sqrt(px * px + (py + 0.85) * (py + 0.85) + (pz + 0.02) * (pz + 0.02)) - 1.12;
+  const bWing = Math.sqrt((ax - 0.92) * (ax - 0.92) + (py - 0.32) * (py - 0.32) + (pz + 0.04) * (pz + 0.04)) - 0.78;
+  const rLen = Math.sqrt(wx * wx + wy * wy + wz * wz);
+  const rDiff = rLen - 1.52;
+  const bRings = (rDiff < 0 ? -rDiff : rDiff) - 0.36;
+  const bPillars = Math.sqrt((awx - 1.56) * (awx - 1.56) + (wy + 0.98) * (wy + 0.98) + (wz + 0.68) * (wz + 0.68)) - 0.75;
 
   let minBound = bHead;
   if (bTorso < minBound) minBound = bTorso;
@@ -542,7 +553,11 @@ export function calcSceneNormal(p: Vec3, params: Ascii3DParams): Vec3 {
   return calcNormalFast(p.x, p.y, p.z, fc);
 }
 
-function calcNormalFast(x: number, y: number, z: number, fc: FramePrecompute): Vec3 {
+let normX = 0;
+let normY = 0;
+let normZ = 1;
+
+function calcNormalFastVoid(x: number, y: number, z: number, fc: FramePrecompute): void {
   const e = 0.008;
   const k1 = evalSdfFast(x + e, y - e, z - e, fc, true);
   const k2 = evalSdfFast(x - e, y - e, z + e, fc, true);
@@ -551,8 +566,15 @@ function calcNormalFast(x: number, y: number, z: number, fc: FramePrecompute): V
   const nx = k1 - k2 - k3 + k4;
   const ny = -k1 - k2 + k3 + k4;
   const nz = -k1 + k2 - k3 + k4;
-  const l = Math.hypot(nx, ny, nz) || 1;
-  return { x: nx / l, y: ny / l, z: nz / l };
+  const l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  normX = nx / l;
+  normY = ny / l;
+  normZ = nz / l;
+}
+
+function calcNormalFast(x: number, y: number, z: number, fc: FramePrecompute): Vec3 {
+  calcNormalFastVoid(x, y, z, fc);
+  return { x: normX, y: normY, z: normZ };
 }
 
 /**
@@ -730,7 +752,7 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
       const rdx0 = fwdX + rightX * ndcX * fovScale + upX * ndcY * fovScale;
       const rdy0 = fwdY + upY * ndcY * fovScale;
       const rdz0 = fwdZ + rightZ * ndcX * fovScale + upZ * ndcY * fovScale;
-      const rdl = Math.hypot(rdx0, rdy0, rdz0) || 1;
+      const rdl = Math.sqrt(rdx0 * rdx0 + rdy0 * rdy0 + rdz0 * rdz0) || 1;
       const rdx = rdx0 / rdl;
       const rdy = rdy0 / rdl;
       const rdz = rdz0 / rdl;
@@ -748,14 +770,14 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
         const tStart = Math.max(0.4, -b - sqrtD);
         const tEnd = Math.min(6.4, -b + sqrtD);
         t = tStart;
-        for (let step = 0; step < 32; step++) {
+        for (let step = 0; step < 24; step++) {
           const d = evalSdfFast(camX + rdx * t, camY + rdy * t, camZ + rdz * t, fc);
-          if (d < 0.016) {
+          if (d < 0.017) {
             hit = true;
             hitMat = lastHitMat;
             break;
           }
-          t += d * 0.94;
+          t += d * 0.98;
           if (t > tEnd) break;
         }
       }
@@ -764,13 +786,16 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
         const hx = camX + rdx * t;
         const hy = camY + rdy * t;
         const hz = camZ + rdz * t;
-        const n = calcNormalFast(hx, hy, hz, fc);
+        calcNormalFastVoid(hx, hy, hz, fc);
+        const nX = normX;
+        const nY = normY;
+        const nZ = normZ;
         const matName = MAT_NAMES[hitMat];
 
         depthBuf[idx] = t;
-        nxBuf[idx] = n.x;
-        nyBuf[idx] = n.y;
-        nzBuf[idx] = n.z;
+        nxBuf[idx] = nX;
+        nyBuf[idx] = nY;
+        nzBuf[idx] = nZ;
         matBuf[idx] = hitMat;
 
         if (shaderMode === 'depth') {
@@ -784,9 +809,9 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
         }
 
         if (shaderMode === 'norm') {
-          const rCh = Math.round(clamp(n.x * 0.5 + 0.5, 0.12, 1) * 255);
-          const gCh = Math.round(clamp(n.y * 0.5 + 0.5, 0.12, 1) * 255);
-          const bCh = Math.round(clamp(n.z * 0.5 + 0.5, 0.18, 1) * 255);
+          const rCh = Math.round(clamp(nX * 0.5 + 0.5, 0.12, 1) * 255);
+          const gCh = Math.round(clamp(nY * 0.5 + 0.5, 0.12, 1) * 255);
+          const bCh = Math.round(clamp(nZ * 0.5 + 0.5, 0.18, 1) * 255);
           const ch =
             hitMat === MAT_EYE
               ? '◉'
@@ -794,7 +819,7 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
               ? '◈'
               : hitMat === MAT_MOUTH
               ? 'O'
-              : mapVectorNormalToChar(n.x, n.y, n.z);
+              : mapVectorNormalToChar(nX, nY, nZ);
           cells[idx] = {
             ch,
             intensity: 0.92,
@@ -804,7 +829,7 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
           continue;
         }
 
-        const ndotv = Math.abs(-(n.x * rdx + n.y * rdy + n.z * rdz));
+        const ndotv = Math.abs(-(nX * rdx + nY * rdy + nZ * rdz));
 
         if (shaderMode === 'wire') {
           const isEdge =
@@ -825,7 +850,7 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
                 ? '◈'
                 : hitMat === MAT_ORB
                 ? '◆'
-                : mapEdgeNormalToChar(n.x, n.y);
+                : mapEdgeNormalToChar(nX, nY);
             cells[idx] = {
               ch,
               intensity: clamp(0.68 + (1 - ndotv) * 0.32, 0.54, 1),
@@ -873,20 +898,20 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
         }
 
         // SOLID shader: Key light + 2-tap AO + 4-tap Soft SDF Shadow + Rim Fresnel + Specular
-        const ao = calcAOFast(hx, hy, hz, n.x, n.y, n.z, fc);
-        const diffRaw = Math.max(0, n.x * keyX + n.y * keyY + n.z * keyZ);
+        const ao = calcAOFast(hx, hy, hz, nX, nY, nZ, fc);
+        const diffRaw = Math.max(0, nX * keyX + nY * keyY + nZ * keyZ);
         const shadow =
           diffRaw > 0.12 && (hitMat === MAT_BODY || hitMat === MAT_HAIR)
             ? calcSoftShadow(hx, hy, hz, keyX, keyY, keyZ, fc)
             : 1.0;
         const diff = diffRaw * shadow;
         const rim = Math.pow(1 - clamp(ndotv, 0, 1), 2.0) * (0.52 + energy * 0.48);
-        const rimBack = Math.max(0, n.x * rimX + n.y * rimY + n.z * rimZ) * 0.4;
+        const rimBack = Math.max(0, nX * rimX + nY * rimY + nZ * rimZ) * 0.4;
         const hxV = keyX - rdx;
         const hyV = keyY - rdy;
         const hzV = keyZ - rdz;
-        const hl = Math.hypot(hxV, hyV, hzV) || 1;
-        const ndoth = Math.max(0, (n.x * hxV + n.y * hyV + n.z * hzV) / hl);
+        const hl = Math.sqrt(hxV * hxV + hyV * hyV + hzV * hzV) || 1;
+        const ndoth = Math.max(0, (nX * hxV + nY * hyV + nZ * hzV) / hl);
         const spec = Math.pow(ndoth, 22) * 0.62 * shadow;
 
         let lum = (0.14 + diff * 0.66) * ao + rim * 0.4 + rimBack + spec;

@@ -202,41 +202,90 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
   background: rgba(var(--ui-accent-rgb, 52, 211, 153), 0.48);
 }
 
-/* Speed-scaled UI choreography animations (--ui-anim-speed driven by Studio) */
+/* Speed-scaled GPU-composited UI choreography animations (--ui-anim-speed driven by Studio) */
 @keyframes uiViewEnter {
   from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.994);
+    opacity: 0.92;
+    transform: translate3d(0, 4px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes uiMsgEnter {
   from {
-    opacity: 0;
-    transform: translateY(8px);
+    opacity: 0.15;
+    transform: translate3d(0, 6px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes uiChatPop {
   0% {
-    opacity: 0;
-    transform: translateY(8px) scale(0.95);
-  }
-  70% {
-    opacity: 1;
-    transform: translateY(-1px) scale(1.01);
+    opacity: 0.2;
+    transform: translate3d(0, 6px, 0) scale(0.97);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes uiDrawerEnter {
+  from {
+    opacity: 0.7;
+    transform: translate3d(20px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes uiModalEnter {
+  from {
+    opacity: 0.4;
+    transform: translate3d(0, 10px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes uiBackdropEnter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes uiMenuPop {
+  from {
+    opacity: 0.25;
+    transform: translate3d(0, -4px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes uiCardEnter {
+  from {
+    opacity: 0.75;
+    transform: translate3d(0, 3px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
   }
 }
 
@@ -251,26 +300,45 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
 
 @keyframes uiHaloPulse {
   0%, 100% {
-    transform: scale(1);
-    opacity: 0.85;
+    transform: translate3d(0, 0, 0) scale(1);
   }
   50% {
-    transform: scale(1.055);
-    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1.035);
   }
 }
 
 .ui-view-enter {
-  animation: uiViewEnter calc(240ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiViewEnter calc(140ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .ui-msg-enter {
-  animation: uiMsgEnter calc(210ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiMsgEnter calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .ui-chat-pop {
   transform-origin: top center;
-  animation: uiChatPop calc(240ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: uiChatPop calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-drawer-enter {
+  animation: uiDrawerEnter calc(180ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-modal-enter {
+  animation: uiModalEnter calc(170ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-backdrop-enter {
+  animation: uiBackdropEnter calc(140ms / var(--ui-anim-speed, 1)) ease-out both;
+}
+
+.ui-menu-pop {
+  transform-origin: top right;
+  animation: uiMenuPop calc(150ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-card-enter {
+  animation: uiCardEnter calc(150ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .ui-constellation-line {
@@ -284,6 +352,11 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
 html[data-ui-motion="reduced"] .ui-view-enter,
 html[data-ui-motion="reduced"] .ui-msg-enter,
 html[data-ui-motion="reduced"] .ui-chat-pop,
+html[data-ui-motion="reduced"] .ui-drawer-enter,
+html[data-ui-motion="reduced"] .ui-modal-enter,
+html[data-ui-motion="reduced"] .ui-backdrop-enter,
+html[data-ui-motion="reduced"] .ui-menu-pop,
+html[data-ui-motion="reduced"] .ui-card-enter,
 html[data-ui-motion="reduced"] .ui-constellation-line,
 html[data-ui-motion="reduced"] .ui-halo-pulse,
 html[data-ui-motion="reduced"] .motion-safe-only {
@@ -295,6 +368,11 @@ html[data-ui-motion="reduced"] .motion-safe-only {
   .ui-view-enter,
   .ui-msg-enter,
   .ui-chat-pop,
+  .ui-drawer-enter,
+  .ui-modal-enter,
+  .ui-backdrop-enter,
+  .ui-menu-pop,
+  .ui-card-enter,
   .ui-constellation-line,
   .ui-halo-pulse,
   .motion-safe-only {
@@ -302,4 +380,5 @@ html[data-ui-motion="reduced"] .motion-safe-only {
     transition: none !important;
   }
 }
+
 

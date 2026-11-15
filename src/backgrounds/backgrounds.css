@@ -10,11 +10,22 @@ body,
   background-image: none !important;
 }
 
-/* Frosted glass backdrop blur driven by --glass-blur while preserving WCAG AA text contrast */
-.emerald-ambient-bg aside {
-  background-color: rgba(var(--ui-surface-rgb, 10, 22, 19), var(--glass-panel-alpha, 0.76));
-  backdrop-filter: blur(var(--glass-blur, 12px));
-  -webkit-backdrop-filter: blur(var(--glass-blur, 12px));
+/* Smoked-emerald translucent surface without expensive per-frame backdrop readbacks */
+.emerald-ambient-bg aside[data-testid="sidebar-workspace"] {
+  background-color: rgba(
+    var(--ui-surface-rgb, 10, 22, 19),
+    clamp(0.8, calc(var(--glass-panel-alpha, 0.76) + 0.08), 0.94)
+  );
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  contain: layout paint;
+}
+
+.emerald-ambient-bg aside.ui-drawer-shell,
+.emerald-ambient-bg aside[data-testid="backgrounds-picker"] {
+  background-color: rgba(var(--ui-surface-rgb, 10, 22, 19), 0.96);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .emerald-ambient-bg [data-testid="ascii-stage"] {
@@ -25,127 +36,63 @@ body,
   opacity: var(--glass-bg-opacity, 0.64);
 }
 
-/* Preset 1: Aurora Drift (3 soft radial blobs, slow <= 18px/s, gentle <= 6% luminance) */
+/* Preset 1: Aurora Drift (bitmap-backed drift layer, slow <= 18px/s, gentle <= 6% luminance) */
 .glass-bg-aurora {
   position: absolute;
-  inset: -12%;
-  background: #071310;
+  inset: 0;
+  background-color: #071310;
   overflow: hidden;
 }
 
-.glass-bg-aurora::before,
-.glass-bg-aurora::after,
-.glass-bg-aurora-blob {
-  content: '';
+.glass-bg-aurora-layer {
   position: absolute;
-  border-radius: 9999px;
-  will-change: transform, opacity;
-}
-
-.glass-bg-aurora::before {
-  width: 56vw;
-  height: 52vh;
-  top: 4%;
-  left: -6%;
-  background: radial-gradient(circle, rgba(22, 114, 86, 0.56) 0%, transparent 70%);
-  animation: glassAuroraA 38s ease-in-out infinite alternate;
-}
-
-.glass-bg-aurora::after {
-  width: 52vw;
-  height: 54vh;
-  bottom: 2%;
-  right: -4%;
-  background: radial-gradient(circle, rgba(20, 88, 96, 0.50) 0%, transparent 70%);
-  animation: glassAuroraB 44s ease-in-out infinite alternate;
-}
-
-.glass-bg-aurora-blob {
-  width: 44vw;
-  height: 44vh;
-  top: 34%;
-  left: 30%;
-  background: radial-gradient(circle, rgba(120, 76, 28, 0.34) 0%, transparent 72%);
-  animation: glassAuroraC 48s ease-in-out infinite alternate;
+  inset: -6%;
+  opacity: var(--glass-bg-opacity, 0.64);
+  animation: glassAuroraA 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes glassAuroraA {
   0% {
-    transform: translate3d(0, 0, 0) scale(1);
-    opacity: 0.88;
+    transform: translate3d(-1.5%, -1%, 0) scale(1);
   }
   100% {
-    transform: translate3d(7vw, 5vh, 0) scale(1.06);
-    opacity: 0.96;
+    transform: translate3d(0, 0, 0) scale(1.02);
   }
 }
 
-@keyframes glassAuroraB {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1.03);
-    opacity: 0.86;
-  }
-  100% {
-    transform: translate3d(-6vw, -5vh, 0) scale(0.97);
-    opacity: 0.94;
-  }
-}
-
-@keyframes glassAuroraC {
-  0% {
-    transform: translate3d(-3vw, 2vh, 0);
-    opacity: 0.82;
-  }
-  100% {
-    transform: translate3d(5vw, -3vh, 0);
-    opacity: 0.90;
-  }
-}
-
-/* Preset 2: Mesh Gradient (slow 4-corner color interpolation, 30s loop) */
+/* Preset 2: Mesh Gradient (bitmap-backed GPU-composited settle layer) */
 .glass-bg-mesh {
   position: absolute;
-  inset: -8%;
+  inset: 0;
   background-color: #07120f;
-  background-image:
-    radial-gradient(circle at 15% 20%, rgba(22, 98, 76, 0.56) 0%, transparent 52%),
-    radial-gradient(circle at 85% 22%, rgba(24, 68, 94, 0.50) 0%, transparent 52%),
-    radial-gradient(circle at 82% 82%, rgba(48, 84, 52, 0.46) 0%, transparent 54%),
-    radial-gradient(circle at 18% 82%, rgba(92, 60, 28, 0.38) 0%, transparent 52%);
-  background-size: 135% 135%;
-  animation: glassMeshDrift 30s ease-in-out infinite;
-  will-change: background-position, filter;
+  overflow: hidden;
+}
+
+.glass-bg-mesh-layer {
+  position: absolute;
+  inset: -8%;
+  opacity: var(--glass-bg-opacity, 0.64);
+  animation: glassMeshDrift 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes glassMeshDrift {
-  0%,
+  0% {
+    transform: translate3d(-2%, -1.5%, 0) scale(1);
+  }
   100% {
-    background-position: 0% 0%;
-    filter: hue-rotate(0deg);
-  }
-  25% {
-    background-position: 45% 18%;
-    filter: hue-rotate(6deg);
-  }
-  50% {
-    background-position: 85% 75%;
-    filter: hue-rotate(-5deg);
-  }
-  75% {
-    background-position: 22% 85%;
-    filter: hue-rotate(4deg);
+    transform: translate3d(0, 0, 0) scale(1.02);
   }
 }
 
-/* Preset 4: Scanline Shimmer (horizontal soft light band sweeping a dark scanline field) */
+/* Preset 4: Scanline Shimmer (horizontal soft light band over subtle CRT scanline field) */
 .glass-bg-scanline {
   position: absolute;
   inset: 0;
   background-color: #07120f;
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(167, 243, 208, 0.032) 0px,
-    rgba(167, 243, 208, 0.032) 1px,
+    rgba(167, 243, 208, 0.024) 0px,
+    rgba(167, 243, 208, 0.024) 1px,
     transparent 1px,
     transparent 4px
   );
@@ -155,8 +102,9 @@ body,
 .glass-bg-scanline-band {
   position: absolute;
   inset-x: 0;
-  top: -32%;
+  top: 18%;
   height: 32%;
+  opacity: var(--glass-bg-opacity, 0.64);
   background: linear-gradient(
     180deg,
     transparent 0%,
@@ -165,20 +113,19 @@ body,
     rgba(52, 211, 153, 0.08) 55%,
     transparent 100%
   );
-  animation: glassScanSweep 36s linear infinite;
-  will-change: transform;
+  animation: glassScanSweep 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes glassScanSweep {
   0% {
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(0, -80%, 0);
   }
   100% {
-    transform: translate3d(0, 440%, 0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
-/* Preset 7: Horizon Tide (slow bioluminescent deep-emerald wave swell) */
+/* Preset 7: Horizon Tide (bitmap-backed bioluminescent deep-emerald wave swell) */
 .glass-bg-horizon {
   position: absolute;
   inset: 0;
@@ -189,61 +136,53 @@ body,
 .glass-bg-horizon-wave-a,
 .glass-bg-horizon-wave-b {
   position: absolute;
-  left: -14%;
-  right: -14%;
-  border-radius: 50%;
-  filter: blur(56px);
-  will-change: transform;
+  left: -10%;
+  right: -10%;
+  opacity: var(--glass-bg-opacity, 0.64);
 }
 
 .glass-bg-horizon-wave-a {
-  bottom: -26%;
+  bottom: -24%;
   height: 64%;
-  background: radial-gradient(
-    ellipse 78% 60% at 50% 45%,
-    rgba(24, 118, 88, 0.52) 0%,
-    rgba(14, 64, 52, 0.24) 60%,
-    transparent 85%
-  );
-  animation: glassHorizonA 34s ease-in-out infinite alternate;
+  animation: glassHorizonA 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .glass-bg-horizon-wave-b {
-  bottom: -32%;
+  bottom: -30%;
   height: 56%;
-  background: radial-gradient(
-    ellipse 70% 56% at 42% 48%,
-    rgba(118, 78, 30, 0.34) 0%,
-    rgba(16, 86, 72, 0.22) 55%,
-    transparent 85%
-  );
-  animation: glassHorizonB 42s ease-in-out infinite alternate;
+  animation: glassHorizonB 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes glassHorizonA {
   0% {
-    transform: translate3d(-3vw, 1vh, 0) scaleX(1);
+    transform: translate3d(-2vw, 1vh, 0) scaleX(1);
   }
   100% {
-    transform: translate3d(3vw, -2vh, 0) scaleX(1.04);
+    transform: translate3d(0, 0, 0) scaleX(1.02);
   }
 }
 
 @keyframes glassHorizonB {
   0% {
-    transform: translate3d(3vw, -1vh, 0);
+    transform: translate3d(2vw, -1vh, 0);
   }
   100% {
-    transform: translate3d(-4vw, 2vh, 0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
-/* Freeze all background CSS animations under prefers-reduced-motion */
+/* Freeze all background CSS animations under prefers-reduced-motion or Studio reduced mode */
+html[data-ui-motion="reduced"] .glass-bg-aurora-layer,
+html[data-ui-motion="reduced"] .glass-bg-mesh-layer,
+html[data-ui-motion="reduced"] .glass-bg-scanline-band,
+html[data-ui-motion="reduced"] .glass-bg-horizon-wave-a,
+html[data-ui-motion="reduced"] .glass-bg-horizon-wave-b {
+  animation: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .glass-bg-aurora::before,
-  .glass-bg-aurora::after,
-  .glass-bg-aurora-blob,
-  .glass-bg-mesh,
+  .glass-bg-aurora-layer,
+  .glass-bg-mesh-layer,
   .glass-bg-scanline-band,
   .glass-bg-horizon-wave-a,
   .glass-bg-horizon-wave-b {

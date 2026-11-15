@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { getPresetById } from './presets';
 import type { BackgroundCustomSlot, BackgroundPresetKind } from './types';
 
@@ -8,6 +8,97 @@ interface BackgroundLayerProps {
 }
 
 const BRAILLE_GLYPHS = ['⠁', '⠃', '⠇', '⠏', '⠟', '⠿', '⡿', '⣿', '⠋', '⠓', '⠞', '⠦'];
+const cachedBackdropBitmaps = new Map<string, string>();
+
+function drawRadialEllipse(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  stops: Array<[number, string]>
+) {
+  ctx.save();
+  ctx.translate(cx * w, cy * h);
+  ctx.scale(rx * w, ry * h);
+  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  for (const [offset, color] of stops) {
+    grad.addColorStop(offset, color);
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(-1.1, -1.1, 2.2, 2.2);
+  ctx.restore();
+}
+
+function getCachedBackdropBitmap(
+  kind: 'aurora-drift' | 'mesh-gradient' | 'horizon-wave-a' | 'horizon-wave-b'
+): string | null {
+  const existing = cachedBackdropBitmaps.get(kind);
+  if (existing) return existing;
+  if (typeof document === 'undefined') return null;
+
+  try {
+    const w = 256;
+    const h = 144;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    if (kind === 'aurora-drift') {
+      drawRadialEllipse(ctx, w, h, 0.22, 0.26, 0.42, 0.42, [
+        [0, 'rgba(22, 114, 86, 0.58)'],
+        [0.66, 'rgba(22, 114, 86, 0)'],
+      ]);
+      drawRadialEllipse(ctx, w, h, 0.78, 0.76, 0.4, 0.42, [
+        [0, 'rgba(20, 88, 96, 0.52)'],
+        [0.66, 'rgba(20, 88, 96, 0)'],
+      ]);
+      drawRadialEllipse(ctx, w, h, 0.52, 0.52, 0.34, 0.34, [
+        [0, 'rgba(120, 76, 28, 0.34)'],
+        [0.64, 'rgba(120, 76, 28, 0)'],
+      ]);
+    } else if (kind === 'mesh-gradient') {
+      drawRadialEllipse(ctx, w, h, 0.18, 0.22, 0.42, 0.46, [
+        [0, 'rgba(22, 98, 76, 0.56)'],
+        [0.62, 'rgba(22, 98, 76, 0)'],
+      ]);
+      drawRadialEllipse(ctx, w, h, 0.82, 0.24, 0.42, 0.46, [
+        [0, 'rgba(24, 68, 94, 0.50)'],
+        [0.62, 'rgba(24, 68, 94, 0)'],
+      ]);
+      drawRadialEllipse(ctx, w, h, 0.8, 0.8, 0.44, 0.48, [
+        [0, 'rgba(48, 84, 52, 0.46)'],
+        [0.64, 'rgba(48, 84, 52, 0)'],
+      ]);
+      drawRadialEllipse(ctx, w, h, 0.2, 0.8, 0.42, 0.46, [
+        [0, 'rgba(92, 60, 28, 0.38)'],
+        [0.62, 'rgba(92, 60, 28, 0)'],
+      ]);
+    } else if (kind === 'horizon-wave-a') {
+      drawRadialEllipse(ctx, w, h, 0.5, 0.45, 0.62, 0.52, [
+        [0, 'rgba(24, 118, 88, 0.52)'],
+        [0.6, 'rgba(14, 64, 52, 0.24)'],
+        [0.9, 'rgba(14, 64, 52, 0)'],
+      ]);
+    } else {
+      drawRadialEllipse(ctx, w, h, 0.42, 0.48, 0.56, 0.48, [
+        [0, 'rgba(118, 78, 30, 0.34)'],
+        [0.55, 'rgba(16, 86, 72, 0.22)'],
+        [0.9, 'rgba(16, 86, 72, 0)'],
+      ]);
+    }
+
+    const url = canvas.toDataURL('image/png');
+    cachedBackdropBitmaps.set(kind, url);
+    return url;
+  } catch {
+    return null;
+  }
+}
 
 function hash2d(x: number, y: number): number {
   const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
@@ -100,6 +191,23 @@ export const BackgroundLayer = memo(function BackgroundLayer({
     preset?.engine === 'canvas' ? preset.id : null
   );
   activeCanvasKindRef.current = preset?.engine === 'canvas' ? preset.id : null;
+
+  const bitmapUrls = useMemo(() => {
+    if (customSlot || preset?.engine === 'canvas') return null;
+    if (preset?.id === 'aurora-drift') {
+      return { primary: getCachedBackdropBitmap('aurora-drift'), secondary: null };
+    }
+    if (preset?.id === 'horizon-tide') {
+      return {
+        primary: getCachedBackdropBitmap('horizon-wave-a'),
+        secondary: getCachedBackdropBitmap('horizon-wave-b'),
+      };
+    }
+    if (preset?.id === 'mesh-gradient' || !preset) {
+      return { primary: getCachedBackdropBitmap('mesh-gradient'), secondary: null };
+    }
+    return null;
+  }, [customSlot, preset]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -364,7 +472,7 @@ export const BackgroundLayer = memo(function BackgroundLayer({
       data-preset={customSlot ? `custom:${customSlot.id}` : activeId}
       className="fixed inset-0 -z-10 pointer-events-none overflow-hidden bg-[#050c0a]"
     >
-      <div className="absolute inset-0 glass-bg-layer-opacity">
+      <div className="absolute inset-0">
         {customSlot ? (
           customSlot.mediaType === 'video' ? (
             <video
@@ -374,20 +482,27 @@ export const BackgroundLayer = memo(function BackgroundLayer({
               loop
               autoPlay
               playsInline
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover glass-bg-layer-opacity"
             />
           ) : (
             <img
               src={customSlot.src}
               alt=""
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover glass-bg-layer-opacity"
             />
           )
         ) : preset?.engine === 'canvas' ? (
-          <canvas ref={canvasRef} className="block w-full h-full" />
+          <canvas ref={canvasRef} className="block w-full h-full glass-bg-layer-opacity" />
         ) : preset?.id === 'aurora-drift' ? (
           <div className="glass-bg-aurora">
-            <div className="glass-bg-aurora-blob" />
+            <div
+              className="glass-bg-aurora-layer"
+              style={
+                bitmapUrls?.primary
+                  ? { backgroundImage: `url(${bitmapUrls.primary})`, backgroundSize: '100% 100%' }
+                  : undefined
+              }
+            />
           </div>
         ) : preset?.id === 'scanline-shimmer' ? (
           <div className="glass-bg-scanline">
@@ -395,11 +510,34 @@ export const BackgroundLayer = memo(function BackgroundLayer({
           </div>
         ) : preset?.id === 'horizon-tide' ? (
           <div className="glass-bg-horizon">
-            <div className="glass-bg-horizon-wave-a" />
-            <div className="glass-bg-horizon-wave-b" />
+            <div
+              className="glass-bg-horizon-wave-a"
+              style={
+                bitmapUrls?.primary
+                  ? { backgroundImage: `url(${bitmapUrls.primary})`, backgroundSize: '100% 100%' }
+                  : undefined
+              }
+            />
+            <div
+              className="glass-bg-horizon-wave-b"
+              style={
+                bitmapUrls?.secondary
+                  ? { backgroundImage: `url(${bitmapUrls.secondary})`, backgroundSize: '100% 100%' }
+                  : undefined
+              }
+            />
           </div>
         ) : (
-          <div className={preset?.cssClass ?? 'glass-bg-mesh'} />
+          <div className={preset?.cssClass ?? 'glass-bg-mesh'}>
+            <div
+              className="glass-bg-mesh-layer"
+              style={
+                bitmapUrls?.primary
+                  ? { backgroundImage: `url(${bitmapUrls.primary})`, backgroundSize: '100% 100%' }
+                  : undefined
+              }
+            />
+          </div>
         )}
       </div>
     </div>

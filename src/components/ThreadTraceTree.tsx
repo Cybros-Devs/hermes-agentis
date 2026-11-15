@@ -138,7 +138,7 @@ export function ThreadTraceTree({
                 aria-hidden="true"
                 className="w-5 h-5 rounded-full bg-[#34D399]/12 border border-[#34D399]/35 flex items-center justify-center shrink-0"
               >
-                <Sparkles className="w-3 h-3 text-[#6EE7B7] motion-safe:animate-spin" />
+                <Sparkles className="w-3 h-3 text-[#6EE7B7] motion-safe:animate-spin motion-safe-only" />
               </span>
               <span className="font-medium text-emerald-50/90">Thinking</span>
               <span className="font-mono text-[11px] text-[#6EE7B7]/75">⠿</span>
