@@ -180,7 +180,7 @@ export function CanvasSessionNode({
           }}
         />
 
-        <div className="relative z-10 scale-[0.78] sm:scale-[0.88] origin-bottom">
+        <div className="relative z-10 scale-[0.76] sm:scale-[0.86] origin-bottom">
           <BrailleShapeCanvas
             shape={session.shape}
             tint={session.tint}
@@ -194,7 +194,7 @@ export function CanvasSessionNode({
             isHovered={isHovered}
             speedScale={speedScale}
             reducedMotionOverride={reducedMotionOverride}
-            blinkPhaseOffset={index * 1.15}
+            blinkPhaseOffset={index * 4.35}
             gazeRef={gazeRef}
           />
         </div>
@@ -381,7 +381,7 @@ export function CanvasSessionNode({
         data-testid={`session-input-form-${session.channelId}`}
         className={`mt-1.5 ${
           isChatOpen ? 'w-[min(320px,calc(100vw-2.25rem))] sm:w-[244px]' : 'w-full max-w-[172px] sm:w-[244px] sm:max-w-none'
-        } flex items-center gap-1 rounded-full border px-1.5 py-1 bg-[#07120F]/92 backdrop-blur-md shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-all ${
+        } flex items-center gap-1 rounded-full border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-all ${
           isChatOpen || isSelected
             ? 'border-[#34D399]/65 shadow-[0_0_20px_rgba(52,211,153,0.16)]'
             : 'border-white/18 hover:border-[#34D399]/45 focus-within:border-[#4ADE80]'

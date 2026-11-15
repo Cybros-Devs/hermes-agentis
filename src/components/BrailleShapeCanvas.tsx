@@ -1,6 +1,10 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { ExpressionMood, MouthViseme } from '../types/hermes';
 import {
+  resolveIdleSetForShape,
+  type IdleAnimationSetId,
+} from '../utils/brailleIdleLoops';
+import {
   BRAILLE_TINT_PALETTE,
   createBrailleShapeAnimator,
   renderBrailleShape,
@@ -13,6 +17,7 @@ interface BrailleShapeCanvasProps {
   tint: BrailleShapeTint;
   mood: ExpressionMood;
   eyeStyle?: 'open' | 'sleepy';
+  idleSet?: IdleAnimationSetId;
   viseme?: MouthViseme;
   energy?: number;
   isSpeaking?: boolean;
@@ -43,6 +48,7 @@ export function BrailleShapeCanvas({
   tint,
   mood,
   eyeStyle = 'open',
+  idleSet,
   viseme = 'closed',
   energy = 0.08,
   isSpeaking = false,
@@ -57,11 +63,14 @@ export function BrailleShapeCanvas({
   className = '',
 }: BrailleShapeCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const resolvedSet = idleSet ?? resolveIdleSetForShape(shape);
+
   const stateRef = useRef({
     shape,
     tint,
     mood,
     eyeStyle,
+    idleSet: resolvedSet,
     viseme,
     energy,
     isSpeaking,
@@ -78,6 +87,7 @@ export function BrailleShapeCanvas({
     tint,
     mood,
     eyeStyle,
+    idleSet: resolvedSet,
     viseme,
     energy,
     isSpeaking,
@@ -97,10 +107,10 @@ export function BrailleShapeCanvas({
     if (!ctx) return;
 
     const isPreview = variant === 'preview';
-    const cols = isPreview ? 22 : 38;
-    const rows = isPreview ? 12 : 21;
-    const width = isPreview ? 72 : 132;
-    const height = isPreview ? 78 : 144;
+    const cols = isPreview ? 26 : 46;
+    const rows = isPreview ? 15 : 26;
+    const width = isPreview ? 76 : 142;
+    const height = isPreview ? 84 : 154;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = width * dpr;
@@ -111,8 +121,8 @@ export function BrailleShapeCanvas({
     const cellH = height / rows;
     const dotW = cellW / 2;
     const dotH = cellH / 4;
-    const dotRadius = Math.min(dotW, dotH) * (isPreview ? 0.44 : 0.43);
-    const dotDiameter = Math.max(1.0, dotRadius * 1.9);
+    const dotRadius = Math.min(dotW, dotH) * (isPreview ? 0.44 : 0.425);
+    const dotDiameter = Math.max(0.95, dotRadius * 1.88);
 
     const systemReduced =
       typeof window !== 'undefined' &&
@@ -127,6 +137,7 @@ export function BrailleShapeCanvas({
     let prevDragActive = false;
     let settleUntilMs = 0;
     let smoothEnergy = stateRef.current.energy;
+    let activeIdleBusy = false;
     let rafId = 0;
 
     const drawFrame = (now: number) => {
@@ -175,6 +186,8 @@ export function BrailleShapeCanvas({
         : animator.step(
             {
               time: elapsed,
+              shape: s.shape,
+              idleSetOverride: s.idleSet,
               mood: s.mood,
               eyeStyle: s.eyeStyle,
               viseme: s.viseme,
@@ -192,6 +205,19 @@ export function BrailleShapeCanvas({
             dt,
             isReduced
           );
+
+      if (motion) {
+        activeIdleBusy = !motion.idle.isResting;
+        if (canvas.dataset.animSet !== motion.idle.setId) {
+          canvas.dataset.animSet = motion.idle.setId;
+        }
+        if (canvas.dataset.animAction !== motion.idle.actionId) {
+          canvas.dataset.animAction = motion.idle.actionId;
+          canvas.dataset.animIndex = String(motion.idle.actionIndex);
+        }
+      } else {
+        activeIdleBusy = false;
+      }
 
       const frame = renderBrailleShape({
         shape: s.shape,
@@ -260,6 +286,12 @@ export function BrailleShapeCanvas({
     if (isPreview) return;
 
     const loop = (now: number) => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        lastDraw = now;
+        rafId = window.requestAnimationFrame(loop);
+        return;
+      }
+
       const s = stateRef.current;
       const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
       if (prevDragActive && !s.isDragging) {
@@ -268,14 +300,17 @@ export function BrailleShapeCanvas({
       prevDragActive = s.isDragging;
 
       const cyclePos = ((elapsedPhase + s.blinkPhaseOffset) / 4.2) % 1;
-      const activeMotion =
+      const fastMotion =
         s.isSpeaking ||
-        s.isThinking ||
         s.isDragging ||
-        s.isHovered ||
         now < settleUntilMs ||
         cyclePos > 0.78;
-      const minInterval = isReduced ? 220 : activeMotion ? 14 : 32;
+      const activeMotion =
+        fastMotion ||
+        s.isThinking ||
+        s.isHovered ||
+        activeIdleBusy;
+      const minInterval = isReduced ? 320 : fastMotion ? 28 : activeMotion ? 42 : 75;
       if (now - lastDraw >= minInterval) {
         drawFrame(now);
       }
@@ -292,10 +327,11 @@ export function BrailleShapeCanvas({
     <canvas
       ref={canvasRef}
       aria-hidden="true"
+      data-anim-set={resolvedSet}
       className={
         variant === 'preview'
-          ? `block w-[72px] h-[78px] pointer-events-none ${className}`
-          : `block w-[132px] h-[144px] pointer-events-none ${className}`
+          ? `block w-[76px] h-[84px] pointer-events-none ${className}`
+          : `block w-[142px] h-[154px] pointer-events-none ${className}`
       }
     />
   );
