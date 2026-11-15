@@ -211,12 +211,12 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
 /* Speed-scaled GPU-composited UI choreography animations (--ui-anim-speed driven by Studio) */
 @keyframes uiViewEnter {
   from {
-    opacity: 0;
-    transform: translate3d(0, 8px, 0) scale(0.994);
+    opacity: 0.72;
+    transform: translate3d(0, 6px, 0);
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
