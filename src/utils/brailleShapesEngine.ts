@@ -257,14 +257,18 @@ export interface BrailleShapeFrame {
   cells: Uint8Array;
 }
 
-const BAYER_4X4 = [
-  0.0 / 16, 8.0 / 16, 2.0 / 16, 10.0 / 16,
-  12.0 / 16, 4.0 / 16, 14.0 / 16, 6.0 / 16,
-  3.0 / 16, 11.0 / 16, 1.0 / 16, 9.0 / 16,
-  15.0 / 16, 7.0 / 16, 13.0 / 16, 5.0 / 16,
+const BAYER_8X8 = [
+  0 / 64, 32 / 64, 8 / 64, 40 / 64, 2 / 64, 34 / 64, 10 / 64, 42 / 64,
+  48 / 64, 16 / 64, 56 / 64, 24 / 64, 50 / 64, 18 / 64, 58 / 64, 26 / 64,
+  12 / 64, 44 / 64, 4 / 64, 36 / 64, 14 / 64, 46 / 64, 6 / 64, 38 / 64,
+  60 / 64, 28 / 64, 52 / 64, 20 / 64, 62 / 64, 30 / 64, 54 / 64, 22 / 64,
+  3 / 64, 35 / 64, 11 / 64, 43 / 64, 1 / 64, 33 / 64, 9 / 64, 41 / 64,
+  51 / 64, 19 / 64, 59 / 64, 27 / 64, 49 / 64, 17 / 64, 57 / 64, 25 / 64,
+  15 / 64, 47 / 64, 7 / 64, 39 / 64, 13 / 64, 45 / 64, 5 / 64, 37 / 64,
+  63 / 64, 31 / 64, 55 / 64, 23 / 64, 61 / 64, 29 / 64, 53 / 64, 21 / 64,
 ];
 
-const BAYER_THRESH = BAYER_4X4.map((v) => 0.14 + v * 0.70);
+const BAYER_THRESH = BAYER_8X8.map((v) => 0.14 + v * 0.68);
 
 function clamp(v: number, min: number, max: number): number {
   return v < min ? min : v > max ? max : v;
@@ -1427,11 +1431,12 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
   const eyeY = profile.eyeY + gy * 0.42;
   const eyeRy = profile.eyeRy * (1 + wideAmt * 0.10);
 
-  // Delicate pointed nose & cupid's-bow mouth aligned to 3/4 face plane
+  // Delicate pointed nose & cupid's-bow mouth aligned to 3/4 face plane + vocal jaw drop micro-shift
   const noseX = profile.faceCx + turn * 0.24 + gx * 0.36;
   const noseY = profile.eyeY + 0.095 + gy * 0.28;
   const mouthXBase = profile.faceCx + turn * 0.18 + gx * 0.28;
-  const mouthY = profile.mouthY + gy * 0.30;
+  const mouthY = profile.mouthY + gy * 0.30 + mouthOpen * 0.012;
+  const catchlightShimmer = isSpeaking ? 0.94 + 0.06 * Math.sin(time * 4.2) : 1.0;
 
   const hasDynamicOverlay =
     pose.wingOpen > 0.04 ||
@@ -1770,7 +1775,7 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
                   const g1y = ny - (eyeY - eyeRy * 0.20 + gy * 0.4);
                   const r1 = rx * 0.21;
                   if (g1x * g1x + g1y * g1y < r1 * r1) {
-                    eyeLum = 1.0;
+                    eyeLum = catchlightShimmer;
                   } else if (dyEye > eyeRy * 0.48 && Math.abs(nearestDx) < rx * 0.40) {
                     eyeLum = 0.36; // Subtle lower iris sheen
                   } else {
@@ -1866,15 +1871,21 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
   }
 
   for (let r = 0; r < rows; r++) {
-    const r0 = r * 4 * subW;
+    const syBase = r * 4;
+    const r0 = syBase * subW;
     const r1 = r0 + subW;
     const r2 = r1 + subW;
     const r3 = r2 + subW;
+    const bRow0 = (syBase & 7) << 3;
+    const bRow1 = ((syBase + 1) & 7) << 3;
+    const bRow2 = ((syBase + 2) & 7) << 3;
+    const bRow3 = ((syBase + 3) & 7) << 3;
     const cellRowOff = r * cols;
 
     for (let c = 0; c < cols; c++) {
       const c2 = c * 2;
-      const bCol = (c & 1) * 2;
+      const bx0 = c2 & 7;
+      const bx1 = (c2 + 1) & 7;
       const l00 = subLum[r0 + c2];
       const l01 = subLum[r0 + c2 + 1];
       const l10 = subLum[r1 + c2];
@@ -1892,14 +1903,14 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
       }
 
       let bits = 0;
-      if (l00 > BAYER_THRESH[bCol]) bits |= 0x01;
-      if (l01 > BAYER_THRESH[bCol + 1]) bits |= 0x08;
-      if (l10 > BAYER_THRESH[4 + bCol]) bits |= 0x02;
-      if (l11 > BAYER_THRESH[5 + bCol]) bits |= 0x10;
-      if (l20 > BAYER_THRESH[8 + bCol]) bits |= 0x04;
-      if (l21 > BAYER_THRESH[9 + bCol]) bits |= 0x20;
-      if (l30 > BAYER_THRESH[12 + bCol]) bits |= 0x40;
-      if (l31 > BAYER_THRESH[13 + bCol]) bits |= 0x80;
+      if (l00 > BAYER_THRESH[bRow0 + bx0]) bits |= 0x01;
+      if (l01 > BAYER_THRESH[bRow0 + bx1]) bits |= 0x08;
+      if (l10 > BAYER_THRESH[bRow1 + bx0]) bits |= 0x02;
+      if (l11 > BAYER_THRESH[bRow1 + bx1]) bits |= 0x10;
+      if (l20 > BAYER_THRESH[bRow2 + bx0]) bits |= 0x04;
+      if (l21 > BAYER_THRESH[bRow2 + bx1]) bits |= 0x20;
+      if (l30 > BAYER_THRESH[bRow3 + bx0]) bits |= 0x40;
+      if (l31 > BAYER_THRESH[bRow3 + bx1]) bits |= 0x80;
 
       cells[cellRowOff + c] = (lumSum * 31.875 + 0.5) | 0;
       rowChars[c] = BRAILLE_CHAR_TABLE[bits];

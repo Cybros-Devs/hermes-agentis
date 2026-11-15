@@ -71,11 +71,15 @@ export interface PortraitFrame {
   cells: Uint8Array;
 }
 
-const BAYER_4X4 = [
-  -0.46875, 0.03125, -0.34375, 0.15625,
-  0.28125, -0.21875, 0.40625, -0.09375,
-  -0.28125, 0.21875, -0.40625, 0.09375,
-  0.46875, -0.03125, 0.34375, -0.15625,
+const BAYER_8X8 = [
+  0 / 64 - 0.5, 32 / 64 - 0.5, 8 / 64 - 0.5, 40 / 64 - 0.5, 2 / 64 - 0.5, 34 / 64 - 0.5, 10 / 64 - 0.5, 42 / 64 - 0.5,
+  48 / 64 - 0.5, 16 / 64 - 0.5, 56 / 64 - 0.5, 24 / 64 - 0.5, 50 / 64 - 0.5, 18 / 64 - 0.5, 58 / 64 - 0.5, 26 / 64 - 0.5,
+  12 / 64 - 0.5, 44 / 64 - 0.5, 4 / 64 - 0.5, 36 / 64 - 0.5, 14 / 64 - 0.5, 46 / 64 - 0.5, 6 / 64 - 0.5, 38 / 64 - 0.5,
+  60 / 64 - 0.5, 28 / 64 - 0.5, 52 / 64 - 0.5, 20 / 64 - 0.5, 62 / 64 - 0.5, 30 / 64 - 0.5, 54 / 64 - 0.5, 22 / 64 - 0.5,
+  3 / 64 - 0.5, 35 / 64 - 0.5, 11 / 64 - 0.5, 43 / 64 - 0.5, 1 / 64 - 0.5, 33 / 64 - 0.5, 9 / 64 - 0.5, 41 / 64 - 0.5,
+  51 / 64 - 0.5, 19 / 64 - 0.5, 59 / 64 - 0.5, 27 / 64 - 0.5, 49 / 64 - 0.5, 17 / 64 - 0.5, 57 / 64 - 0.5, 25 / 64 - 0.5,
+  15 / 64 - 0.5, 47 / 64 - 0.5, 7 / 64 - 0.5, 39 / 64 - 0.5, 13 / 64 - 0.5, 45 / 64 - 0.5, 5 / 64 - 0.5, 37 / 64 - 0.5,
+  63 / 64 - 0.5, 31 / 64 - 0.5, 55 / 64 - 0.5, 23 / 64 - 0.5, 61 / 64 - 0.5, 29 / 64 - 0.5, 53 / 64 - 0.5, 21 / 64 - 0.5,
 ];
 
 // Standard 2x4 Unicode Braille lookup table (U+2800..U+28FF)
@@ -2218,14 +2222,14 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
     }
   }
 
-  // 3. Serpentine Bill Atkinson Error Diffusion with feature-anchor protection
+  // 3. Serpentine Bill Atkinson Error Diffusion with 8x8 Bayer jitter & feature-anchor protection
   for (let sy = 0; sy < subH; sy++) {
     const forward = (sy & 1) === 0;
     const startX = forward ? 0 : subW - 1;
     const endX = forward ? subW : -1;
     const dir = forward ? 1 : -1;
     const rowOff = sy * subW;
-    const bayerRow = (sy & 3) * 4;
+    const bayerRow = (sy & 7) << 3;
     const hasNext1 = sy + 1 < subH;
     const hasNext2 = sy + 2 < subH;
     const row1 = rowOff + subW;
@@ -2244,7 +2248,7 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
       }
 
       const oldVal = work[idx];
-      const jitter = BAYER_4X4[bayerRow + (sx & 3)] * 0.1;
+      const jitter = BAYER_8X8[bayerRow + (sx & 7)] * 0.068;
       const newVal = oldVal >= 0.47 + jitter ? 1 : 0;
       work[idx] = newVal;
       const err = (oldVal - newVal) * 0.125;

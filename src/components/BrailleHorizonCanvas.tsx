@@ -3,9 +3,9 @@ import type { LookTarget } from '../utils/asciiPortraitEngine';
 import { createHorizonAnimator, renderBrailleHorizon } from '../utils/brailleFieldEngine';
 import {
   createRasterSurface,
-  rasterizeDotBucketsToSurface,
+  rasterizeTonalDotBucketsToSurface,
   type BrailleRasterSurface,
-  type DotBucketSpec,
+  type TonalDotBucketSpec,
 } from '../utils/brailleCanvasRaster';
 
 interface BrailleHorizonCanvasProps {
@@ -89,8 +89,8 @@ export function BrailleHorizonCanvas({
     let width = 1280;
     let height = 190;
     let dpr = Math.min(2, window.devicePixelRatio || 1);
-    let cols = 148;
-    const rows = 14;
+    const rows = 15;
+    let cols = 190;
     let surface: BrailleRasterSurface | null = null;
 
     const resize = () => {
@@ -98,8 +98,9 @@ export function BrailleHorizonCanvas({
       if (rect.width > 40 && rect.height > 40) {
         width = Math.round(rect.width);
         height = Math.round(rect.height);
-        cols = Math.max(64, Math.min(180, Math.round(width / 9)));
       }
+      const dotPitch = Math.max(2.6, height / (rows * 4));
+      cols = Math.max(72, Math.min(220, Math.round(width / (dotPitch * 2))));
       dpr = Math.min(2, window.devicePixelRatio || 1);
       canvas.width = width * dpr;
       canvas.height = height * dpr;
@@ -120,13 +121,23 @@ export function BrailleHorizonCanvas({
     let rafId = 0;
     let hiddenTimerId = 0;
     let lastReducedKey = '';
-    let lowXY = new Float32Array(180 * rows * 16);
-    let midXY = new Float32Array(180 * rows * 16);
-    let highXY = new Float32Array(180 * rows * 16);
-    const buckets: [DotBucketSpec, DotBucketSpec, DotBucketSpec] = [
-      { xy: lowXY, len: 0, hex: cachedLow, alpha: 0.32 },
-      { xy: midXY, len: 0, hex: cachedAccent, alpha: 0.44 },
-      { xy: highXY, len: 0, hex: '#E6F0EC', alpha: 0.74 },
+    let b0XY = new Float32Array(220 * rows * 16);
+    let b1XY = new Float32Array(220 * rows * 16);
+    let b2XY = new Float32Array(220 * rows * 16);
+    let b3XY = new Float32Array(220 * rows * 16);
+    let b4XY = new Float32Array(220 * rows * 16);
+    const buckets: [
+      TonalDotBucketSpec,
+      TonalDotBucketSpec,
+      TonalDotBucketSpec,
+      TonalDotBucketSpec,
+      TonalDotBucketSpec,
+    ] = [
+      { xy: b0XY, len: 0, hex: cachedLow, alpha: 0.24, diameterScale: 0.70 },
+      { xy: b1XY, len: 0, hex: cachedLow, alpha: 0.36, diameterScale: 0.82 },
+      { xy: b2XY, len: 0, hex: cachedAccent, alpha: 0.50, diameterScale: 0.94 },
+      { xy: b3XY, len: 0, hex: cachedAccentHigh, alpha: 0.68, diameterScale: 1.04 },
+      { xy: b4XY, len: 0, hex: '#F3FAF7', alpha: 0.84, diameterScale: 1.12 },
     ];
 
     const drawFrame = (now: number) => {
@@ -182,21 +193,27 @@ export function BrailleHorizonCanvas({
       const cellH = height / frame.rows;
       const dotW = cellW / 2;
       const dotH = cellH / 4;
-      const dotRadius = Math.max(0.7, Math.min(dotW, dotH) * 0.36);
+      const dotRadius = Math.max(0.68, Math.min(dotW, dotH) * 0.37);
 
-      let lowLen = 0;
-      let midLen = 0;
-      let highLen = 0;
+      let len0 = 0;
+      let len1 = 0;
+      let len2 = 0;
+      let len3 = 0;
+      let len4 = 0;
 
-      const dotDiameter = Math.max(1.2, dotRadius * 1.9);
+      const dotDiameter = Math.max(1.15, dotRadius * 1.92);
       const needed = frame.cols * frame.rows * 16;
-      if (lowXY.length < needed) {
-        lowXY = new Float32Array(needed);
-        midXY = new Float32Array(needed);
-        highXY = new Float32Array(needed);
-        buckets[0].xy = lowXY;
-        buckets[1].xy = midXY;
-        buckets[2].xy = highXY;
+      if (b0XY.length < needed) {
+        b0XY = new Float32Array(needed);
+        b1XY = new Float32Array(needed);
+        b2XY = new Float32Array(needed);
+        b3XY = new Float32Array(needed);
+        b4XY = new Float32Array(needed);
+        buckets[0].xy = b0XY;
+        buckets[1].xy = b1XY;
+        buckets[2].xy = b2XY;
+        buckets[3].xy = b3XY;
+        buckets[4].xy = b4XY;
       }
 
       for (let r = 0; r < frame.rows; r++) {
@@ -212,28 +229,44 @@ export function BrailleHorizonCanvas({
           const bright = frame.cells[rowOff + c] / 255;
           const baseX = c * cellW;
 
-          if (bright > 0.62) {
+          if (bright > 0.74) {
             for (let k = 0; k < 8; k++) {
               const [px, py, mask] = SUBPIXEL_BITS[k];
               if (bits & mask) {
-                highXY[highLen++] = baseX + (px + 0.5) * dotW - dotRadius;
-                highXY[highLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+                b4XY[len4++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b4XY[len4++] = baseY + (py + 0.5) * dotH - dotRadius;
               }
             }
-          } else if (bright > 0.32) {
+          } else if (bright > 0.56) {
             for (let k = 0; k < 8; k++) {
               const [px, py, mask] = SUBPIXEL_BITS[k];
               if (bits & mask) {
-                midXY[midLen++] = baseX + (px + 0.5) * dotW - dotRadius;
-                midXY[midLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+                b3XY[len3++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b3XY[len3++] = baseY + (py + 0.5) * dotH - dotRadius;
+              }
+            }
+          } else if (bright > 0.38) {
+            for (let k = 0; k < 8; k++) {
+              const [px, py, mask] = SUBPIXEL_BITS[k];
+              if (bits & mask) {
+                b2XY[len2++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b2XY[len2++] = baseY + (py + 0.5) * dotH - dotRadius;
+              }
+            }
+          } else if (bright > 0.20) {
+            for (let k = 0; k < 8; k++) {
+              const [px, py, mask] = SUBPIXEL_BITS[k];
+              if (bits & mask) {
+                b1XY[len1++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b1XY[len1++] = baseY + (py + 0.5) * dotH - dotRadius;
               }
             }
           } else {
             for (let k = 0; k < 8; k++) {
               const [px, py, mask] = SUBPIXEL_BITS[k];
               if (bits & mask) {
-                lowXY[lowLen++] = baseX + (px + 0.5) * dotW - dotRadius;
-                lowXY[lowLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+                b0XY[len0++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b0XY[len0++] = baseY + (py + 0.5) * dotH - dotRadius;
               }
             }
           }
@@ -243,17 +276,30 @@ export function BrailleHorizonCanvas({
       if (!surface || surface.width !== canvas.width || surface.height !== canvas.height) {
         surface = createRasterSurface(ctx, canvas.width, canvas.height);
       }
-      buckets[0].len = lowLen;
-      buckets[0].hex = cachedLow;
-      buckets[0].alpha = 0.32;
-      buckets[1].len = midLen;
-      buckets[1].hex = cachedAccent;
-      buckets[1].alpha = s.isActive ? 0.56 : 0.44;
-      buckets[2].len = highLen;
-      buckets[2].hex = s.isActive ? cachedAccentHigh : '#E6F0EC';
-      buckets[2].alpha = 0.74;
+      const midHex = blendHorizonHex(cachedLow, cachedAccent, 0.52);
+      const highGlowHex = s.isActive ? cachedAccentHigh : blendHorizonHex(cachedAccent, '#FFFFFF', 0.32);
 
-      rasterizeDotBucketsToSurface(surface, buckets, dpr, dotDiameter);
+      buckets[0].len = len0;
+      buckets[0].hex = cachedLow;
+      buckets[0].alpha = 0.24;
+
+      buckets[1].len = len1;
+      buckets[1].hex = midHex;
+      buckets[1].alpha = s.isActive ? 0.42 : 0.35;
+
+      buckets[2].len = len2;
+      buckets[2].hex = cachedAccent;
+      buckets[2].alpha = s.isActive ? 0.58 : 0.46;
+
+      buckets[3].len = len3;
+      buckets[3].hex = highGlowHex;
+      buckets[3].alpha = s.isActive ? 0.74 : 0.62;
+
+      buckets[4].len = len4;
+      buckets[4].hex = s.isActive ? '#FFFFFF' : '#E6F0EC';
+      buckets[4].alpha = s.isActive ? 0.88 : 0.76;
+
+      rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter);
       ctx.putImageData(surface.imageData, 0, 0);
     };
 
@@ -290,7 +336,7 @@ export function BrailleHorizonCanvas({
 
       const active = s.isActive;
       const hasPointer = Boolean(look);
-      const interval = active || hasPointer ? 22 : 33;
+      const interval = active || hasPointer ? 16 : 24;
       if (now - lastDraw >= interval) {
         drawFrame(now);
       }

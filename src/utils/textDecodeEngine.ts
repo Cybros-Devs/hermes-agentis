@@ -7,9 +7,13 @@ export interface DecodeFrame {
   done: boolean;
 }
 
-// Crisp Unicode Braille & geometric monochrome glyphs for the decoding frontier
-const BRAILLE_CIPHER_GLYPHS =
-  '⠁⠂⠃⠄⠅⠆⠇⠈⠉⠊⠋⠌⠍⠎⠏⠐⠑⠒⠓⠔⠕⠖⠗⠘⠙⠚⠛⠜⠝⠞⠟⠠⠡⠢⠣⠤⠥⠦⠧⠨⠩⠪⠫⠬⠭⠮⠯';
+// Progressive Unicode Braille density bands: dense near settled edge -> airy single-dots at leading edge
+const BRAILLE_DENSITY_TIERS = [
+  '⣿⡿⢿⣯⣟⣷⣾',
+  '⠿⠟⠻⠯⠷⠧⠏',
+  '⠓⠋⠛⠚⠙⠖⠦',
+  '⠁⠂⠄⠈⠐⠠',
+] as const;
 
 /**
  * Computes an appropriate total reveal duration (ms) for any text length
@@ -24,7 +28,7 @@ export function getDecodeDurationMs(text: string): number {
 /**
  * Pure deterministic decoder frame generator:
  * Sweeps a settled text boundary left-to-right across `target`, keeping whitespace
- * and newlines intact while cycling the leading frontier through Braille cipher glyphs.
+ * and newlines intact while tapering the leading frontier through progressive Braille density glyphs.
  */
 export function computeDecodeFrame(
   target: string,
@@ -45,10 +49,10 @@ export function computeDecodeFrame(
   const settledCount = Math.floor(p * len);
   const settled = target.slice(0, settledCount);
 
-  // Reveal a bounded Braille-scramble frontier right ahead of the settled cursor
+  // Reveal a tapered Braille-scramble frontier right ahead of the settled cursor
   const remaining = len - settledCount;
   const width = Math.min(frontierWidth, remaining);
-  const glyphLen = BRAILLE_CIPHER_GLYPHS.length;
+  const tierCount = BRAILLE_DENSITY_TIERS.length;
   let frontier = '';
 
   for (let i = 0; i < width; i++) {
@@ -56,8 +60,10 @@ export function computeDecodeFrame(
     if (ch === '\n' || ch === '\r' || ch === ' ' || ch === '\t') {
       frontier += ch;
     } else {
-      const hash = (settledCount + i * 7 + tick * 5 + i * 13) % glyphLen;
-      frontier += BRAILLE_CIPHER_GLYPHS[hash < 0 ? hash + glyphLen : hash];
+      const tierIdx = Math.min(tierCount - 1, Math.floor((i / Math.max(1, width)) * tierCount));
+      const glyphs = BRAILLE_DENSITY_TIERS[tierIdx];
+      const hash = (settledCount + i * 7 + tick * 5 + i * 13) % glyphs.length;
+      frontier += glyphs[hash < 0 ? hash + glyphs.length : hash];
     }
   }
 

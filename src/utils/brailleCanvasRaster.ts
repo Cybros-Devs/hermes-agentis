@@ -137,3 +137,104 @@ export function rasterizeDotBucketsToSurface(
     }
   }
 }
+
+export interface TonalDotBucketSpec extends DotBucketSpec {
+  /** Relative diameter scale for halftone dot-size modulation (e.g. 0.68 shadows .. 1.18 highlights). */
+  diameterScale?: number;
+}
+
+/**
+ * Multi-tier halftone rasterizer with per-bucket dot-size modulation and circular
+ * anti-aliased subpixel coverage so bright highlights bloom cleanly and subtle
+ * shadows render as delicate crisp pinpoints without harsh square pixel stairs.
+ */
+export function rasterizeTonalDotBucketsToSurface(
+  surface: BrailleRasterSurface,
+  buckets: readonly TonalDotBucketSpec[],
+  dpr: number,
+  baseDotDiameterCss: number
+): void {
+  const { u32, bytes, width, height } = surface;
+  u32.fill(0);
+
+  const baseDotPx = Math.max(0.75, baseDotDiameterCss * dpr);
+
+  for (let bIdx = 0; bIdx < buckets.length; bIdx++) {
+    const bucket = buckets[bIdx];
+    const len = bucket.len;
+    if (len <= 0) continue;
+
+    const [r, g, b] = parseHexRgb(bucket.hex);
+    const baseA = Math.max(0, Math.min(255, Math.round(bucket.alpha * 255)));
+    if (baseA === 0) continue;
+
+    const scale = bucket.diameterScale ?? 1;
+    const dotPx = Math.max(0.65, baseDotPx * scale);
+    const radius = dotPx * 0.5;
+    // Slight centering shift so varying dot diameters stay aligned on their subpixel center
+    const centerShift = (baseDotPx - dotPx) * 0.5;
+    const invRadius = 1 / Math.max(0.45, radius + 0.45);
+    const xy = bucket.xy;
+    const packedRgb = (b << 16) | (g << 8) | r;
+
+    for (let i = 0; i < len; i += 2) {
+      const x0 = xy[i] * dpr + centerShift;
+      const y0 = xy[i + 1] * dpr + centerShift;
+      const cx = x0 + radius;
+      const cy = y0 + radius;
+      const x1 = x0 + dotPx;
+      const y1 = y0 + dotPx;
+
+      let ix0 = (x0 - 0.35) | 0;
+      if (ix0 < 0) ix0 = 0;
+      let iy0 = (y0 - 0.35) | 0;
+      if (iy0 < 0) iy0 = 0;
+      let ix1 = (x1 + 0.35) | 0;
+      if (ix1 >= width) ix1 = width - 1;
+      let iy1 = (y1 + 0.35) | 0;
+      if (iy1 >= height) iy1 = height - 1;
+
+      for (let py = iy0; py <= iy1; py++) {
+        const dy = py + 0.5 - cy;
+        const dy2 = dy * dy;
+        const rowPixel = py * width;
+
+        for (let px = ix0; px <= ix1; px++) {
+          const dx = px + 0.5 - cx;
+          const dist = Math.sqrt(dx * dx + dy2);
+          const norm = dist * invRadius;
+          if (norm >= 1.15) continue;
+
+          // Smooth circular anti-aliased kernel with crisp core
+          const radialCov = norm <= 0.58 ? 1 : Math.max(0, 1 - (norm - 0.58) / 0.57);
+          const covA = (baseA * radialCov + 0.5) | 0;
+          if (covA <= 0) continue;
+
+          const pIdx = rowPixel + px;
+          const off = pIdx << 2;
+          const prevA = bytes[off + 3];
+
+          if (prevA === 0) {
+            if (IS_LITTLE_ENDIAN) {
+              u32[pIdx] = ((covA > 255 ? 255 : covA) << 24) | packedRgb;
+            } else {
+              bytes[off] = r;
+              bytes[off + 1] = g;
+              bytes[off + 2] = b;
+              bytes[off + 3] = covA > 255 ? 255 : covA;
+            }
+          } else {
+            const sumA = prevA + covA;
+            const nextA = sumA > 255 ? 255 : sumA;
+            const wNew = covA / (prevA + covA);
+            const wOld = 1 - wNew;
+            bytes[off] = (bytes[off] * wOld + r * wNew + 0.5) | 0;
+            bytes[off + 1] = (bytes[off + 1] * wOld + g * wNew + 0.5) | 0;
+            bytes[off + 2] = (bytes[off + 2] * wOld + b * wNew + 0.5) | 0;
+            bytes[off + 3] = nextA;
+          }
+        }
+      }
+    }
+  }
+}

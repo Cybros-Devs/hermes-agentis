@@ -80,3 +80,28 @@ test('renderBrailleHorizon smoothly interpolates across contrasting FFT frequenc
   assert.ok(totalLit > 80, 'Expected substantial continuous wave crest density across alternating FFT bands');
 });
 
+test('createHorizonAnimator tracks directional pointerVelX and keeps row 0 faded even under wake + peak energy', () => {
+  const anim = createHorizonAnimator();
+  anim.step({ energy: 0.4, pointerX: -0.6, pointerY: 0, bands: new Array(12).fill(0.4) }, 1 / 30);
+  const swept = anim.step({ energy: 1.0, pointerX: 0.7, pointerY: -0.8, bands: new Array(12).fill(1.0) }, 1 / 30);
+  assert.ok((swept.pointerVelX ?? 0) > 0.1, `Expected positive pointerVelX after rightward sweep, got ${swept.pointerVelX}`);
+  assert.ok((swept.wakePhase ?? 0) > 0, 'Expected positive wakePhase progression');
+
+  const frame = renderBrailleHorizon({
+    cols: 80,
+    rows: 14,
+    time: 2.1,
+    energy: swept.energy,
+    pointerX: swept.pointerX,
+    pointerY: swept.pointerY,
+    bands: swept.bands,
+    motion: swept,
+  });
+
+  let topLit = 0;
+  for (let c = 0; c < frame.cols; c++) {
+    if (frame.lines[0][c] !== ' ') topLit++;
+  }
+  assert.equal(topLit, 0, 'Top row must remain clean even during max-energy cursor wake ripples');
+});
+

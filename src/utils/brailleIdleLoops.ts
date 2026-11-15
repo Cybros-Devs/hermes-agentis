@@ -238,9 +238,22 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-function smoothstep(edge0: number, edge1: number, x: number): number {
+function smootherstep(edge0: number, edge1: number, x: number): number {
   const t = clamp01((x - edge0) / (edge1 - edge0 || 1));
-  return t * t * (3 - 2 * t);
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/**
+ * Shapes normalized phase [0..1] into a smooth anticipation-and-rebound curve:
+ * brief counter-dip (0.00..0.13), expressive peak, and gentle damped settle.
+ */
+function shapedBouncePhase(phase: number): number {
+  if (phase < 0.14) {
+    const t = phase / 0.14;
+    return -0.22 * Math.sin(t * Math.PI);
+  }
+  const active = (phase - 0.14) / 0.86;
+  return Math.sin(active * Math.PI * 2) * (1 - 0.12 * active);
 }
 
 function buildPoseForAction(
@@ -255,48 +268,51 @@ function buildPoseForAction(
   const s = Math.sin(phase * Math.PI * 2);
   const s2 = Math.sin(phase * Math.PI * 4);
   const bell = Math.sin(phase * Math.PI);
+  const shaped = shapedBouncePhase(phase);
 
   switch (setId) {
     case 'tactician':
       switch (actionIndex) {
         case 0: // radar-scan
-          pose.gazeX = s * 0.72 * env;
-          pose.gazeY = -0.18 * env;
-          pose.tilt = -s * 0.045 * env;
+          pose.gazeX = s * 0.78 * env;
+          pose.gazeY = (-0.18 + Math.cos(phase * Math.PI * 2) * 0.06) * env;
+          pose.tilt = -s * 0.052 * env;
+          pose.hairSway = s * 0.03 * env;
           pose.prop = 'radar';
           pose.propPhase = phase;
           break;
         case 1: // chin-tap
-          pose.tilt = -0.095 * env;
-          pose.headY = -0.012 * env;
-          pose.gazeX = -0.25 * env;
-          pose.gazeY = -0.24 * env;
-          pose.squintEyes = 0.25 * env;
+          pose.tilt = -0.105 * env;
+          pose.headY = (-0.014 + Math.abs(s2) * 0.008) * env;
+          pose.gazeX = -0.28 * env;
+          pose.gazeY = -0.26 * env;
+          pose.squintEyes = 0.28 * env;
           pose.hand = 'chinTap';
           pose.handPhase = Math.abs(s2) * env;
           break;
         case 2: // visor-adjust
-          pose.tilt = 0.065 * env;
-          pose.gazeX = 0.22 * env;
+          pose.tilt = 0.072 * env;
+          pose.gazeX = 0.24 * env;
           pose.hand = 'salute';
           pose.handPhase = bell * env;
           break;
         case 3: // affirm-nod
-          pose.headY = (0.042 * Math.max(0, s2) - 0.01) * env;
-          pose.happyEyes = 0.65 * env;
+          pose.headY = (0.048 * Math.max(0, shaped) - 0.012 * bell) * env;
+          pose.squashY = -0.025 * Math.max(0, shaped) * env;
+          pose.happyEyes = 0.7 * env;
           pose.mouthMode = 'smile';
           break;
         case 4: // signal-wave
-          pose.tilt = -0.055 * env;
-          pose.happyEyes = 0.45 * env;
+          pose.tilt = (-0.062 + s2 * 0.015) * env;
+          pose.happyEyes = 0.52 * env;
           pose.mouthMode = 'smile';
           pose.hand = 'wave';
           pose.handPhase = phase;
           break;
         case 5: // calm-wink
         default:
-          pose.tilt = 0.075 * env;
-          pose.blinkRight = bell * env;
+          pose.tilt = 0.085 * bell * env;
+          pose.blinkRight = Math.min(1, bell * 1.15) * env;
           pose.mouthMode = 'smile';
           pose.prop = 'sparkle';
           pose.propPhase = phase;
@@ -307,47 +323,48 @@ function buildPoseForAction(
     case 'celestial':
       switch (actionIndex) {
         case 0: // halo-spin
-          pose.haloLift = 0.055 * bell * env;
-          pose.haloSpin = s2 * 0.12 * env;
-          pose.gazeY = -0.18 * env;
+          pose.haloLift = 0.062 * bell * env;
+          pose.haloSpin = s2 * 0.14 * env;
+          pose.gazeY = -0.2 * env;
           pose.prop = 'orbit';
           pose.propPhase = phase;
           break;
         case 1: // halo-polish
-          pose.tilt = -0.07 * env;
-          pose.haloLift = 0.025 * Math.sin(phase * Math.PI * 3) * env;
-          pose.happyEyes = 0.55 * env;
+          pose.tilt = -0.078 * env;
+          pose.haloLift = 0.03 * Math.sin(phase * Math.PI * 3) * env;
+          pose.happyEyes = 0.6 * env;
           pose.mouthMode = 'smile';
           pose.hand = 'salute';
           pose.handPhase = phase;
           break;
         case 2: // wing-flutter
-          pose.headY = -0.032 * bell * env;
-          pose.wingOpen = (0.65 + 0.35 * Math.abs(s2)) * env;
-          pose.hairSway = s2 * 0.04 * env;
+          pose.headY = -0.038 * bell * env;
+          pose.wingOpen = (0.68 + 0.32 * Math.abs(s2)) * env;
+          pose.hairSway = s2 * 0.052 * env;
+          pose.squashY = Math.sin(phase * Math.PI * 4) * 0.02 * env;
           break;
         case 3: // serene-pray
-          pose.headY = 0.015 * env;
-          pose.blinkLeft = 0.85 * env;
-          pose.blinkRight = 0.85 * env;
+          pose.headY = 0.018 * bell * env;
+          pose.blinkLeft = 0.88 * env;
+          pose.blinkRight = 0.88 * env;
           pose.mouthMode = 'smile';
           pose.hand = 'clasp';
           pose.handPhase = env;
           break;
         case 4: // blessing-sparkle
-          pose.tilt = 0.06 * env;
-          pose.happyEyes = 0.8 * env;
-          pose.haloLift = 0.04 * env;
+          pose.tilt = 0.068 * env;
+          pose.happyEyes = 0.85 * env;
+          pose.haloLift = 0.045 * bell * env;
           pose.mouthMode = 'smile';
           pose.prop = 'sparkle';
           pose.propPhase = phase;
           break;
         case 5: // sleepy-sway
         default:
-          pose.tilt = s * 0.095 * env;
-          pose.squintEyes = 0.75 * env;
-          pose.haloLift = 0.02 * s * env;
-          pose.hairSway = -s * 0.06 * env;
+          pose.tilt = s * 0.105 * env;
+          pose.squintEyes = 0.78 * env;
+          pose.haloLift = 0.024 * s * env;
+          pose.hairSway = -s * 0.072 * env;
           break;
       }
       break;
@@ -355,44 +372,44 @@ function buildPoseForAction(
     case 'scholar':
       switch (actionIndex) {
         case 0: // hood-snuggle
-          pose.headY = 0.026 * env;
-          pose.hoodLift = -0.03 * bell * env;
-          pose.hoodScaleX = 0.045 * bell * env;
-          pose.squintEyes = 0.55 * env;
+          pose.headY = 0.028 * bell * env;
+          pose.hoodLift = -0.034 * bell * env;
+          pose.hoodScaleX = 0.052 * bell * env;
+          pose.squintEyes = 0.6 * env;
           pose.mouthMode = 'smile';
           break;
         case 1: // drowsy-yawn
-          pose.tilt = -0.055 * env;
-          pose.blinkLeft = 0.72 * env;
-          pose.blinkRight = 0.72 * env;
+          pose.tilt = -0.062 * bell * env;
+          pose.blinkLeft = 0.78 * env;
+          pose.blinkRight = 0.78 * env;
           pose.mouthMode = 'yawn';
           pose.prop = 'zzz';
           pose.propPhase = phase;
           break;
         case 2: // page-turn
-          pose.gazeX = s * 0.36 * env;
-          pose.gazeY = 0.32 * env;
+          pose.gazeX = s * 0.38 * env;
+          pose.gazeY = 0.34 * env;
           pose.hand = 'tome';
           pose.handPhase = phase;
           break;
         case 3: // thought-bubble
-          pose.tilt = 0.08 * env;
-          pose.gazeX = 0.35 * env;
-          pose.gazeY = -0.35 * env;
+          pose.tilt = 0.088 * env;
+          pose.gazeX = 0.36 * env;
+          pose.gazeY = -0.36 * env;
           pose.prop = 'bubbles';
           pose.propPhase = phase;
           break;
         case 4: // head-nod-doze
-          pose.headY = (phase < 0.68 ? phase * 0.085 : 0.058 - (phase - 0.68) * 0.18) * env;
-          pose.tilt = 0.06 * env;
-          pose.blinkLeft = (phase < 0.70 ? 0.92 : 0.15) * env;
-          pose.blinkRight = (phase < 0.70 ? 0.92 : 0.15) * env;
-          pose.wideEyes = phase >= 0.70 ? 0.65 * env : 0;
+          pose.headY = (phase < 0.68 ? smootherstep(0, 0.68, phase) * 0.085 : 0.058 - (phase - 0.68) * 0.20) * env;
+          pose.tilt = 0.068 * env;
+          pose.blinkLeft = (phase < 0.70 ? 0.94 : 0.12) * env;
+          pose.blinkRight = (phase < 0.70 ? 0.94 : 0.12) * env;
+          pose.wideEyes = phase >= 0.70 ? 0.72 * env : 0;
           break;
         case 5: // warm-sip
         default:
-          pose.headY = 0.012 * env;
-          pose.happyEyes = 0.72 * env;
+          pose.headY = 0.015 * bell * env;
+          pose.happyEyes = 0.76 * env;
           pose.mouthMode = 'hum';
           pose.hand = 'mug';
           pose.handPhase = env;
@@ -405,15 +422,15 @@ function buildPoseForAction(
     case 'idol':
       switch (actionIndex) {
         case 0: // twintail-bounce
-          pose.headY = -0.045 * Math.abs(s2) * env;
-          pose.hairSway = s2 * 0.11 * env;
-          pose.squashY = s2 * 0.04 * env;
-          pose.happyEyes = 0.65 * env;
+          pose.headY = (-0.052 * Math.abs(s2) + (phase < 0.12 ? 0.018 : 0)) * env;
+          pose.hairSway = shaped * 0.125 * env;
+          pose.squashY = s2 * 0.048 * env;
+          pose.happyEyes = 0.7 * env;
           pose.mouthMode = 'grin';
           break;
         case 1: // idol-peace
-          pose.tilt = -0.085 * env;
-          pose.blinkLeft = 0.92 * env;
+          pose.tilt = -0.092 * env;
+          pose.blinkLeft = 0.94 * env;
           pose.mouthMode = 'grin';
           pose.hand = 'peace';
           pose.handPhase = env;
@@ -421,8 +438,8 @@ function buildPoseForAction(
           pose.propPhase = phase;
           break;
         case 2: // star-cheer
-          pose.headY = -0.038 * Math.abs(s2) * env;
-          pose.wideEyes = 0.55 * env;
+          pose.headY = (-0.044 * Math.abs(s2) + (phase < 0.12 ? 0.015 : 0)) * env;
+          pose.wideEyes = 0.6 * env;
           pose.mouthMode = 'grin';
           pose.hand = 'cheer';
           pose.handPhase = phase;
@@ -430,23 +447,24 @@ function buildPoseForAction(
           pose.propPhase = phase;
           break;
         case 3: // mic-hum
-          pose.tilt = s * 0.075 * env;
-          pose.happyEyes = 0.7 * env;
+          pose.tilt = s * 0.082 * env;
+          pose.happyEyes = 0.75 * env;
           pose.mouthMode = 'hum';
           pose.prop = 'note';
           pose.propPhase = phase;
           break;
         case 4: // ahoge-boing
-          pose.ahogeBounce = s2 * 0.095 * env;
-          pose.wideEyes = 0.45 * env;
+          pose.ahogeBounce = shaped * 0.11 * env;
+          pose.wideEyes = 0.5 * env;
           pose.mouthMode = 'o';
           break;
         case 5: // curtsy-bow
         default:
-          pose.headY = 0.052 * bell * env;
-          pose.happyEyes = 0.9 * env;
+          pose.headY = 0.056 * bell * env;
+          pose.squashY = -0.032 * bell * env;
+          pose.happyEyes = 0.92 * env;
           pose.mouthMode = 'smile';
-          pose.hairSway = 0.05 * bell * env;
+          pose.hairSway = 0.058 * bell * env;
           break;
       }
       break;
@@ -454,41 +472,41 @@ function buildPoseForAction(
     case 'neko':
       switch (actionIndex) {
         case 0: // ear-flick
-          pose.earLeft = (phase < 0.45 ? Math.sin(phase * Math.PI * 5) * 0.18 : 0) * env;
-          pose.earRight = (phase >= 0.45 ? Math.sin((phase - 0.45) * Math.PI * 5) * 0.18 : 0) * env;
-          pose.gazeX = (phase < 0.45 ? -0.45 : 0.45) * env;
+          pose.earLeft = (phase < 0.45 ? Math.sin(phase * Math.PI * 5) * 0.2 : 0) * env;
+          pose.earRight = (phase >= 0.45 ? Math.sin((phase - 0.45) * Math.PI * 5) * 0.2 : 0) * env;
+          pose.gazeX = (phase < 0.45 ? -0.48 : 0.48) * env;
           pose.mouthMode = 'cat';
           break;
         case 1: // paw-swipe
-          pose.tilt = -0.065 * env;
+          pose.tilt = -0.072 * env;
           pose.mouthMode = 'cat';
           pose.hand = 'pawSwipe';
           pose.handPhase = phase;
           break;
         case 2: // tail-swish
-          pose.tailWag = s * 0.95 * env;
+          pose.tailWag = s * 1.0 * env;
           pose.mouthMode = 'cat';
-          pose.happyEyes = 0.45 * env;
+          pose.happyEyes = 0.5 * env;
           break;
         case 3: // prowl-crouch
-          pose.headY = 0.048 * bell * env;
-          pose.squashY = -0.045 * bell * env;
-          pose.squintEyes = 0.65 * env;
-          pose.gazeX = s * 0.55 * env;
+          pose.headY = 0.052 * bell * env;
+          pose.squashY = -0.052 * bell * env;
+          pose.squintEyes = 0.68 * env;
+          pose.gazeX = s * 0.58 * env;
           pose.mouthMode = 'cat';
           break;
         case 4: // purr-curl
-          pose.happyEyes = 0.95 * env;
-          pose.tilt = 0.055 * s * env;
+          pose.happyEyes = 0.96 * env;
+          pose.tilt = 0.062 * s * env;
           pose.mouthMode = 'cat';
           pose.prop = 'heart';
           pose.propPhase = phase;
           break;
         case 5: // ear-groom
         default:
-          pose.tilt = -0.105 * env;
-          pose.blinkLeft = 0.8 * env;
-          pose.earLeft = -0.12 * env;
+          pose.tilt = -0.112 * env;
+          pose.blinkLeft = 0.85 * env;
+          pose.earLeft = -0.14 * env;
           pose.mouthMode = 'cat';
           pose.hand = 'pawSwipe';
           pose.handPhase = 0.5 + 0.3 * s;
@@ -500,20 +518,20 @@ function buildPoseForAction(
     default:
       switch (actionIndex) {
         case 0: // floppy-ear-hop
-          pose.headY = -0.055 * Math.abs(s2) * env;
-          pose.earLeft = s2 * 0.16 * env;
-          pose.earRight = -s2 * 0.16 * env;
-          pose.squashY = s2 * 0.04 * env;
+          pose.headY = (-0.062 * Math.abs(s2) + (phase < 0.12 ? 0.02 : 0)) * env;
+          pose.earLeft = shaped * 0.18 * env;
+          pose.earRight = -shaped * 0.18 * env;
+          pose.squashY = s2 * 0.048 * env;
           pose.mouthMode = 'smile';
           break;
         case 1: // kitsune-peek
-          pose.tilt = 0.08 * env;
-          pose.happyEyes = 0.55 * env;
+          pose.tilt = 0.088 * bell * env;
+          pose.happyEyes = 0.6 * env;
           pose.hand = 'peek';
           pose.handPhase = env;
           break;
         case 2: // orb-juggle
-          pose.gazeY = -0.16 * env;
+          pose.gazeY = -0.18 * env;
           pose.mouthMode = 'smile';
           pose.hand = 'juggle';
           pose.handPhase = phase;
@@ -521,22 +539,22 @@ function buildPoseForAction(
           pose.propPhase = phase;
           break;
         case 3: // cheek-puff
-          pose.tilt = -0.05 * env;
-          pose.squintEyes = 0.45 * env;
+          pose.tilt = -0.056 * bell * env;
+          pose.squintEyes = 0.48 * env;
           pose.mouthMode = 'o';
-          pose.hoodScaleX = 0.03 * env;
+          pose.hoodScaleX = 0.036 * env;
           break;
         case 4: // spin-perk
-          pose.headX = s * 0.035 * env;
-          pose.tilt = s * 0.095 * env;
-          pose.hairSway = -s * 0.085 * env;
-          pose.tailWag = s * 0.8 * env;
-          pose.happyEyes = 0.8 * env;
+          pose.headX = s * 0.04 * env;
+          pose.tilt = s * 0.105 * env;
+          pose.hairSway = -s * 0.095 * env;
+          pose.tailWag = s * 0.85 * env;
+          pose.happyEyes = 0.85 * env;
           break;
         case 5: // wave-hello
         default:
-          pose.tilt = -0.06 * env;
-          pose.happyEyes = 0.85 * env;
+          pose.tilt = (-0.068 + s2 * 0.015) * env;
+          pose.happyEyes = 0.88 * env;
           pose.mouthMode = 'grin';
           pose.hand = 'wave';
           pose.handPhase = phase;
@@ -582,9 +600,9 @@ export function evaluateIdleActionStep(
 
   let envelope = 1;
   if (localT < IDLE_EASE_IN_SECONDS) {
-    envelope = smoothstep(0, IDLE_EASE_IN_SECONDS, localT);
+    envelope = smootherstep(0, IDLE_EASE_IN_SECONDS, localT);
   } else if (localT > IDLE_EASE_OUT_START_SECONDS) {
-    envelope = 1 - smoothstep(IDLE_EASE_OUT_START_SECONDS, IDLE_ACTIVE_END_SECONDS, localT);
+    envelope = 1 - smootherstep(IDLE_EASE_OUT_START_SECONDS, IDLE_ACTIVE_END_SECONDS, localT);
   }
 
   const phase = clamp01(localT / IDLE_ACTIVE_END_SECONDS);

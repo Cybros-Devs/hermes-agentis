@@ -7,7 +7,7 @@ interface BackgroundLayerProps {
   customSlot?: BackgroundCustomSlot | null;
 }
 
-const BRAILLE_GLYPHS = ['⠁', '⠃', '⠇', '⠏', '⠟', '⠿', '⡿', '⣿', '⠋', '⠓', '⠞', '⠦'];
+const BRAILLE_CASCADE = ['⣿', '⣾', '⣷', '⣶', '⣦', '⣤', '⣄', '⡀', '⠁'];
 const cachedBackdropBitmaps = new Map<string, string>();
 
 function drawRadialEllipse(
@@ -129,6 +129,7 @@ interface RainColumn {
   speedPx: number;
   length: number;
   seed: number;
+  depth: 0 | 1;
 }
 
 interface StarNode {
@@ -141,19 +142,21 @@ interface StarNode {
 }
 
 function createRainColumns(width: number, height: number): RainColumn[] {
-  const colSpacing = 26;
-  const count = Math.max(8, Math.ceil(width / colSpacing));
+  const colSpacing = 22;
+  const count = Math.max(10, Math.ceil(width / colSpacing));
   const cols: RainColumn[] = [];
   for (let i = 0; i < count; i++) {
     const r1 = hash2d(i, 1.3);
     const r2 = hash2d(i, 4.7);
     const r3 = hash2d(i, 9.1);
+    const isNear: 0 | 1 = i % 3 === 0 ? 1 : 0;
     cols.push({
       x: i * colSpacing + colSpacing * 0.5,
-      y: r1 * height,
-      speedPx: 14 + r2 * 20, // 14..34 px/s (strictly <= 40 px/s)
-      length: 5 + Math.floor(r3 * 6),
+      y: r1 * (height + 160),
+      speedPx: isNear ? 22 + r2 * 16 : 12 + r2 * 14, // 12..38 px/s (strictly <= 40 px/s)
+      length: isNear ? 7 + Math.floor(r3 * 5) : 5 + Math.floor(r3 * 4),
       seed: Math.floor(r1 * 100),
+      depth: isNear,
     });
   }
   return cols;
@@ -263,34 +266,58 @@ export const BackgroundLayer = memo(function BackgroundLayer({
         height * 0.5,
         Math.max(width, height) * 0.72
       );
-      grad.addColorStop(0, 'rgba(18, 66, 54, 0.34)');
+      grad.addColorStop(0, 'rgba(18, 68, 55, 0.36)');
       grad.addColorStop(1, 'rgba(7, 19, 16, 0.08)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, width, height);
 
-      ctx.font = '13px "JetBrains Mono", ui-monospace, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      const stepY = 18;
+      const stepY = 17;
       for (let i = 0; i < columns.length; i++) {
         const col = columns[i];
         col.y += col.speedPx * dt;
         const wrapH = height + col.length * stepY;
         if (col.y > wrapH) col.y -= wrapH;
 
+        const isNear = col.depth === 1;
+        ctx.font = isNear
+          ? '14px "JetBrains Mono", ui-monospace, monospace'
+          : '12px "JetBrains Mono", ui-monospace, monospace';
+
+        // Soft glowing lead micro-halo behind foreground droplets
+        if (isNear && col.y >= -stepY && col.y <= height + stepY) {
+          ctx.fillStyle = 'rgba(167, 243, 208, 0.14)';
+          ctx.beginPath();
+          ctx.arc(col.x, col.y, 6.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        const cascadeMax = BRAILLE_CASCADE.length - 1;
         for (let k = 0; k < col.length; k++) {
           const py = col.y - k * stepY;
           if (py < -stepY || py > height + stepY) continue;
-          const fade = 1 - k / col.length;
-          const alpha = Number((0.05 + fade * 0.17).toFixed(3));
-          const glyphIdx =
-            (col.seed + k + Math.floor(elapsedSec * 0.8 + i)) % BRAILLE_GLYPHS.length;
+          const tailPos = k / Math.max(1, col.length - 1);
+          const fade = Math.pow(1 - tailPos, 1.35);
+          const baseAlpha = isNear ? 0.09 + fade * 0.25 : 0.05 + fade * 0.14;
+
+          // Progressive Braille density decay down the trail with gentle lead shimmer
+          const shimmerOffset =
+            k === 0 && ((Math.floor(elapsedSec * 2.2 + col.seed) & 3) === 0) ? 1 : 0;
+          const tierIdx = Math.min(
+            cascadeMax,
+            Math.max(0, Math.round(tailPos * cascadeMax) + shimmerOffset)
+          );
+          const glyph = BRAILLE_CASCADE[tierIdx];
+
           ctx.fillStyle =
             k === 0
-              ? `rgba(110, 231, 183, ${(alpha + 0.05).toFixed(3)})`
-              : `rgba(52, 211, 153, ${alpha})`;
-          ctx.fillText(BRAILLE_GLYPHS[glyphIdx], col.x, py);
+              ? `rgba(167, 243, 208, ${Math.min(0.42, baseAlpha + 0.09).toFixed(3)})`
+              : isNear
+              ? `rgba(110, 231, 183, ${baseAlpha.toFixed(3)})`
+              : `rgba(52, 211, 153, ${baseAlpha.toFixed(3)})`;
+          ctx.fillText(glyph, col.x, py);
         }
       }
     };

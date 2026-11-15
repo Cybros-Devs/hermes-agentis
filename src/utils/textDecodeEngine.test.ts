@@ -2,34 +2,48 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { computeDecodeFrame, getDecodeDurationMs } from './textDecodeEngine';
 
-test('computeDecodeFrame reveals settled prefix with Braille cipher frontier and preserves spaces/newlines', () => {
-  const target = 'Good morning.\nTwo gates ready.';
-  const start = computeDecodeFrame(target, 0, 1);
-  assert.equal(start.done, false);
-  assert.equal(start.settled, '');
-  assert.ok(start.frontier.length > 0);
-  assert.match(start.frontier, /[\u2800-\u28FF]/, 'Expected Braille glyphs on decoding frontier');
+test('computeDecodeFrame tapers Braille frontier density from full cells to single dots while keeping whitespace', () => {
+  const target = 'Hermes system\nonline ready';
+  const frame = computeDecodeFrame(target, 0.25, 3, 8);
+  assert.equal(frame.done, false);
+  assert.ok(frame.settled.length > 0 && frame.settled.length < target.length);
+  assert.equal(frame.frontier.length, 8);
 
-  const mid = computeDecodeFrame(target, 0.5, 4);
-  assert.equal(mid.done, false);
-  assert.equal(mid.settled, target.slice(0, Math.floor(target.length * 0.5)));
-  // Ensure whitespace in frontier stays whitespace so text layout does not jitter
-  const midIdx = Math.floor(target.length * 0.5);
-  for (let i = 0; i < mid.frontier.length; i++) {
-    const srcChar = target[midIdx + i];
-    if (srcChar === ' ' || srcChar === '\n') {
-      assert.equal(mid.frontier[i], srcChar);
+  // Leading/trailing whitespace & newlines inside frontier must stay preserved
+  for (let i = 0; i < frame.frontier.length; i++) {
+    const src = target[frame.settled.length + i];
+    if (src === ' ' || src === '\n') {
+      assert.equal(frame.frontier[i], src);
+    } else {
+      assert.ok(/[\u2800-\u28FF]/.test(frame.frontier[i]), `Expected Braille cipher glyph, got ${frame.frontier[i]}`);
     }
   }
 
-  const end = computeDecodeFrame(target, 1, 10);
-  assert.equal(end.done, true);
-  assert.equal(end.settled, target);
-  assert.equal(end.frontier, '');
+  // Last non-whitespace frontier glyph should be lighter dot density than first glyph
+  const popCount = (ch: string) => {
+    let bits = ch.charCodeAt(0) - 0x2800;
+    let c = 0;
+    while (bits > 0) {
+      c += bits & 1;
+      bits >>= 1;
+    }
+    return c;
+  };
+  const nonWsGlyphs = [...frame.frontier].filter((ch) => ch !== ' ' && ch !== '\n');
+  assert.ok(nonWsGlyphs.length >= 2);
+  assert.ok(
+    popCount(nonWsGlyphs[0]) > popCount(nonWsGlyphs[nonWsGlyphs.length - 1]),
+    `Expected progressive Braille dot-count decay from settled boundary to leading edge (${frame.frontier})`
+  );
 });
 
-test('getDecodeDurationMs scales cleanly within snappy reading bounds', () => {
+test('computeDecodeFrame settles completely at progress >= 0.999 and bounds decode duration', () => {
+  const done = computeDecodeFrame('Ready', 1, 10);
+  assert.equal(done.done, true);
+  assert.equal(done.settled, 'Ready');
+  assert.equal(done.frontier, '');
+
   assert.equal(getDecodeDurationMs(''), 0);
   assert.ok(getDecodeDurationMs('Hi') >= 320);
-  assert.ok(getDecodeDurationMs('A'.repeat(400)) <= 1150);
+  assert.ok(getDecodeDurationMs('A'.repeat(500)) <= 1150);
 });

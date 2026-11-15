@@ -17,8 +17,8 @@ import {
 } from '../utils/portraitLoadingEngine';
 import {
   createRasterSurface,
-  rasterizeDotBucketsToSurface,
-  type DotBucketSpec,
+  rasterizeTonalDotBucketsToSurface,
+  type TonalDotBucketSpec,
 } from '../utils/brailleCanvasRaster';
 
 const REFERENCE_PORTRAIT_URL = '/assets/aistudio/image_9fdb5ec4.png';
@@ -344,15 +344,25 @@ export function AsciiPortraitCanvas({
     let elapsedPhase = 0;
     let lastReducedKey = '';
 
-    // Reusable XY coordinate buffers per brightness bucket (avoids Path2D & fillRect command-buffer overhead)
+    // Reusable XY coordinate buffers across 5 tonal tiers for variable-size halftone dots
     const maxDots = cols * rows * 8;
-    const lowXY = new Float32Array(maxDots * 2);
-    const midXY = new Float32Array(maxDots * 2);
-    const highXY = new Float32Array(maxDots * 2);
-    const buckets: [DotBucketSpec, DotBucketSpec, DotBucketSpec] = [
-      { xy: lowXY, len: 0, hex: '#C2D4CE', alpha: 0.72 },
-      { xy: midXY, len: 0, hex: '#E6F0EC', alpha: 0.88 },
-      { xy: highXY, len: 0, hex: '#FFFFFF', alpha: 0.98 },
+    const b0XY = new Float32Array(maxDots * 2);
+    const b1XY = new Float32Array(maxDots * 2);
+    const b2XY = new Float32Array(maxDots * 2);
+    const b3XY = new Float32Array(maxDots * 2);
+    const b4XY = new Float32Array(maxDots * 2);
+    const buckets: [
+      TonalDotBucketSpec,
+      TonalDotBucketSpec,
+      TonalDotBucketSpec,
+      TonalDotBucketSpec,
+      TonalDotBucketSpec,
+    ] = [
+      { xy: b0XY, len: 0, hex: '#8FA69E', alpha: 0.48, diameterScale: 0.72 },
+      { xy: b1XY, len: 0, hex: '#B9CCC5', alpha: 0.68, diameterScale: 0.85 },
+      { xy: b2XY, len: 0, hex: '#DCE8E3', alpha: 0.84, diameterScale: 0.96 },
+      { xy: b3XY, len: 0, hex: '#F1F7F4', alpha: 0.94, diameterScale: 1.07 },
+      { xy: b4XY, len: 0, hex: '#FFFFFF', alpha: 0.99, diameterScale: 1.18 },
     ];
 
     const drawFrame = (now: number) => {
@@ -452,11 +462,13 @@ export function AsciiPortraitCanvas({
         !isThumb &&
         (isLoadingVisual || s.isListening || (s.isSpeaking && smoothEnergy > 0.35));
 
-      let lowLen = 0;
-      let midLen = 0;
-      let highLen = 0;
+      let len0 = 0;
+      let len1 = 0;
+      let len2 = 0;
+      let len3 = 0;
+      let len4 = 0;
 
-      const dotDiameter = Math.max(1.1, dotRadius * 1.9);
+      const dotDiameter = Math.max(1.15, dotRadius * 2.02);
 
       for (let r = 0; r < frame.rows; r++) {
         const line = frame.lines[r];
@@ -471,28 +483,44 @@ export function AsciiPortraitCanvas({
           const bright = frame.cells[rowOff + c] / 255;
           const baseX = c * cellW;
 
-          if (bright > 0.7) {
+          if (bright > 0.82) {
             for (let k = 0; k < 8; k++) {
               const [px, py, mask] = SUBPIXEL_BITS[k];
               if (bits & mask) {
-                highXY[highLen++] = baseX + (px + 0.5) * dotW - dotRadius;
-                highXY[highLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+                b4XY[len4++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b4XY[len4++] = baseY + (py + 0.5) * dotH - dotRadius;
               }
             }
-          } else if (bright > 0.36) {
+          } else if (bright > 0.64) {
             for (let k = 0; k < 8; k++) {
               const [px, py, mask] = SUBPIXEL_BITS[k];
               if (bits & mask) {
-                midXY[midLen++] = baseX + (px + 0.5) * dotW - dotRadius;
-                midXY[midLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+                b3XY[len3++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b3XY[len3++] = baseY + (py + 0.5) * dotH - dotRadius;
+              }
+            }
+          } else if (bright > 0.44) {
+            for (let k = 0; k < 8; k++) {
+              const [px, py, mask] = SUBPIXEL_BITS[k];
+              if (bits & mask) {
+                b2XY[len2++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b2XY[len2++] = baseY + (py + 0.5) * dotH - dotRadius;
+              }
+            }
+          } else if (bright > 0.24) {
+            for (let k = 0; k < 8; k++) {
+              const [px, py, mask] = SUBPIXEL_BITS[k];
+              if (bits & mask) {
+                b1XY[len1++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b1XY[len1++] = baseY + (py + 0.5) * dotH - dotRadius;
               }
             }
           } else {
             for (let k = 0; k < 8; k++) {
               const [px, py, mask] = SUBPIXEL_BITS[k];
               if (bits & mask) {
-                lowXY[lowLen++] = baseX + (px + 0.5) * dotW - dotRadius;
-                lowXY[lowLen++] = baseY + (py + 0.5) * dotH - dotRadius;
+                b0XY[len0++] = baseX + (px + 0.5) * dotW - dotRadius;
+                b0XY[len0++] = baseY + (py + 0.5) * dotH - dotRadius;
               }
             }
           }
@@ -500,23 +528,42 @@ export function AsciiPortraitCanvas({
       }
 
       const customTint = s.tintHex;
-      buckets[0].len = lowLen;
-      buckets[0].hex = customTint
-        ? mixPortraitHex('#7E968F', customTint, activeTint ? 0.85 : 0.55)
+      const tintWeight = activeTint ? 0.85 : 0.52;
+      const baseLowHex = customTint
+        ? mixPortraitHex('#738C84', customTint, tintWeight)
+        : activeTint
+        ? '#6EE7B7'
+        : '#8FA69E';
+      const baseMidLowHex = customTint
+        ? mixPortraitHex('#ADC2BB', customTint, tintWeight * 0.85)
         : activeTint
         ? '#A7F3D0'
-        : '#C2D4CE';
-      buckets[0].alpha = isLoadingVisual ? 0.56 : 0.72;
+        : '#B9CCC5';
+      const baseMidHex = customTint ? mixPortraitHex('#DCE8E3', customTint, 0.52) : '#DCE8E3';
+      const baseMidHighHex = customTint ? mixPortraitHex('#F1F7F4', customTint, 0.34) : '#F1F7F4';
+      const baseHighHex = customTint ? mixPortraitHex('#FFFFFF', customTint, 0.16) : '#FFFFFF';
 
-      buckets[1].len = midLen;
-      buckets[1].hex = customTint ? mixPortraitHex('#E6F0EC', customTint, 0.52) : '#E6F0EC';
-      buckets[1].alpha = isLoadingVisual ? 0.78 : 0.88;
+      buckets[0].len = len0;
+      buckets[0].hex = baseLowHex;
+      buckets[0].alpha = isLoadingVisual ? 0.42 : 0.48;
 
-      buckets[2].len = highLen;
-      buckets[2].hex = customTint ? mixPortraitHex('#FFFFFF', customTint, 0.18) : '#FFFFFF';
-      buckets[2].alpha = isLoadingVisual ? 0.94 : 0.98;
+      buckets[1].len = len1;
+      buckets[1].hex = baseMidLowHex;
+      buckets[1].alpha = isLoadingVisual ? 0.58 : 0.68;
 
-      rasterizeDotBucketsToSurface(surface, buckets, dpr, dotDiameter);
+      buckets[2].len = len2;
+      buckets[2].hex = baseMidHex;
+      buckets[2].alpha = isLoadingVisual ? 0.74 : 0.84;
+
+      buckets[3].len = len3;
+      buckets[3].hex = baseMidHighHex;
+      buckets[3].alpha = isLoadingVisual ? 0.86 : 0.94;
+
+      buckets[4].len = len4;
+      buckets[4].hex = baseHighHex;
+      buckets[4].alpha = isLoadingVisual ? 0.95 : 0.99;
+
+      rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter);
       ctx.putImageData(surface.imageData, 0, 0);
     };
 
@@ -582,8 +629,8 @@ export function AsciiPortraitCanvas({
         isBlinkingRef.current ||
         blinkLookahead;
 
-      // Smooth VSync cadence (~55fps active, ~36fps boot materialize, ~30fps calm idle)
-      const minIntervalMs = isReduced ? 220 : isMaterializing ? 28 : activeMotion ? 18 : 34;
+      // Fluid VSync cadence (~60fps active/materialize, ~45fps calm idle)
+      const minIntervalMs = isReduced ? 220 : isMaterializing ? 18 : activeMotion ? 16 : 22;
       if (now - lastDraw >= minIntervalMs) {
         drawFrame(now);
       }

@@ -91,3 +91,21 @@ test('evaluateIdleActionStep respects reducedMotion by returning calm neutral re
     assert.equal(frame.pose.prop, 'none');
   }
 });
+
+test('evaluateIdleActionStep transitions smoothly across anticipation, peak, and settle without abrupt pops', () => {
+  for (const setId of IDLE_SET_ORDER) {
+    let prev = evaluateIdleActionStep(setId, 0);
+    for (let step = 1; step <= 64; step++) {
+      const curr = evaluateIdleActionStep(setId, step * (IDLE_ACTIVE_END_SECONDS / 64));
+      assert.ok(
+        Math.abs(curr.pose.headY - prev.pose.headY) < 0.035,
+        `${setId} headY jumped unexpectedly at step ${step}: ${prev.pose.headY} -> ${curr.pose.headY}`
+      );
+      assert.ok(
+        Math.abs(curr.pose.tilt - prev.pose.tilt) < 0.055,
+        `${setId} tilt jumped unexpectedly at step ${step}: ${prev.pose.tilt} -> ${curr.pose.tilt}`
+      );
+      prev = curr;
+    }
+  }
+});
