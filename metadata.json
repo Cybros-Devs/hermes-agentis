@@ -1,6 +1,6 @@
 {
-  "name": "Hermes Duet // Cyber Comms",
-  "description": "Cyberpunk voice-activated phone widget and interactive command-line interface for Hermes Duet with real-time audio-synced animated ASCII character video.",
+  "name": "Hermes Agent // Cyber Comms",
+  "description": "Cyberpunk voice-activated phone widget and interactive command-line interface for Hermes Agent with real-time audio-synced animated ASCII character video.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

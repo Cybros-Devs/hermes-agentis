@@ -204,7 +204,7 @@ function padCenter(content: string, width: number = ASCII_WIDTH): string {
 }
 
 /**
- * Renders the Hermes Duet "Nous Girl" cyber-messenger ASCII character portrait.
+ * Renders the Hermes Agent "Nous Girl" cyber-messenger ASCII character portrait.
  * All lines are strictly normalized to ASCII_WIDTH columns to guarantee zero jitter.
  */
 export function renderNousGirlAscii(opts: AsciiRenderOptions): string[] {

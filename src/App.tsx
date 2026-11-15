@@ -1089,7 +1089,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    document.title = 'Hermes Duet // Cyber Comms';
+    document.title = 'Hermes Agent // Cyber Comms';
   }, []);
 
   const handleCycleMood = useCallback(() => {
