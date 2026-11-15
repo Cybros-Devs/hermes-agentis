@@ -28,7 +28,10 @@ import type {
   ExpressionMood,
   EyeState,
   HermesAgentSession,
+  HermesCronJob,
   HermesGatewayStatus,
+  HermesMemoryItem,
+  HermesSkill,
   TerminalEntry,
   VoiceState,
 } from '../types/hermes';
@@ -47,7 +50,7 @@ import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
 import { BrailleSessionsCanvas } from './BrailleSessionsCanvas';
 import { DecodedText } from './DecodedText';
-import { DuetOperationsPanel } from './DuetOperationsPanel';
+import { HermesOperationsPanel } from './HermesOperationsPanel';
 import { CommandTerminal } from './CommandTerminal';
 import { MobileWorkspaceBar } from './MobileWorkspaceBar';
 import { ThreadTaskBanner } from './ThreadTaskBanner';
@@ -79,6 +82,10 @@ interface VoiceWorkspacePaneProps {
   brief: BriefDecision[];
   tasks: BackgroundTask[];
   gatewayStatus?: HermesGatewayStatus | null;
+  onRefreshGateway?: () => void;
+  skills?: HermesSkill[];
+  memory?: HermesMemoryItem[];
+  cronJobs?: HermesCronJob[];
   onApproveCard: (id: string, editedDraft?: string) => void;
   onRejectCard: (id: string) => void;
   onRunBriefCommand: (command: string, briefId: string) => void;
@@ -138,6 +145,10 @@ export function VoiceWorkspacePane({
   brief,
   tasks,
   gatewayStatus,
+  onRefreshGateway,
+  skills,
+  memory,
+  cronJobs,
   onApproveCard,
   onRejectCard,
   onRunBriefCommand,
@@ -985,7 +996,7 @@ export function VoiceWorkspacePane({
 
           {panelView === 'queue' ? (
             <div key="view-queue" className="ui-view-enter flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-y-auto cyber-scroll">
-              <DuetOperationsPanel
+              <HermesOperationsPanel
                 channels={channels}
                 activeChannel={activeChannel}
                 onSelectChannel={onSelectChannel}
@@ -998,6 +1009,10 @@ export function VoiceWorkspacePane({
                   onChangePanelView('voice');
                 }}
                 gatewayStatus={gatewayStatus}
+                onRefreshGateway={onRefreshGateway}
+                skills={skills}
+                memory={memory}
+                cronJobs={cronJobs}
               />
             </div>
           ) : panelView === 'cli' ? (
@@ -1095,7 +1110,7 @@ export function VoiceWorkspacePane({
                         <p className="text-[14.5px] sm:text-[16px] leading-[1.6] font-normal text-white/95 whitespace-pre-wrap break-words">
                           <DecodedText
                             text={entry.text}
-                            animate={!entry.id.startsWith('init-')}
+                            animate={!entry.id.startsWith('init-') && !entry.streaming}
                           />
                         </p>
                         {idx > 0 && (

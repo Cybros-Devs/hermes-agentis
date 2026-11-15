@@ -21,28 +21,28 @@ export const INITIAL_CHANNELS: Channel[] = [
   {
     id: 'general',
     name: '#general',
-    sessionId: 'duet-general',
+    sessionId: 'hermes-general',
     description: 'Primary Hermes Agent voice thread, daily check-ins, and morning brief',
     unreadCount: 0,
   },
   {
     id: 'ops',
     name: '#ops',
-    sessionId: 'duet-ops',
-    description: 'hermes gateway (:8642), cronjob_manage schedules, and payment gates',
+    sessionId: 'hermes-ops',
+    description: 'hermes gateway (:8642), cronjob_manage schedules, and infra operations',
     unreadCount: 1,
   },
   {
     id: 'launch',
     name: '#launch',
-    sessionId: 'duet-launch',
-    description: '~/.hermes/skills/ workflows, save_page rebuilds, and QA checks',
+    sessionId: 'hermes-launch',
+    description: '~/.hermes/skills/ workflows, build artifacts, and QA checks',
     unreadCount: 2,
   },
   {
     id: 'research',
     name: '#research',
-    sessionId: 'duet-research',
+    sessionId: 'hermes-research',
     description: 'Isolated background runs and persistent MEMORY.md synthesis',
     unreadCount: 0,
   },
@@ -50,27 +50,27 @@ export const INITIAL_CHANNELS: Channel[] = [
 
 export const INITIAL_HERMES_SKILLS: HermesSkill[] = [
   {
-    name: 'duet-bridge',
-    source: '~/.hermes/skills/duet-bridge/SKILL.md',
-    summary: 'Human-in-the-loop request_approval, request_payment, post_brief, and save_page via mcp__duet__*',
+    name: 'hermes-memory',
+    source: '~/.hermes/skills/hermes-memory/SKILL.md',
+    summary: 'Persists cross-session facts, project conventions, and user preferences to MEMORY.md',
     enabled: true,
   },
   {
     name: 'morning-brief',
     source: '~/.hermes/skills/morning-brief/SKILL.md',
-    summary: 'Rebuilds standing brief 30m ahead of schedule and ranks top 5 open decisions',
+    summary: 'Summarizes overnight cron runs and ranks top open agent decisions',
     enabled: true,
   },
   {
     name: 'playwright-parity',
     source: '~/.hermes/skills/playwright-parity/SKILL.md',
-    summary: 'Browser verification & responsive snapshot diffs posted back via update_task',
+    summary: 'Headless browser verification & responsive layout checks via terminal tools',
     enabled: true,
   },
   {
-    name: 'mail-triage',
-    source: '~/.hermes/skills/mail-triage/SKILL.md',
-    summary: 'Drafts replies and holds outbound sends behind mcp__duet__request_approval',
+    name: 'cron-orchestrator',
+    source: '~/.hermes/skills/cron-orchestrator/SKILL.md',
+    summary: 'Schedules isolated agent & no-agent jobs with cronjob_manage',
     enabled: true,
   },
 ];
@@ -79,17 +79,17 @@ export const INITIAL_HERMES_MEMORY: HermesMemoryItem[] = [
   {
     key: 'gateway.endpoint',
     scope: 'host',
-    value: 'http://127.0.0.1:8642 (API_SERVER_ENABLED=true, OpenAI /v1/runs)',
+    value: 'http://127.0.0.1:8642 (API_SERVER_ENABLED=true, OpenAI /v1/chat/completions)',
   },
   {
-    key: 'mcp.duet_shim',
-    scope: 'duet',
-    value: '~/.hermes/config.yaml -> mcp_servers.duet (tools: {}, mcp__duet__*)',
+    key: 'session.scoping',
+    scope: 'session',
+    value: 'X-Hermes-Session-Key binds each lane/shape to an isolated Hermes memory scope',
   },
   {
     key: 'brief.cadence',
     scope: 'preference',
-    value: 'Standing pages refresh 07:30 local; post_brief delivers at 08:00 local',
+    value: 'Standing cron prep runs 07:30 local; morning brief summarizes at 08:00 local',
   },
 ];
 
@@ -99,21 +99,21 @@ export const INITIAL_HERMES_CRON: HermesCronJob[] = [
     schedule: '30 7 * * *',
     channelId: 'launch',
     mode: 'agent',
-    summary: 'Rebuild save_page deliverables 30m prior to morning brief',
+    summary: 'Rebuild standing brief artifacts 30m prior to morning brief',
   },
   {
     id: 'cron-morning-brief',
     schedule: '0 8 * * *',
     channelId: 'general',
     mode: 'agent',
-    summary: 'Run post_brief across #general, #ops, and #launch lanes',
+    summary: 'Compile morning brief across #general, #ops, and #launch sessions',
   },
   {
     id: 'cron-downloads-watch',
     schedule: '*/30 9-18 * * 1-5',
     channelId: 'ops',
     mode: 'no-agent',
-    summary: 'Watch ~/Downloads and enqueue invoice PDFs for review',
+    summary: 'Watch ~/Downloads and enqueue invoice PDFs for #ops triage',
   },
 ];
 
@@ -121,25 +121,25 @@ export const INITIAL_BRIEF_DECISIONS: BriefDecision[] = [
   {
     id: 'brief-1',
     priority: 'high',
-    title: 'Approve Mail MCP release dispatch via mcp__duet__request_approval',
-    detail: 'Hermes Agent prepared the v2.4 Duet release note for 184 subscribers in lane duet-general.',
+    title: 'Approve outbound release dispatch for beta cohort',
+    detail: 'Hermes Agent drafted the v2.4 release note for 184 subscribers in session hermes-general.',
     suggestedCommand: '/approve card-1',
     resolved: false,
   },
   {
     id: 'brief-2',
     priority: 'medium',
-    title: 'Authorize single-use spend cap via mcp__duet__request_payment',
-    detail: 'Itemized compute overflow ($45.00 / DUET_MAX_TRANSACTION_LIMIT $500) queued in lane duet-ops.',
-    suggestedCommand: '/approve card-2',
+    title: 'Review scheduled cronjob_manage watcher rule in #ops',
+    detail: 'Invoice triage rule queued for confirmation in session hermes-ops.',
+    suggestedCommand: '/tasks',
     resolved: false,
   },
   {
     id: 'brief-3',
     priority: 'low',
-    title: 'Review standing morning-brief.html diff from save_page run',
-    detail: '07:30 scheduled rebuild logged 2 changed tasks in #launch.',
-    suggestedCommand: '/tasks',
+    title: 'Inspect standing morning-brief.html diff in #launch',
+    detail: '07:30 scheduled rebuild logged 2 updated steps in hermes-launch.',
+    suggestedCommand: '/switch launch',
     resolved: false,
   },
 ];
@@ -148,30 +148,16 @@ export const INITIAL_APPROVALS: ApprovalCard[] = [
   {
     id: 'card-1',
     channelId: 'general',
-    title: 'Send Release Dispatch via Mail MCP',
+    title: 'Send Release Dispatch via Mail Tool',
     actionType: 'send_message',
-    mcpTool: 'mcp__duet__request_approval',
-    runId: 'run-duet-781',
+    mcpTool: 'mail_dispatch',
+    runId: 'run-hermes-781',
     destination: 'mail://beta-cohort (184 recipients)',
-    summary: 'Dispatches the v2.4 Hermes Agent voice link & Duet MCP changelog.',
+    summary: 'Dispatches the v2.4 Hermes Agent changelog with streaming tool-progress support.',
     draft:
-      'Hermes Duet v2.4 is live: direct Hermes Gateway (/v1/runs) voice link, mcp__duet approval gating, and live Braille decoding are now active.',
+      'Hermes Agent v2.4 is live: direct Gateway (/v1/chat/completions) streaming, X-Hermes-Session-Key isolation, and live Braille voice sync are active.',
     status: 'pending',
     createdAt: '08:05',
-  },
-  {
-    id: 'card-2',
-    channelId: 'ops',
-    title: 'Authorize Inference Burst Virtual Cap',
-    actionType: 'payment',
-    mcpTool: 'mcp__duet__request_payment',
-    runId: 'run-duet-784',
-    destination: 'nous://inference-gateway (Single-use cap)',
-    summary: 'Itemized receipt: $45.00 overflow ceiling (under $500.00 DUET_MAX_TRANSACTION_LIMIT).',
-    draft: 'Authorize $45.00 single-use virtual card for local Hermes inference overflow.',
-    amountCents: 4500,
-    status: 'pending',
-    createdAt: '08:12',
   },
 ];
 
@@ -181,53 +167,53 @@ export const INITIAL_TASKS: BackgroundTask[] = [
   {
     id: 'task-101',
     channelId: 'launch',
-    sessionId: 'duet-run-409',
+    sessionId: 'hermes-launch',
     kind: 'Background',
     background: true,
-    title: 'Rebuild standing morning-brief.html (save_page)',
+    title: 'Rebuild standing morning-brief.html',
     status: 'running',
     rawStatus: 'running',
     progress: 67,
     progressLabel: '4/6',
-    lastStep: 'Streaming update_task delta across Playwright parity lane',
+    lastStep: 'Verifying responsive layout across Playwright parity lane',
     createdAtMs: SEED_BOOT_MS - 878_000,
     updatedAtMs: SEED_BOOT_MS - 18_000,
     updatedAt: '14:21',
     steps: [
-      { text: 'Collect overnight thread summaries & approval outcomes', done: true },
-      { text: 'Compile static morning-brief.html bundle via save_page', done: true },
+      { text: 'Collect overnight thread summaries & tool outputs', done: true },
+      { text: 'Compile static morning-brief.html bundle', done: true },
       { text: 'Verify desktop 1440×900 layout & contrast hierarchy', done: true },
       { text: 'Capture mobile 390×844 snapshot & scroll bounds', done: true },
-      { text: 'Streaming update_task delta across Playwright parity lane', done: false, active: true },
+      { text: 'Streaming tool progress across Playwright parity lane', done: false, active: true },
       { text: 'Publish signed artifact to #launch brief archive', done: false },
     ],
   },
   {
     id: 'task-102',
     channelId: 'research',
-    sessionId: 'duet-run-398',
+    sessionId: 'hermes-research',
     kind: 'Background',
     background: true,
-    title: 'Index ~/.hermes/skills/ & MCP connectors',
+    title: 'Index ~/.hermes/skills/ & toolsets',
     status: 'completed',
     rawStatus: 'done',
     progress: 100,
     progressLabel: '3/3',
-    lastStep: 'Synced 4 skills and mcp_servers.duet capabilities to #research',
+    lastStep: 'Synced 4 skills and native Hermes toolsets to #research',
     agentDoneAtMs: SEED_BOOT_MS - 1_920_000,
     createdAtMs: SEED_BOOT_MS - 2_700_000,
     updatedAtMs: SEED_BOOT_MS - 1_920_000,
     updatedAt: '13:45',
     steps: [
       { text: 'Scan ~/.hermes/skills/ SKILL.md manifests', done: true },
-      { text: 'Validate mcp_servers.duet JSON-RPC schemas', done: true },
-      { text: 'Synced 4 skills and mcp_servers.duet capabilities to #research', done: true },
+      { text: 'Validate active Hermes toolset schemas', done: true },
+      { text: 'Synced 4 skills and native Hermes toolsets to #research', done: true },
     ],
   },
   {
     id: 'task-103',
     channelId: 'ops',
-    sessionId: 'duet-run-402',
+    sessionId: 'hermes-ops',
     kind: 'Cron',
     background: true,
     title: 'Audit ~/Downloads watcher rule (cronjob_manage)',
@@ -243,7 +229,7 @@ export const INITIAL_TASKS: BackgroundTask[] = [
       { text: 'Inspect active cronjob_manage watcher schedule (*/30 9-18 * * 1-5)', done: true },
       { text: 'Scan ~/Downloads for matching invoice & receipt patterns', done: true },
       { text: 'Waiting on confirmation to route invoice PDFs into #ops', done: false, active: true },
-      { text: 'Attach PDF summary cards to mcp__duet__request_approval', done: false },
+      { text: 'Summarize matched PDF invoices into #ops thread', done: false },
       { text: 'Persist watcher filter rules to MEMORY.md', done: false },
     ],
   },
@@ -261,6 +247,7 @@ export interface CliContext {
   cronJobs?: HermesCronJob[];
   gatewayConnected?: boolean;
   gatewayUrl?: string;
+  activeModel?: string;
 }
 
 export type CliExecutionResult =
@@ -324,8 +311,8 @@ const VALID_MOODS: ExpressionMood[] = [
 const VALID_CHANNELS: ChannelId[] = ['general', 'ops', 'launch', 'research'];
 
 /**
- * Pure parser and local executor for Hermes Agent + Hermes Duet slash commands.
- * Natural-language prompts (not starting with `/`) route to the active Hermes Agent lane.
+ * Pure parser and local executor for Hermes Agent slash commands.
+ * Natural-language prompts (not starting with `/`) route to the active Hermes Agent session.
  */
 export function executeCliInput(rawInput: string, ctx: CliContext): CliExecutionResult {
   const trimmed = rawInput.trim();
@@ -355,26 +342,26 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'happy',
         spokenText:
-          'Hermes Agent command reference ready. Start a new session, inspect skills, memory, cron routines, or approve Duet gates.',
+          'Hermes Agent command reference ready. Start a new session, inspect skills, memory, cron routines, or check gateway status.',
         output: [
-          'HERMES AGENT + DUET // COMMAND REFERENCE',
+          'HERMES AGENT // COMMAND REFERENCE',
           '  /new [prompt]        Start a fresh isolated Hermes Agent session on Home',
-          '  /brief               Display ranked post_brief decisions',
-          '  /tasks               List isolated background runs (start_task / save_page)',
-          '  /skills              List loaded ~/.hermes/skills/ & mcp__duet tools',
-          '  /memory              Inspect persistent MEMORY.md agent context',
-          '  /cron                List scheduled cronjob_manage & save_routine jobs',
-          '  /sessions            Show active Hermes --resume session IDs per lane',
-          '  /gateway | /doctor   Inspect hermes gateway (:8642) & MCP shim status',
-          '  /switch <channel>    Switch lane (general|ops|launch|research|...)',
-          '  /resume <session>    Resume lane by session ID (e.g. duet-ops)',
-          '  /approve <id>        Approve a pending mcp__duet gate card',
-          '  /reject <id>         Dismiss a pending gate card',
+          '  /brief               Display open morning brief decisions',
+          '  /tasks               List background & cron tasks per session',
+          '  /skills              List loaded ~/.hermes/skills/ manifests',
+          '  /memory              Inspect persistent MEMORY.md & host context',
+          '  /cron                List scheduled cronjob_manage routines',
+          '  /sessions            Show active X-Hermes-Session-Key IDs per lane',
+          '  /gateway | /doctor   Inspect hermes gateway (:8642) & /v1/models status',
+          '  /switch <channel>    Switch session lane (general|ops|launch|research|...)',
+          '  /resume <session>    Resume lane by session ID (e.g. hermes-ops)',
+          '  /approve <id>        Approve a pending action card',
+          '  /reject <id>         Dismiss a pending action card',
           '  /ui <spec|preset>    Dynamically customize theme, layout, character & backdrop',
           '  /customize           Open the interactive UI Studio drawer',
           '  /mood <state>        Shift portrait (neutral|happy|focused|alert|thinking)',
           '  /mute                Toggle Hermes voice audio output',
-          '  /status              Report gateway mode, lane, and pending gates',
+          '  /status              Report gateway mode, session key, and active tasks',
           '  /clear               Clear terminal feed',
         ].join('\n'),
       };
@@ -403,20 +390,20 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'focused',
         spokenText: `Morning brief has ${pending.length} open decisions. Top priority: ${pending[0]?.title ?? 'all clear'}.`,
-        output: ['HERMES DUET // POST_BRIEF QUEUE', ...lines].join('\n'),
+        output: ['HERMES AGENT // MORNING BRIEF QUEUE', ...lines].join('\n'),
       };
     }
 
     case '/tasks': {
       const lines = ctx.tasks.map(
         (t) =>
-          `  [${t.id}] ${t.status.toUpperCase().padEnd(9)} ${String(t.progress).padStart(3)}% · #${t.channelId} (${t.sessionId ?? 'lane'}) · ${t.title}`
+          `  [${t.id}] ${t.status.toUpperCase().padEnd(9)} ${String(t.progress).padStart(3)}% · #${t.channelId} (${t.sessionId ?? `hermes-${t.channelId}`}) · ${t.title}`
       );
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `Tracking ${ctx.tasks.length} background Hermes runs across your Duet lanes.`,
-        output: ['HERMES RUNS // START_TASK & SAVE_PAGE', ...lines].join('\n'),
+        spokenText: `Tracking ${ctx.tasks.length} Hermes Agent runs across your active sessions.`,
+        output: ['HERMES AGENT // SESSION & BACKGROUND TASKS', ...lines].join('\n'),
       };
     }
 
@@ -427,9 +414,9 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `${skills.filter((s) => s.enabled).length} Hermes Agent skills active, including duet-bridge and morning-brief.`,
+        spokenText: `${skills.filter((s) => s.enabled).length} Hermes Agent skills active under ~/.hermes/skills.`,
         output: [
-          'HERMES AGENT // ~/.hermes/skills/ & mcp__duet__*',
+          'HERMES AGENT // ~/.hermes/skills/',
           ...lines,
         ].join('\n'),
       };
@@ -465,14 +452,14 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
     case '/lanes': {
       const lines = INITIAL_CHANNELS.map(
         (ch) =>
-          `  #${ch.id.padEnd(9)} session=${ch.sessionId.padEnd(14)} ${ch.id === ctx.activeChannel ? '[ACTIVE] ' : ''}${ch.description}`
+          `  #${ch.id.padEnd(9)} key=${ch.sessionId.padEnd(16)} ${ch.id === ctx.activeChannel ? '[ACTIVE] ' : ''}${ch.description}`
       );
       return {
         type: 'handled',
         mood: 'neutral',
-        spokenText: `Active Hermes session is duet-${ctx.activeChannel}.`,
+        spokenText: `Active Hermes session is hermes-${ctx.activeChannel}.`,
         output: [
-          `ACTIVE SESSION: hermes --resume duet-${ctx.activeChannel}`,
+          `ACTIVE SESSION KEY: X-Hermes-Session-Key: hermes-${ctx.activeChannel}`,
           ...lines,
         ].join('\n'),
       };
@@ -482,25 +469,26 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
     case '/doctor': {
       const url = ctx.gatewayUrl || 'http://127.0.0.1:8642';
       const connected = Boolean(ctx.gatewayConnected);
+      const model = ctx.activeModel || 'hermes-agent';
       return {
         type: 'handled',
         mood: connected ? 'happy' : 'focused',
         spokenText: connected
-          ? 'Hermes Gateway is connected and mcp__duet tools are online.'
-          : 'Hermes Gateway at 127.0.0.1:8642 is in standalone Duet mode. Start hermes gateway with API_SERVER_ENABLED=true to bind.',
+          ? 'Hermes Gateway is connected and streaming chat completions are online.'
+          : 'Hermes Gateway is in local standby. Start hermes gateway with API_SERVER_ENABLED=true to connect.',
         output: [
-          'HERMES DUET DOCTOR // GATEWAY & MCP CHECK',
-          `  hermes-agent API Server : ${url} (${connected ? 'CONNECTED' : 'STANDALONE FALLBACK'})`,
-          '  Runs Endpoint           : POST /v1/runs · GET /v1/runs/{id}/events',
-          '  MCP Bridge (~/.hermes)  : mcp_servers.duet -> server/mcp-shim.ts (tools: {})',
-          '  Active Session Lane     : duet-' + ctx.activeChannel,
+          'HERMES AGENT DOCTOR // GATEWAY CHECK',
+          `  hermes-agent API Server : ${url} (${connected ? 'CONNECTED' : 'LOCAL STANDBY'})`,
+          `  Chat Endpoint           : POST /v1/chat/completions (stream: true, hermes.tool.progress)`,
+          `  Responses / Models      : POST /v1/responses · GET /v1/models (${model})`,
+          `  Active Session Header   : X-Hermes-Session-Key: hermes-${ctx.activeChannel}`,
         ].join('\n'),
       };
     }
 
     case '/switch':
     case '/resume': {
-      const normalized = argStr.replace(/^#/, '').replace(/^(duet|hermes)-/, '').toLowerCase() as ChannelId;
+      const normalized = argStr.replace(/^#/, '').replace(/^(hermes|duet)-/, '').toLowerCase() as ChannelId;
       const validPool = ctx.availableChannels && ctx.availableChannels.length > 0
         ? ctx.availableChannels
         : VALID_CHANNELS;
@@ -508,16 +496,16 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         return {
           type: 'handled',
           mood: 'alert',
-          spokenText: 'Unknown Hermes lane.',
-          output: `Unknown lane "${argStr}". Valid lanes: ${validPool.join(', ')} (or session duet-<lane>).`,
+          spokenText: 'Unknown Hermes session.',
+          output: `Unknown session "${argStr}". Valid sessions: ${validPool.join(', ')} (or hermes-<lane>).`,
         };
       }
       return {
         type: 'handled',
         mood: 'happy',
         switchChannel: normalized,
-        spokenText: `Resumed Hermes lane duet-${normalized}.`,
-        output: `Resumed Hermes session duet-${normalized} (#${normalized}).`,
+        spokenText: `Resumed Hermes session hermes-${normalized}.`,
+        output: `Resumed Hermes session hermes-${normalized} (#${normalized}).`,
       };
     }
 
@@ -528,7 +516,7 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         return {
           type: 'handled',
           mood: 'alert',
-          spokenText: 'No matching mcp__duet approval card found.',
+          spokenText: 'No matching approval card found.',
           output: `No approval card found matching "${argStr || 'pending'}".`,
         };
       }
@@ -544,8 +532,8 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'happy',
         approveCardId: card.id,
-        spokenText: `Approved ${card.title}. Resuming Hermes run on ${card.destination}.`,
-        output: `APPROVED [${card.id}] (${card.mcpTool ?? 'mcp__duet__request_approval'}): ${card.title} -> ${card.destination}`,
+        spokenText: `Approved ${card.title}. Dispatching action to ${card.destination}.`,
+        output: `APPROVED [${card.id}] (${card.mcpTool ?? 'agent_action'}): ${card.title} -> ${card.destination}`,
       };
     }
 
@@ -564,7 +552,7 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'neutral',
         rejectCardId: card.id,
-        spokenText: `Held ${card.title}. No outbound MCP action executed.`,
+        spokenText: `Held ${card.title}. No outbound action executed.`,
         output: `DISMISSED [${card.id}]: ${card.title} (held locally)`,
       };
     }
@@ -642,11 +630,11 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `Hermes lane duet-${ctx.activeChannel} active. ${pendingCount} MCP gates pending and ${runningCount} background runs active.`,
+        spokenText: `Hermes session hermes-${ctx.activeChannel} active. ${pendingCount} pending actions and ${runningCount} background runs active.`,
         output: [
-          `SESSION LANE: duet-${ctx.activeChannel} (#${ctx.activeChannel})`,
-          `GATEWAY: ${ctx.gatewayConnected ? 'HERMES API SERVER (:8642)' : 'STANDALONE DUET MODE'}`,
-          `PENDING MCP GATES: ${pendingCount}`,
+          `SESSION KEY: hermes-${ctx.activeChannel} (#${ctx.activeChannel})`,
+          `GATEWAY: ${ctx.gatewayConnected ? `HERMES API SERVER (${ctx.gatewayUrl || 'http://127.0.0.1:8642'})` : 'LOCAL STANDBY'}`,
+          `PENDING ACTIONS: ${pendingCount}`,
           `RUNNING TASKS: ${runningCount}`,
           `VOICE AUDIO: ${ctx.isMuted ? 'MUTED' : 'ACTIVE'}`,
         ].join('\n'),
@@ -734,7 +722,7 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'alert',
         spokenText: `Unrecognized command ${cmd}. Type slash help for Hermes Agent commands.`,
-        output: `Unknown command "${cmd}". Type /help to list available Hermes Agent + Duet commands.`,
+        output: `Unknown command "${cmd}". Type /help to list available Hermes Agent commands.`,
       };
     }
   }

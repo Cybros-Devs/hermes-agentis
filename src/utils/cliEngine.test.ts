@@ -90,8 +90,8 @@ test('executeCliInput handles Hermes Agent /skills, /memory, /cron, /gateway, an
   const skills = executeCliInput('/skills', baseCtx);
   assert.equal(skills.type, 'handled');
   if (skills.type === 'handled') {
-    assert.match(skills.output, /duet-bridge/);
-    assert.match(skills.output, /mcp__duet__/);
+    assert.match(skills.output, /hermes-memory/);
+    assert.match(skills.output, /~\/\.hermes\/skills/);
   }
 
   const mem = executeCliInput('/memory', baseCtx);
@@ -109,10 +109,11 @@ test('executeCliInput handles Hermes Agent /skills, /memory, /cron, /gateway, an
   const gw = executeCliInput('/gateway', baseCtx);
   assert.equal(gw.type, 'handled');
   if (gw.type === 'handled') {
-    assert.match(gw.output, /\/v1\/runs/);
+    assert.match(gw.output, /\/v1\/chat\/completions/);
+    assert.match(gw.output, /X-Hermes-Session-Key/);
   }
 
-  const resume = executeCliInput('/resume duet-ops', baseCtx);
+  const resume = executeCliInput('/resume hermes-ops', baseCtx);
   assert.equal(resume.type, 'handled');
   if (resume.type === 'handled') {
     assert.equal(resume.switchChannel, 'ops');

@@ -7,7 +7,7 @@ import type { BackgroundSettings } from './backgrounds/types';
 import { SidebarWorkspace } from './components/SidebarWorkspace';
 import { UiCustomizerStudio, type StudioTab } from './components/UiCustomizerStudio';
 import { VoiceWorkspacePane, type WorkspacePanelView } from './components/VoiceWorkspacePane';
-import { useDuet, duetItemToEntry } from './hooks/useDuet';
+import { useHermesAgent, hermesItemToEntry } from './hooks/useHermesAgent';
 import { useVoiceAgent } from './hooks/useVoiceAgent';
 import type {
   ApprovalCard,
@@ -16,7 +16,6 @@ import type {
   Channel,
   ChannelId,
   ExpressionMood,
-  HermesGatewayStatus,
   TerminalEntry,
 } from './types/hermes';
 import type { BrailleShapeKind, BrailleShapeTint } from './utils/brailleShapesEngine';
@@ -91,7 +90,7 @@ function buildLocalFallbackReply(
     };
   }
   return {
-    reply: `Hermes link active. Received: "${prompt}". Use /brief, /tasks, or /approve to drive your Duet lanes.`,
+    reply: `Hermes Agent active. Received: "${prompt}". Use /brief, /tasks, /skills, or /approve to drive your lanes.`,
     mood: 'happy',
   };
 }
@@ -139,13 +138,12 @@ export default function App() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [threadVisitNonce, setThreadVisitNonce] = useState(0);
   const [animateSpeechLine, setAnimateSpeechLine] = useState(false);
-  const [gatewayStatus, setGatewayStatus] = useState<HermesGatewayStatus | null>(null);
 
   const [thinkingByChannel, setThinkingByChannel] = useState<Record<string, boolean>>({});
   const [speakingChannel, setSpeakingChannel] = useState<ChannelId | null>(null);
   const [lastSpokenByChannel, setLastSpokenByChannel] = useState<Record<string, string>>({});
   const [lastSpokenLine, setLastSpokenLineState] = useState<string>(
-    'Linking to Hermes Duet…'
+    'Connecting to Hermes Agent…'
   );
 
   const [entries, setEntries] = useState<TerminalEntry[]>([]);
@@ -233,6 +231,7 @@ export default function App() {
           ...entry,
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           timestamp: nowTime(),
+          createdAtMs: Date.now(),
         },
       ]);
     },
@@ -369,8 +368,8 @@ export default function App() {
     };
   }, [applyAgentUiPatch]);
 
-  // The real engine: live Duet state, runs, approvals, and SSE updates.
-  const duet = useDuet({
+  // Live Hermes Agent gateway state, streaming runs, approvals, and SSE updates.
+  const hermes = useHermesAgent({
     upsertEntry,
     patchEntryText,
     onUiPatch: (patch) => {
@@ -396,25 +395,30 @@ export default function App() {
     },
   });
   const {
-    connected: duetConnected,
-    linked: duetLinked,
-    sendMessage: duetSendMessage,
+    connected: hermesConnected,
+    gatewayStatus,
+    refreshGateway,
+    skills,
+    memory,
+    cronJobs,
+    sendMessage: hermesSendMessage,
+    abortRun,
     createHermesSession,
     loadChannelHistory,
     resetHermesSession,
     deleteHermesSession,
-    actOnCard: duetActOnCard,
-    confirmTask: duetConfirmTask,
-    reopenTask: duetReopenTask,
-    cancelTask: duetCancelTask,
-    steerTask: duetSteerTask,
-  } = duet;
+    actOnCard: hermesActOnCard,
+    confirmTask: hermesConfirmTask,
+    reopenTask: hermesReopenTask,
+    cancelTask: hermesCancelTask,
+    steerTask: hermesSteerTask,
+  } = hermes;
 
   useEffect(() => {
-    if (!duetConnected || !activeChannel) return;
+    if (!hermesConnected || !activeChannel) return;
     if (homeSessionDraft && panelView === 'home') return;
     void loadChannelHistory(activeChannel);
-  }, [duetConnected, activeChannel, homeSessionDraft, panelView, loadChannelHistory]);
+  }, [hermesConnected, activeChannel, homeSessionDraft, panelView, loadChannelHistory]);
 
   // Persist Braille Canvas sessions locally
   useEffect(() => {
@@ -425,17 +429,16 @@ export default function App() {
     }
   }, [canvasSessions]);
 
-  // Sync any local custom canvas sessions to the server hermes-agent registry on link.
-  // Seeded core dots are skipped while linked: they become real Duet lanes lazily
-  // on first message instead of mass-creating channels at link time.
+  // Sync any custom canvas sessions to the server hermes-agent registry.
+  // Seeded core shapes register lazily on first message.
   const syncedSessionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!duetConnected) return;
+    if (!hermesConnected) return;
     for (const cs of canvasSessions) {
-      if (duetLinked && cs.isCore !== false) continue;
+      if (cs.isCore !== false) continue;
       if (syncedSessionsRef.current.has(cs.channelId)) continue;
       syncedSessionsRef.current.add(cs.channelId);
-      if (!duet.sessions.some((s) => s.channelId === cs.channelId)) {
+      if (!hermes.sessions.some((s) => s.channelId === cs.channelId)) {
         void createHermesSession({
           channelId: cs.channelId,
           name: cs.name,
@@ -445,11 +448,11 @@ export default function App() {
         }).catch(() => {});
       }
     }
-  }, [duetConnected, duetLinked, canvasSessions, duet.sessions, createHermesSession]);
+  }, [hermesConnected, canvasSessions, hermes.sessions, createHermesSession]);
 
-  // Mirror Duet state locally + merge custom canvas sessions so new Braille sessions act as real lanes.
+  // Mirror Hermes Agent state locally + merge custom canvas sessions so new Braille shapes act as real lanes.
   useEffect(() => {
-    const baseChannels = duet.channels.length > 0 ? duet.channels : INITIAL_CHANNELS;
+    const baseChannels = hermes.channels.length > 0 ? hermes.channels : INITIAL_CHANNELS;
     const merged: Channel[] = [...baseChannels];
     for (const cs of canvasSessions) {
       if (!merged.some((c) => c.id === cs.channelId)) {
@@ -467,28 +470,28 @@ export default function App() {
     if (merged.length > 0) {
       setActiveChannel((prev) => (merged.some((c) => c.id === prev) ? prev : merged[0].id));
     }
-  }, [duet.channels, canvasSessions]);
-  useEffect(() => setApprovals(duet.approvals), [duet.approvals]);
-  useEffect(() => setTasks(duet.tasks), [duet.tasks]);
-  useEffect(() => setBrief(duet.brief), [duet.brief]);
+  }, [hermes.channels, canvasSessions]);
+  useEffect(() => setApprovals(hermes.approvals), [hermes.approvals]);
+  useEffect(() => setTasks(hermes.tasks), [hermes.tasks]);
+  useEffect(() => setBrief(hermes.brief), [hermes.brief]);
 
   useEffect(() => {
-    if (!duetConnected) return;
+    if (!hermesConnected) return;
     upsertEntry({
-      id: 'duet-link',
+      id: 'hermes-link',
       channelId: 'general',
       role: 'system',
       source: 'ui',
-      text: 'HERMES DUET LINK ACTIVE // isolated hermes-agent sessions & approval gates wired.',
+      text: 'HERMES AGENT LINK ACTIVE // isolated sessions & streaming tool trace ready.',
       timestamp: nowTime(),
     });
-  }, [duetConnected, upsertEntry]);
+  }, [hermesConnected, upsertEntry]);
 
   useEffect(() => {
     if (homeSessionDraft && panelView === 'home') {
       setLastSpokenLineState(
-        duet.initialLoading
-          ? 'Linking to Hermes Duet…'
+        hermes.initialLoading
+          ? 'Connecting to Hermes Agent…'
           : 'New Hermes Agent session ready — type or speak a prompt to begin.'
       );
       return;
@@ -501,7 +504,7 @@ export default function App() {
       setLastSpokenLineState(cached);
     } else if (scopedLatest) {
       setLastSpokenLineState(scopedLatest.text.slice(0, 140));
-    } else if (!duet.initialLoading) {
+    } else if (!hermes.initialLoading) {
       const cs = canvasSessions.find((s) => s.channelId === activeChannel);
       if (cs) {
         setLastSpokenLineState(`${cs.hermesSessionId} ready · ${cs.topic}`);
@@ -512,7 +515,7 @@ export default function App() {
     entries,
     lastSpokenByChannel,
     canvasSessions,
-    duet.initialLoading,
+    hermes.initialLoading,
     homeSessionDraft,
     panelView,
   ]);
@@ -533,21 +536,6 @@ export default function App() {
       }
       return !v;
     });
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/hermes/gateway')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: HermesGatewayStatus | null) => {
-        if (active && data) setGatewayStatus(data);
-      })
-      .catch(() => {
-        // Standalone fallback remains active cleanly
-      });
-    return () => {
-      active = false;
-    };
   }, []);
 
   const handleApproveCard = useCallback(
@@ -572,7 +560,7 @@ export default function App() {
         )
       );
       if (approvedTitle) {
-        void duetActOnCard(id, 'approve', editedDraft).catch(() => {});
+        void hermesActOnCard(id, 'approve', editedDraft).catch(() => {});
 
         const msg = `Approved ${approvedTitle}. Resuming Hermes run with updated payload.`;
         setMood('happy');
@@ -587,7 +575,7 @@ export default function App() {
         voiceRef.current?.speakText(msg, 'happy');
       }
     },
-    [appendEntry, updateSpokenLine, duetActOnCard]
+    [appendEntry, updateSpokenLine, hermesActOnCard]
   );
 
   const handleRejectCard = useCallback(
@@ -603,9 +591,9 @@ export default function App() {
         })
       );
       if (rejectedTitle) {
-        void duetActOnCard(id, 'decline').catch(() => {});
+        void hermesActOnCard(id, 'decline').catch(() => {});
 
-        const msg = `Held ${rejectedTitle}. No outbound MCP action was sent.`;
+        const msg = `Held ${rejectedTitle}. No outbound tool action was sent.`;
         setMood('neutral');
         updateSpokenLine(msg);
         appendEntry({
@@ -618,7 +606,7 @@ export default function App() {
         voiceRef.current?.speakText(msg, 'neutral');
       }
     },
-    [appendEntry, updateSpokenLine, duetActOnCard]
+    [appendEntry, updateSpokenLine, hermesActOnCard]
   );
 
   const handleStartNewHomeSession = useCallback(() => {
@@ -656,9 +644,9 @@ export default function App() {
         setMood('thinking');
       }
 
-      if (duetConnected) {
+      if (hermesConnected) {
         try {
-          const { item } = await duetSendMessage(promptText, ch, {
+          const { item } = await hermesSendMessage(promptText, ch, {
             name: targetName,
             topic: targetTopic,
             sessionId: targetHermesSessionId,
@@ -669,7 +657,7 @@ export default function App() {
             if (item.ui_patch) {
               applyAgentUiPatch(item.ui_patch, 'hermes');
             }
-            const entry = duetItemToEntry(item);
+            const entry = hermesItemToEntry(item);
             if (entry) upsertEntry(entry);
           }
           return;
@@ -806,8 +794,8 @@ export default function App() {
     [
       appendEntry,
       applyAgentUiPatch,
-      duetConnected,
-      duetSendMessage,
+      hermesConnected,
+      hermesSendMessage,
       setChannelThinking,
       updateSpokenLine,
       upsertEntry,
@@ -867,7 +855,7 @@ export default function App() {
       let finalChannelId = derived.slug;
       let finalSessionId = derived.hermesSessionId;
 
-      if (duetConnected) {
+      if (hermesConnected) {
         try {
           const created = await createHermesSession({
             channelId: derived.slug,
@@ -882,9 +870,8 @@ export default function App() {
             finalChannelId = created.resolvedChannelId;
             syncedSessionsRef.current.add(finalChannelId);
           }
-          if (created.upstream_session_id || created.session?.sessionId) {
-            finalSessionId =
-              created.upstream_session_id || created.session?.sessionId || finalSessionId;
+          if (created.session?.sessionId) {
+            finalSessionId = created.session.sessionId;
           }
           if (finalChannelId !== derived.slug || finalSessionId !== derived.hermesSessionId) {
             setCanvasSessions((prev) =>
@@ -913,7 +900,7 @@ export default function App() {
             }
           }
         } catch {
-          // Proceed with local slug; duetSendMessage will retry or fall back cleanly
+          // Proceed with local slug; hermesSendMessage will retry or fall back cleanly
         }
       } else {
         appendEntry({
@@ -934,13 +921,13 @@ export default function App() {
           sessionId: finalSessionId,
           persona: derived.persona,
         },
-        duetConnected
+        hermesConnected
       );
     },
     [
       appendEntry,
       createHermesSession,
-      duetConnected,
+      hermesConnected,
       sendDirectChannelPrompt,
       setChannelThinking,
     ]
@@ -972,8 +959,8 @@ export default function App() {
         return;
       }
 
-      if (!isCommandInput && duetConnected) {
-        // No local echo on the Duet path: the real item (POST response or SSE)
+      if (!isCommandInput && hermesConnected) {
+        // No local echo on the live SSE path: the real item (POST response or SSE)
         // is the single display copy, so transcript order stays chronological.
       } else {
         appendEntry({
@@ -991,8 +978,12 @@ export default function App() {
         tasks: taskList,
         brief: briefList,
         isMuted: voiceRef.current?.isMuted ?? false,
+        skills,
+        memory,
+        cronJobs,
         gatewayConnected: gatewayStatus?.connected,
         gatewayUrl: gatewayStatus?.gatewayUrl,
+        activeModel: gatewayStatus?.activeModel,
       });
 
       if (result.type === 'handled') {
@@ -1065,12 +1056,15 @@ export default function App() {
     [
       appendEntry,
       applyAgentUiPatch,
-      duetConnected,
+      cronJobs,
       gatewayStatus,
       handleApproveCard,
       handleRejectCard,
       handleStartNewHomeSession,
+      hermesConnected,
+      memory,
       sendDirectChannelPrompt,
+      skills,
       startHomeSessionAndSend,
       updateSpokenLine,
     ]
@@ -1143,11 +1137,11 @@ export default function App() {
             : t
         )
       );
-      if (duetConnected) {
-        void duetConfirmTask(id).catch(() => {});
+      if (hermesConnected) {
+        void hermesConfirmTask(id).catch(() => {});
       }
     },
-    [duetConfirmTask, duetConnected]
+    [hermesConfirmTask, hermesConnected]
   );
 
   const handleReopenTask = useCallback(
@@ -1167,11 +1161,11 @@ export default function App() {
             : t
         )
       );
-      if (duetConnected) {
-        void duetReopenTask(id).catch(() => {});
+      if (hermesConnected) {
+        void hermesReopenTask(id).catch(() => {});
       }
     },
-    [duetConnected, duetReopenTask]
+    [hermesConnected, hermesReopenTask]
   );
 
   const handleCancelTask = useCallback(
@@ -1191,11 +1185,11 @@ export default function App() {
             : t
         )
       );
-      if (duetConnected) {
-        void duetCancelTask(id).catch(() => {});
+      if (hermesConnected) {
+        void hermesCancelTask(id).catch(() => {});
       }
     },
-    [duetCancelTask, duetConnected]
+    [hermesCancelTask, hermesConnected]
   );
 
   const handleSteerTask = useCallback(
@@ -1218,11 +1212,11 @@ export default function App() {
           };
         })
       );
-      if (duetConnected) {
-        await duetSteerTask(id, clean).catch(() => {});
+      if (hermesConnected) {
+        await hermesSteerTask(id, clean).catch(() => {});
       }
     },
-    [duetConnected, duetSteerTask]
+    [hermesConnected, hermesSteerTask]
   );
 
   const handleRunBriefCommand = useCallback(
@@ -1243,7 +1237,7 @@ export default function App() {
         setPanelView((prev) => (prev === 'cli' ? 'cli' : 'voice'));
         setThreadVisitNonce((n) => n + 1);
       }
-      if (duetConnected) {
+      if (hermesConnected) {
         void loadChannelHistory(id);
       }
       const label = `Tuned active Hermes lane to #${id}.`;
@@ -1257,7 +1251,7 @@ export default function App() {
         });
       }
     },
-    [appendEntry, duetConnected, loadChannelHistory]
+    [appendEntry, hermesConnected, loadChannelHistory]
   );
 
   const handleResetCanvasSession = useCallback(
@@ -1270,7 +1264,7 @@ export default function App() {
       const greeting = `Fresh context opened for ${sid} (#${channelId}). Prior messages in this shape were cleared.`;
       updateSpokenLine(greeting, channelId);
 
-      if (duetConnected) {
+      if (hermesConnected) {
         try {
           await resetHermesSession(channelId);
           return;
@@ -1286,7 +1280,7 @@ export default function App() {
         text: greeting,
       });
     },
-    [appendEntry, duetConnected, resetHermesSession, setChannelThinking, updateSpokenLine]
+    [appendEntry, hermesConnected, resetHermesSession, setChannelThinking, updateSpokenLine]
   );
 
   const handleNewTask = useCallback(() => {
@@ -1357,7 +1351,7 @@ export default function App() {
       const msg = `Isolated session ${hermesSessionId} online (#${slug}). ${payload.topic}`;
       updateSpokenLine(msg, slug);
 
-      if (duetConnected) {
+      if (hermesConnected) {
         void createHermesSession({
           channelId: slug,
           name: slug,
@@ -1383,7 +1377,7 @@ export default function App() {
         });
       }
     },
-    [appendEntry, createHermesSession, duetConnected, updateSpokenLine]
+    [appendEntry, createHermesSession, hermesConnected, updateSpokenLine]
   );
 
   const handleAutoArrangeCanvas = useCallback(() => {
@@ -1421,12 +1415,12 @@ export default function App() {
       });
       if (target) {
         setEntries((prev) => prev.filter((e) => e.channelId !== target.channelId));
-        if (duetConnected) {
+        if (hermesConnected) {
           void deleteHermesSession(target.channelId).catch(() => {});
         }
       }
     },
-    [deleteHermesSession, duetConnected]
+    [deleteHermesSession, hermesConnected]
   );
 
   const handleOpenSessionThread = useCallback(
@@ -1437,11 +1431,11 @@ export default function App() {
       setPanelView('voice');
       setThreadVisitNonce((n) => n + 1);
       setMobileSidebarOpen(false);
-      if (duetConnected) {
+      if (hermesConnected) {
         void loadChannelHistory(session.channelId);
       }
     },
-    [duetConnected, loadChannelHistory]
+    [hermesConnected, loadChannelHistory]
   );
 
   const rootDensityPadding =
@@ -1563,6 +1557,10 @@ export default function App() {
             brief={brief}
             tasks={tasks}
             gatewayStatus={gatewayStatus}
+            onRefreshGateway={refreshGateway}
+            skills={skills}
+            memory={memory}
+            cronJobs={cronJobs}
             onApproveCard={handleApproveCard}
             onRejectCard={handleRejectCard}
             onRunBriefCommand={handleRunBriefCommand}
@@ -1577,6 +1575,7 @@ export default function App() {
               const current = chatAbortsRef.current.get(activeChannel);
               chatAbortsRef.current.delete(activeChannel);
               current?.abort();
+              void abortRun(activeChannel);
               setChannelThinking(activeChannel, false);
               setSpeakingChannel(null);
               voice.stopSpeaking();
@@ -1588,7 +1587,7 @@ export default function App() {
             showThinking={showThinking}
             onToggleThinking={handleToggleThinking}
             canvasSessions={canvasSessions}
-            hermesSessions={duet.sessions}
+            hermesSessions={hermes.sessions}
             thinkingByChannel={thinkingByChannel}
             speakingChannel={voice.voiceState.isSpeaking ? speakingChannel : null}
             onSelectCanvasSession={handleSelectCanvasSession}

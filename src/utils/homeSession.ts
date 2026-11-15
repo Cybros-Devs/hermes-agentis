@@ -121,7 +121,7 @@ export function pickNextShapeAndTint(
 
 /**
  * Returns true when submitting `rawText` on Home should spawn a brand-new
- * isolated hermes-agent + hermes-duet session before routing the prompt.
+ * isolated hermes-agent session before routing the prompt.
  */
 export function shouldStartNewHomeSession(params: {
   homeSessionDraft: boolean;
@@ -137,10 +137,9 @@ export function shouldStartNewHomeSession(params: {
 }
 
 /**
- * Normalizes a Duet server channel id (e.g. "chan-general" or an opaque channel
- * id mapped via `aliases`) into the canonical local slug used by UI lanes.
+ * Normalizes a Hermes channel/lane id into the canonical local slug used by UI lanes.
  */
-export function normalizeDuetChannelId(
+export function normalizeChannelId(
   rawId?: string | null,
   aliases?: ReadonlyMap<string, string>
 ): ChannelId {
@@ -149,13 +148,18 @@ export function normalizeDuetChannelId(
     const exact = aliases.get(input) ?? aliases.get(input.toLowerCase());
     if (exact) return exact;
   }
-  const stripped = input.replace(/^chan-/i, '').trim().toLowerCase();
+  const stripped = input
+    .replace(/^(chan|hermes|duet)-/i, '')
+    .trim()
+    .toLowerCase();
   if (stripped && aliases) {
     const viaStripped = aliases.get(stripped);
     if (viaStripped) return viaStripped;
   }
   return stripped || 'general';
 }
+
+export const normalizeDuetChannelId = normalizeChannelId;
 
 const TERMINAL_ACTIVITY_STATUSES = new Set([
   'done',
@@ -169,7 +173,7 @@ const TERMINAL_ACTIVITY_STATUSES = new Set([
 ]);
 
 /**
- * Detects whether an incoming Duet SSE/snapshot item marks a turn as settled so
+ * Detects whether an incoming SSE/snapshot item marks a turn as settled so
  * channel thinking state never remains stuck at "Working · 0s".
  */
 export function isTerminalSettledItem(item: {
@@ -187,8 +191,7 @@ export function isTerminalSettledItem(item: {
 }
 
 /**
- * Guarantees a fresh unique slug that does not collide with any existing local
- * or upstream Duet channel slug.
+ * Guarantees a fresh unique slug that does not collide with any existing session slug.
  */
 export function buildUniqueSlugForFreshChannel(
   desiredSlug: string,

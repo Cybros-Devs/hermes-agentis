@@ -499,7 +499,7 @@ export function ThreadTaskBanner({
               );
             })}
 
-            {/* Completed / Finished Tasks with Hermes Duet Confirmation Semantics */}
+            {/* Completed / Finished Tasks with Operator Confirmation Semantics */}
             {partition.completed.map((task) => {
               const breakdown = resolveTaskStepBreakdown(task);
               const statusDisplay = getTaskStatusDisplay(task);
@@ -576,7 +576,7 @@ export function ThreadTaskBanner({
                       </button>
                     </div>
 
-                    {/* Hermes Duet agent_done_at vs confirmed_at review bar */}
+                    {/* Agent Done vs Operator Confirmed review bar */}
                     {confirmState !== 'open' && (
                       <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/6">
                         <span

@@ -53,8 +53,8 @@ export interface ApprovalCard {
   id: string;
   channelId: ChannelId;
   title: string;
-  actionType: 'send_message' | 'payment' | 'deploy' | 'calendar';
-  mcpTool?: 'mcp__duet__request_approval' | 'mcp__duet__request_payment';
+  actionType: 'send_message' | 'payment' | 'deploy' | 'calendar' | 'tool';
+  mcpTool?: string;
   runId?: string;
   destination: string;
   summary: string;
@@ -110,7 +110,7 @@ export interface HermesSkill {
 
 export interface HermesMemoryItem {
   key: string;
-  scope: 'host' | 'duet' | 'preference';
+  scope: 'host' | 'session' | 'preference';
   value: string;
 }
 
@@ -124,12 +124,16 @@ export interface HermesCronJob {
 
 export interface HermesGatewayStatus {
   connected: boolean;
-  mode: 'hermes-gateway' | 'standalone-duet';
+  mode: 'hermes-gateway' | 'local-standby';
   gatewayUrl: string;
   profile: string;
-  mcpBridge: string;
+  activeModel: string;
+  models: string[];
+  sessionHeader: string;
   skillsCount: number;
   toolsets: string[];
+  hermesHomeFound?: boolean;
+  error?: string;
 }
 
 export interface TerminalEntry {
@@ -141,7 +145,8 @@ export interface TerminalEntry {
   timestamp: string;
   mood?: ExpressionMood;
   commandUsed?: string;
-  /** Epoch ms from the Duet server; used to keep real items chronologically ordered. */
+  streaming?: boolean;
+  /** Epoch ms from the Hermes server; used to keep items chronologically ordered. */
   createdAtMs?: number;
 }
 

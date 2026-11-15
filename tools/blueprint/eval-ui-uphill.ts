@@ -153,7 +153,7 @@ function runAudit(captureDir: string | null, prefix = ''): UiUphillReport['detai
     {
       id: 'Queue',
       clickCode: `await page.getByRole('button', { name: /^Queue/ }).first().click({ force: true, timeout: 8000 });`,
-      waitSel: '[data-testid="duet-operations-panel"]',
+      waitSel: '[data-testid="hermes-operations-panel"]',
       shotName: 'queue.png',
     },
     {

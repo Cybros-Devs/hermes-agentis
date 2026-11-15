@@ -141,7 +141,7 @@ export function SidebarWorkspace({
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[13px] font-semibold text-white shrink-0">Hermes Duet</span>
+              <span className="text-[13px] font-semibold text-white shrink-0">Hermes Agent</span>
               <span
                 data-testid="sidebar-active-lane"
                 className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[#6EE7B7] tabular-nums truncate min-w-0 text-right"
