@@ -10,12 +10,12 @@ A cyberpunk voice-activated phone widget and interactive command-line interface
 for [Hermes Duet](https://github.com/DevvGwardo/hermes-duet) — with a real-time,
 audio-synced, animated ASCII character as your call screen.
 
-[![bun](https://img.shields.io/badge/bun-runtime-0e0e0e?style=flat-square)](https://bun.sh)
-[![React 19](https://img.shields.io/badge/React-19-22D3EE?style=flat-square)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-7-ffd700?style=flat-square&labelColor=0e0e0e)](https://www.typescriptlang.org)
-[![Vite 8](https://img.shields.io/badge/Vite-8-0e0e0e?style=flat-square)](https://vite.dev)
-[![Tailwind 4](https://img.shields.io/badge/Tailwind-4-0e0e0e?style=flat-square)](https://tailwindcss.com)
-[![tests](https://img.shields.io/badge/engines-11%2F11%20tested-ffd700?style=flat-square&labelColor=0e0e0e)](#the-engine-bay)
+[![bun](https://img.shields.io/badge/bun-runtime-050C0A?style=flat-square)](https://bun.sh)
+[![React 19](https://img.shields.io/badge/React-19-A7F3D0?style=flat-square)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7-34D399?style=flat-square&labelColor=050C0A)](https://www.typescriptlang.org)
+[![Vite 8](https://img.shields.io/badge/Vite-8-050C0A?style=flat-square)](https://vite.dev)
+[![Tailwind 4](https://img.shields.io/badge/Tailwind-4-050C0A?style=flat-square)](https://tailwindcss.com)
+[![tests](https://img.shields.io/badge/engines-14%2F14%20tested-34D399?style=flat-square&labelColor=050C0A)](#the-engine-bay)
 
 *Repo: `hermes-agentis` · Brand kit: [`branding/`](branding/)*
 
@@ -43,9 +43,11 @@ Two surfaces ship in one app:
 
 **The character**
 
-A face built entirely from character cells — the same 2×3 Braille dot grid the logo is made
-of. It reacts to the voice waveform in real time via the Web Audio `AnalyserNode`, mouth
-movements derived from audio amplitude, sprite-based portrait animation for expression.
+She's the project's own character: a retro-shojo manga ink portrait — black bob with
+outward-curled ends, blunt bangs, white headband, choker — with a 12-frame sprite
+sheet. The portrait engine renders her live as a Braille dot-matrix dither, mouth,
+blinks and head motion synced to the Web Audio `AnalyserNode` amplitude of the
+TTS voice.
 
 `Voice in. Character out.` — the pipeline is the product.
 
@@ -81,7 +83,7 @@ Wiring — all real, no placeholders:
 
 ## The engine bay
 
-Eleven engines under `src/utils/` — every single one carries a `.test.ts`. Run them: `bun test`.
+Fourteen engines under `src/utils/` — every single one carries a `.test.ts`. Run them: `bun test`.
 
 | Engine | What it does |
 |---|---|
@@ -89,11 +91,14 @@ Eleven engines under `src/utils/` — every single one carries a `.test.ts`. Run
 | `ascii3dEngine` | 3D character-cell viewport |
 | `asciiCharacter` | sprite animation |
 | `brailleFieldEngine` | dot-cell field |
+| `brailleIdleLoops` | ambient idle motion loops |
 | `brailleShapesEngine` | session shapes |
 | `portraitLoadingEngine` | character loading state |
 | `textDecodeEngine` | decoded agent text |
 | `canvasSessions` | sessions as canvas nodes |
 | `cliEngine` | the command terminal |
+| `homeSession` | home session state |
+| `threadScroll` | message scroll anchoring |
 | `threadTrace` | agent thinking trace |
 | `uiCustomization` | natural-language UI control |
 
@@ -174,8 +179,9 @@ branding/        the Voxcell brand kit (mark, wordmark, art, infographics)
 ## Branding
 
 The name is **Voxcell** — vox (voice) + cell (the character cell it animates).
-The mark is the Braille character `⠧` (dots 1·2·3·6 — the V of Voxcell) in a bordered
-panel. One neon accent, hard shadows, no glow: cyberpunk-terminal meets the Hermes house style.
+The mark is the Braille character `⠧` (dots 1·2·3·6 — the V of Voxcell) in a bordered panel.
+The face is the project's own character: a retro-shojo manga portrait rendered live as a
+Braille dither. One accent (emerald), hard shadows, no glow — the app's own palette, top to bottom.
 
 <table>
 <tr>
