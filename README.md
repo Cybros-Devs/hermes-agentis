@@ -81,6 +81,11 @@ Wiring — all real, no placeholders:
 - **Hermes gateway** `127.0.0.1:8642` — agent chat, model `hermes-agent`
 - **This server** pairs itself as a Duet device (pair-code → `/api/pair` → device cookie) on first run
 
+<p align="center">
+<img src="branding/infographic.jpg" alt="Voxcell — product and architecture overview infographic" width="880" />
+<br /><em>The whole repo in one image — identity, pipeline, components, engines, wiring, stats.</em>
+</p>
+
 ## The engine bay
 
 Fourteen engines under `src/utils/` — every single one carries a `.test.ts`. Run them: `bun test`.
@@ -104,6 +109,10 @@ Fourteen engines under `src/utils/` — every single one carries a `.test.ts`. R
 
 ## Features
 
+<table>
+<tr>
+<td width="55%">
+
 - 🎙 **Voice activation** — browser `SpeechRecognition`, always-listening phone experience
 - 📞 **Phone video widget** — the character on a call-style screen
 - ⌨️ **Command terminal** — `/skills`, `/memory`, `/cron`, `/resume`, session control, approvals
@@ -112,6 +121,20 @@ Fourteen engines under `src/utils/` — every single one carries a `.test.ts`. R
 - 🌫 **Glass background system** — 7 ambient presets, motion-bounded, reduced-motion safe
 - 👋 **Guided onboarding** — the character itself hosts the first-run tour
 - 🧪 **Blueprint harness** — reproducible frame capture and before/after animation diffs (`tools/blueprint/`)
+
+</td>
+<td width="45%" align="center">
+
+<img src="branding/readme/phone.jpg" alt="The phone widget — the character on a call-style screen" width="380" />
+
+</td>
+</tr>
+</table>
+
+<p align="center">
+<img src="branding/readme/terminal.jpg" alt="The command terminal — the character beside a live session" width="880" />
+<br /><em>Two surfaces, one character: the phone widget above, the command terminal here.</em>
+</p>
 
 ## Quick start
 
@@ -167,7 +190,7 @@ First run pairs the app as a device with your Duet server automatically.
 src/
   components/    16 UI components — AsciiPortraitCanvas, PhoneVideoWidget,
                  CommandTerminal, ThreadTraceTree, UiCustomizerStudio, ...
-  utils/         11 engines + tests (the engine bay)
+  utils/         14 engines + tests (the engine bay)
   hooks/         useDuet, useVoiceAgent
   backgrounds/   glass background system
   onboarding/    guided tour, hosted by the character

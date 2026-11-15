@@ -20,7 +20,7 @@ Style: retro-shojo ink meets the terminal. Abyss green `#050C0A` field, panels `
 | `infographic.jpg` | dense-modules × bold-graphic product overview, 16:9, the character, project palette (generated via agy) |
 | `infographic-b.png` | periodic-table × cyberpunk-neon — 11 engines as of v2.0, kept as process record (repo now ships 14); SVG render: `generate-infographic-b.py` |
 | `analysis.md`, `structured-content.md`, `prompts/*.md`, `source.md` | Infographic process files (baoyu-infographic skill) + verified source facts |
-| `readme/` | README art set — `hero.jpg` (16:9), `character.jpg` (square), `phone.jpg` (16:9), all generated via agy; prompts in `prompts/readme-*.md` |
+| `readme/` | README art set — `hero.jpg`, `character.jpg`, `phone.jpg`, `terminal.jpg` (16:9/square), all generated via agy; prompts in `prompts/readme-*.md` |
 | `v1/` | The complete v1.0 kit, archived (name: "Hermes Duet // Cyber Comms") |
 
 ## Committed choices
@@ -35,5 +35,5 @@ Style: retro-shojo ink meets the terminal. Abyss green `#050C0A` field, panels `
 
 - `infographic.jpg` (v2.0, superseded): title, tagline, all 6 stats, ports, and the 11-engine list verified correct; one component label was garbled ("Ascii3DViewpozit" for Ascii3DViewport) and one label clipped at the frame edge — inherent drift of image-model text rendering. The v2.1 character-based regeneration is queued (see below).
 - `infographic-b.png`: agy's image model timed out four times on this layout (full-detail and lean prompts; only low-res partials), so it is rendered programmatically from SVG (`generate-infographic-b.py`, resvg + Consolas) — pixel-exact engine names, exact palette, vision-verified defect-free. The lean prompt is kept at `prompts/infographic-b-lean.md` as process record.
-- `readme/hero.jpg`, `readme/character.jpg`, `readme/phone.jpg`, `branding/avatar.jpg`, `branding/banner.jpg` (v2.1, the character): vision-verified — same likeness across all five (retro-shojo ink, black curled bob, blunt bangs, headband, choker), project palette, no text or watermarks, no glow (phone: one faint monochrome vignette, within drift tolerance).
+- `readme/hero.jpg`, `readme/character.jpg`, `readme/phone.jpg`, `readme/terminal.jpg`, `branding/avatar.jpg`, `branding/banner.jpg` (v2.1, the character): vision-verified — same likeness across all six (retro-shojo ink, black curled bob, blunt bangs, headband, choker), project palette, no legible text or watermarks, no glow (phone: one faint monochrome vignette, within drift tolerance).
 - `infographic.jpg` (v2.1, the character): title, subtitle, all six module headers, all stats (142 FILES · 27,143 LOC · 16 COMPONENTS · 14 ENGINES · 2 HOOKS · 1 CHARACTER), ports, and all 14 engine names verified correct; character present in MOD-1 and MOD-6. Known drift, ships as-is per policy: one component typo ("PhoneVideoMidget" for PhoneVideoWidget), "real-time" duplicated in MOD-1, one sub-label repeated from ANALYSER into RENDER, one garbled footer decoration, and an invented "SYS: 1.0.4" metadata chrome line.
