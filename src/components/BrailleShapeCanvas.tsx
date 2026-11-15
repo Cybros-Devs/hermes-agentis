@@ -15,6 +15,7 @@ import {
 import {
   createRasterSurface,
   rasterizeTonalDotBucketsToSurface,
+  type BrailleDotProfile,
   type TonalDotBucketSpec,
 } from '../utils/brailleCanvasRaster';
 
@@ -52,6 +53,8 @@ interface BrailleShapeCanvasProps {
   isHovered?: boolean;
   speedScale?: number;
   reducedMotionOverride?: boolean;
+  dotProfile?: BrailleDotProfile;
+  bloom?: number;
   variant?: 'creature' | 'preview';
   blinkPhaseOffset?: number;
   gazeRef?: RefObject<{ clientX: number; clientY: number } | null>;
@@ -83,6 +86,8 @@ export function BrailleShapeCanvas({
   isHovered = false,
   speedScale = 1,
   reducedMotionOverride = false,
+  dotProfile = 'balanced',
+  bloom = 0.75,
   variant = 'creature',
   blinkPhaseOffset = 0,
   gazeRef,
@@ -105,6 +110,8 @@ export function BrailleShapeCanvas({
     isHovered,
     speedScale,
     reducedMotionOverride,
+    dotProfile,
+    bloom,
     blinkPhaseOffset,
     gazeRef,
   });
@@ -122,6 +129,8 @@ export function BrailleShapeCanvas({
     isHovered,
     speedScale,
     reducedMotionOverride,
+    dotProfile,
+    bloom,
     blinkPhaseOffset,
     gazeRef,
   };
@@ -376,7 +385,10 @@ export function BrailleShapeCanvas({
       buckets[4].hex = palette.high;
       buckets[4].alpha = 0.99;
 
-      rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter);
+      rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {
+        dotProfile: s.dotProfile,
+        bloom: isPreview ? Math.min(0.4, s.bloom * 0.45) : s.bloom,
+      });
       ctx.putImageData(surface.imageData, 0, 0);
     };
 
@@ -401,7 +413,7 @@ export function BrailleShapeCanvas({
       if (isReduced) {
         const reducedKey = `${s.shape}|${s.tint}|${s.mood}|${s.eyeStyle}|${s.viseme}|${Math.round(
           s.energy * 100
-        )}|${s.isSpeaking}|${s.isThinking}|${s.isDragging}|${s.isHovered}`;
+        )}|${s.isSpeaking}|${s.isThinking}|${s.isDragging}|${s.isHovered}|${s.dotProfile}|${s.bloom.toFixed(2)}`;
         if (reducedKey !== lastReducedKey) {
           lastReducedKey = reducedKey;
           drawFrame(now);

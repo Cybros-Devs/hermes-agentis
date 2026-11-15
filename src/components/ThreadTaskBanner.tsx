@@ -20,9 +20,10 @@ import {
   getTaskKindLabel,
   getTaskStatusDisplay,
   partitionChannelTasks,
+  resolveTaskProgress,
   resolveTaskStepBreakdown,
 } from '../utils/taskInsights';
-import { AnimatedCollapsible, StatusPulse } from './ui';
+import { AnimatedCollapsible, StatusPulse, getStaggerVars } from './ui';
 
 interface ThreadTaskWidgetProps {
   activeChannel: ChannelId;
@@ -40,6 +41,107 @@ interface ThreadTaskWidgetProps {
   onSteerTask?: (id: string, text: string) => Promise<void> | void;
   onStopSpeaking?: () => void;
   variant?: 'thread-trigger' | 'mobile-trigger' | 'thread-inline';
+}
+
+interface TaskProgressTrackProps {
+  pct: number;
+  tone: 'amber' | 'emerald' | 'slate' | 'rose';
+  isRunning?: boolean;
+  isIndeterminate?: boolean;
+  stepCount?: number;
+  label: string;
+  compact?: boolean;
+  testId?: string;
+}
+
+function TaskProgressTrack({
+  pct,
+  tone,
+  isRunning = false,
+  isIndeterminate = false,
+  stepCount = 1,
+  label,
+  compact = false,
+  testId,
+}: TaskProgressTrackProps) {
+  const clampedPct = Math.max(0, Math.min(100, Math.round(pct)));
+  const fillGradient =
+    tone === 'amber'
+      ? isRunning
+        ? 'bg-gradient-to-r from-amber-500/80 via-amber-400 to-amber-300'
+        : 'bg-amber-300/75'
+      : tone === 'emerald'
+      ? 'bg-gradient-to-r from-[#10B981]/80 via-[#34D399] to-[#6EE7B7]'
+      : tone === 'rose'
+      ? 'bg-gradient-to-r from-rose-500/80 to-rose-400'
+      : 'bg-emerald-100/35';
+
+  const textTone =
+    tone === 'amber' && isRunning
+      ? 'text-amber-200'
+      : tone === 'emerald'
+      ? 'text-[#6EE7B7]'
+      : tone === 'rose'
+      ? 'text-rose-300'
+      : 'text-emerald-100/60';
+
+  const tickPositions =
+    !compact && !isIndeterminate && stepCount >= 2 && stepCount <= 12
+      ? Array.from({ length: stepCount - 1 }, (_, i) => ((i + 1) / stepCount) * 100)
+      : [];
+
+  return (
+    <div className="flex items-center gap-2.5">
+      <div
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={isIndeterminate ? undefined : clampedPct}
+        data-testid={testId}
+        className={`relative flex-1 rounded-full bg-white/[0.07] overflow-hidden ${
+          compact ? 'h-1.5' : 'h-2'
+        }`}
+      >
+        {isIndeterminate ? (
+          <div
+            className={`ui-progress-indeterminate h-full w-full rounded-full ${fillGradient}`}
+          />
+        ) : (
+          <div
+            className={`ui-progress-fill relative h-full w-full origin-left rounded-full overflow-hidden ${fillGradient}`}
+            style={{
+              transform: `scaleX(${clampedPct === 0 ? 0.015 : clampedPct / 100})`,
+            }}
+          >
+            {isRunning && clampedPct > 0 && clampedPct < 100 && (
+              <div
+                aria-hidden="true"
+                className="ui-progress-flow absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+              />
+            )}
+          </div>
+        )}
+
+        {tickPositions.map((leftPct, i) => (
+          <span
+            key={i}
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 w-px bg-[#050C0A]/65"
+            style={{ left: `${leftPct}%` }}
+          />
+        ))}
+      </div>
+
+      <span
+        className={`font-mono tabular-nums shrink-0 ${
+          compact ? 'text-[10.5px]' : 'text-[11.5px] font-medium'
+        } ${textTone}`}
+      >
+        {isIndeterminate ? 'Live' : `${clampedPct}%`}
+      </span>
+    </div>
+  );
 }
 
 export function ThreadTaskBanner({
@@ -92,6 +194,8 @@ export function ThreadTaskBanner({
 
   const totalCount = partition.all.length + (activeIsThinking && !hasRunningTask ? 1 : 0);
   const runningLead = partition.running[0];
+  const leadTask = runningLead ?? partition.paused[0] ?? partition.completed[0];
+  const leadProgress = useMemo(() => (leadTask ? resolveTaskProgress(leadTask) : null), [leadTask]);
   const runningElapsed = runningLead
     ? formatElapsedDuration(runningLead.createdAtMs, nowMs, false)
     : activeIsThinking
@@ -150,7 +254,7 @@ export function ThreadTaskBanner({
               : 'text-emerald-100/55'
           }
         >
-          ({totalCount})
+          ({leadProgress && !leadProgress.isIndeterminate && partition.all.length > 0 ? `${leadProgress.pct}%` : totalCount})
         </span>
         <ChevronDown
           className={`w-3 h-3 text-emerald-100/60 transition-transform duration-200 ${
@@ -199,6 +303,9 @@ export function ThreadTaskBanner({
           }`}
         >
           ({triggerLabel}
+          {leadProgress && !leadProgress.isIndeterminate && partition.all.length > 0
+            ? ` · ${leadProgress.pct}%`
+            : ''}
           {runningElapsed && hasRunningTask ? ` · ${runningElapsed}` : ''})
         </span>
         <ChevronDown
@@ -225,13 +332,14 @@ export function ThreadTaskBanner({
     }
   };
 
-  const leadTask = runningLead ?? partition.paused[0] ?? partition.completed[0];
-
-  // When collapsed: hide empty placeholder completely; collapse non-empty tasks down to a crisp 1-line thread node
+  // Collapsed state: hide empty placeholder; show lead task + fluid progress bar inline when tasks exist
   if (!isOpen) {
     if (partition.all.length === 0 && !activeIsThinking) {
       return null;
     }
+
+    const leadStatus = leadTask ? getTaskStatusDisplay(leadTask) : null;
+    const leadBreakdown = leadTask ? resolveTaskStepBreakdown(leadTask) : null;
 
     return (
       <div
@@ -244,33 +352,47 @@ export function ThreadTaskBanner({
           type="button"
           onClick={onToggleOpen}
           aria-expanded={false}
-          className="ui-tactile w-full min-h-[36px] flex items-center justify-between gap-3 text-left group cursor-pointer rounded-lg px-1 -mx-1 hover:bg-white/[0.03] transition-colors"
+          className="ui-tactile w-full text-left group cursor-pointer rounded-2xl border border-white/10 bg-white/[0.025] hover:bg-white/[0.045] hover:border-white/20 px-3.5 py-2.5 space-y-2 transition-colors"
         >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span
-              aria-hidden="true"
-              className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
-                hasRunningTask || activeIsThinking
-                  ? 'border-amber-400/50 bg-amber-400/12 text-amber-300'
-                  : needsConfirmCount > 0
-                  ? 'border-[#34D399]/50 bg-[#34D399]/14 text-[#6EE7B7]'
-                  : 'border-white/15 bg-white/[0.05] text-emerald-100/75'
-              }`}
-            >
-              <StatusPulse state={triggerPulseState} size="sm" />
-            </span>
-            <span className="text-[13.5px] font-medium text-white truncate">
-              {leadTask ? leadTask.title : 'Active turn'}
-            </span>
-            <span className="font-mono text-[11px] tabular-nums text-emerald-100/55 shrink-0 whitespace-nowrap">
-              {triggerLabel}
-              {runningElapsed && hasRunningTask ? ` · up ${runningElapsed}` : ''}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                aria-hidden="true"
+                className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
+                  hasRunningTask || activeIsThinking
+                    ? 'border-amber-400/50 bg-amber-400/12 text-amber-300'
+                    : needsConfirmCount > 0
+                    ? 'border-[#34D399]/50 bg-[#34D399]/14 text-[#6EE7B7]'
+                    : 'border-white/15 bg-white/[0.05] text-emerald-100/75'
+                }`}
+              >
+                <StatusPulse state={triggerPulseState} size="sm" />
+              </span>
+              <span className="text-[13.5px] font-medium text-white truncate">
+                {leadTask ? leadTask.title : 'Active turn'}
+              </span>
+              <span className="font-mono text-[11px] tabular-nums text-emerald-100/55 shrink-0 whitespace-nowrap">
+                {triggerLabel}
+                {leadBreakdown ? ` · ${leadBreakdown.ratioLabel}` : ''}
+                {runningElapsed && hasRunningTask ? ` · up ${runningElapsed}` : ''}
+              </span>
+            </div>
+            <span className="inline-flex items-center gap-1 text-[11.5px] text-emerald-100/55 group-hover:text-white transition-colors shrink-0">
+              <span>Show</span>
+              <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
             </span>
           </div>
-          <span className="inline-flex items-center gap-1 text-[11.5px] text-emerald-100/50 group-hover:text-white transition-colors shrink-0">
-            <span>Show</span>
-            <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
-          </span>
+
+          <TaskProgressTrack
+            compact
+            pct={leadProgress ? leadProgress.pct : 0}
+            tone={leadStatus ? leadStatus.tone : 'amber'}
+            isRunning={hasRunningTask || activeIsThinking}
+            isIndeterminate={!leadTask || Boolean(leadProgress?.isIndeterminate)}
+            stepCount={leadBreakdown?.totalCount ?? 1}
+            label={leadTask ? `${leadTask.title} progress` : 'Active turn progress'}
+            testId="thread-task-collapsed-progress"
+          />
         </button>
       </div>
     );
@@ -332,6 +454,9 @@ export function ThreadTaskBanner({
               }`}
             >
               {partition.all.length === 0 && !activeIsThinking ? '0 active' : triggerLabel}
+              {leadProgress && !leadProgress.isIndeterminate && partition.all.length === 1
+                ? ` · ${leadProgress.pct}%`
+                : ''}
               {runningElapsed && hasRunningTask ? ` · up ${runningElapsed}` : ''}
             </span>
           </div>
@@ -350,7 +475,7 @@ export function ThreadTaskBanner({
       </div>
 
       {/* Vertical Timeline Branch inline inside the Thread stream */}
-      <div className="ml-2 sm:ml-3 pl-3 sm:pl-4 border-l border-white/12 mt-1.5 sm:mt-2 space-y-3 sm:space-y-4 pb-1">
+      <div className="ml-2 sm:ml-3 pl-3 sm:pl-4 border-l border-white/12 mt-1.5 sm:mt-2 space-y-3 pb-1">
         {partition.all.length === 0 && !activeIsThinking ? (
           <div data-testid="thread-tasks-empty" className="py-1.5 space-y-1 max-w-[56ch]">
             <p className="text-[13.5px] font-medium text-white/85">
@@ -367,7 +492,7 @@ export function ThreadTaskBanner({
             {partition.running.length === 0 && activeIsThinking && (
               <div
                 data-testid="thread-live-turn-card"
-                className="rounded-xl bg-white/[0.03] border border-amber-400/25 px-3.5 py-3 space-y-1.5"
+                className="ui-card-enter rounded-2xl bg-white/[0.028] border border-amber-400/25 px-3.5 sm:px-4 py-3 space-y-2.5"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-[11px] font-mono tabular-nums">
@@ -389,7 +514,17 @@ export function ThreadTaskBanner({
                     </button>
                   )}
                 </div>
-                <p className="text-[13px] text-emerald-50/85">
+
+                <TaskProgressTrack
+                  pct={0}
+                  tone="amber"
+                  isRunning
+                  isIndeterminate
+                  label={`Active turn in ${activeSessionId}`}
+                  testId="thread-live-turn-progress"
+                />
+
+                <p className="text-[12.5px] text-emerald-50/80">
                   Executing active turn in{' '}
                   <span className="font-mono text-[#6EE7B7]">{activeSessionId}</span>
                 </p>
@@ -401,23 +536,23 @@ export function ThreadTaskBanner({
               const isRunning = task.status === 'running';
               const isExpanded = expandedMap[task.id] ?? idx === 0;
               const breakdown = resolveTaskStepBreakdown(task);
+              const progressInfo = resolveTaskProgress(task);
               const statusDisplay = getTaskStatusDisplay(task);
               const kindLabel = getTaskKindLabel(task);
               const elapsed = formatElapsedDuration(task.createdAtMs, nowMs);
               const startedClock = formatStartClock(task.createdAtMs) || task.updatedAt;
-              const progressPct = Math.max(0, Math.min(100, Math.round(task.progress)));
 
               return (
                 <div
                   key={task.id}
                   data-testid={`thread-task-card-${task.id}`}
                   data-status={task.status}
-                  className={`rounded-xl border transition-colors p-3 sm:p-4 space-y-2.5 sm:space-y-3 ${
+                  className={`ui-card-enter rounded-2xl border transition-colors duration-200 p-3.5 sm:p-4 space-y-3 ${
                     isRunning
-                      ? 'bg-white/[0.03] border-white/12'
+                      ? 'bg-white/[0.032] border-amber-300/20 hover:border-amber-300/35'
                       : statusDisplay.tone === 'amber'
-                      ? 'bg-white/[0.025] border-white/10'
-                      : 'bg-white/[0.02] border-white/10'
+                      ? 'bg-white/[0.025] border-white/12 hover:border-white/20'
+                      : 'bg-white/[0.02] border-white/10 hover:border-white/18'
                   }`}
                 >
                   {/* Top Meta Line + Controls */}
@@ -447,7 +582,7 @@ export function ThreadTaskBanner({
                           {statusDisplay.label}
                         </span>
                         <span aria-hidden="true" className="text-emerald-100/25">·</span>
-                        <span className="text-emerald-100/70">{kindLabel}</span>
+                        <span className="text-emerald-100/65">{kindLabel}</span>
                         <span aria-hidden="true" className="text-emerald-100/25">·</span>
                         <span className="text-white/90">{breakdown.ratioLabel}</span>
                         <span aria-hidden="true" className="text-emerald-100/25">·</span>
@@ -462,12 +597,6 @@ export function ThreadTaskBanner({
                       <h3 className="mt-1.5 text-[14.5px] sm:text-[15px] font-medium text-white group-hover:text-emerald-50 leading-snug">
                         {task.title}
                       </h3>
-
-                      {!isExpanded && (
-                        <p className="mt-1 text-[12.5px] text-emerald-100/60 truncate">
-                          {breakdown.activeStepText}
-                        </p>
-                      )}
                     </button>
 
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -507,7 +636,7 @@ export function ThreadTaskBanner({
                         className="ui-tactile w-7 h-7 rounded-lg text-emerald-100/55 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                       >
                         <ChevronDown
-                          className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                          className={`w-3.5 h-3.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
                             isExpanded ? 'rotate-180' : ''
                           }`}
                         />
@@ -515,49 +644,61 @@ export function ThreadTaskBanner({
                     </div>
                   </div>
 
-                  {/* Slim Hairline Progress Track */}
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex-1 h-[3px] rounded-full bg-white/[0.08] overflow-hidden">
-                      <div
-                        className={`h-full w-full origin-left transition-transform duration-300 ease-out ${
-                          isRunning
-                            ? 'bg-amber-400'
-                            : statusDisplay.tone === 'amber'
-                            ? 'bg-amber-300/75'
-                            : statusDisplay.tone === 'emerald'
-                            ? 'bg-[#34D399]'
-                            : 'bg-emerald-100/35'
-                        }`}
-                        style={{ transform: `scaleX(${Math.max(0.03, progressPct / 100)})` }}
-                      />
-                    </div>
-                    <span className="font-mono text-[11px] tabular-nums text-emerald-100/65 shrink-0">
-                      {progressPct}%
-                    </span>
+                  {/* Fluid Progress Track + Active Step Callout */}
+                  <div className="space-y-1.5">
+                    <TaskProgressTrack
+                      pct={progressInfo.pct}
+                      tone={statusDisplay.tone}
+                      isRunning={isRunning}
+                      isIndeterminate={progressInfo.isIndeterminate}
+                      stepCount={breakdown.totalCount}
+                      label={`${task.title} progress`}
+                      testId={`thread-task-progress-${task.id}`}
+                    />
+                    {!isExpanded && (
+                      <p className="text-[12px] text-emerald-100/65 truncate">
+                        {breakdown.activeStepText}
+                      </p>
+                    )}
                   </div>
 
                   <AnimatedCollapsible open={isExpanded}>
-                    <div className="pt-0.5 sm:pt-1 space-y-2.5 sm:space-y-3">
+                    <div className="space-y-3 pt-0.5">
+                      {/* Connected Step Rail */}
                       <ul
-                        className="space-y-1 sm:space-y-1.5"
+                        className="relative space-y-1.5 pl-0.5"
                         aria-label="Task steps"
                       >
                         {breakdown.steps.map((step, stepIdx) => {
                           const isStepActive = step.state === 'active';
                           const isStepDone = step.state === 'done';
+                          const isLast = stepIdx === breakdown.steps.length - 1;
                           return (
                             <li
                               key={`${task.id}-step-${stepIdx}`}
-                              className="flex items-start gap-2.5 text-[12.5px] leading-snug"
+                              style={getStaggerVars(stepIdx)}
+                              className={`ui-stagger-enter relative flex items-start gap-2.5 text-[12.5px] leading-snug rounded-lg transition-colors ${
+                                isStepActive
+                                  ? 'bg-amber-400/[0.06] px-2.5 py-1.5 -mx-2.5'
+                                  : 'py-0.5'
+                              }`}
                             >
+                              {!isLast && (
+                                <span
+                                  aria-hidden="true"
+                                  className={`absolute top-5 bottom-[-8px] w-px ${
+                                    isStepActive ? 'left-[17px]' : 'left-[7px]'
+                                  } ${isStepDone ? 'bg-[#34D399]/25' : 'bg-white/10'}`}
+                                />
+                              )}
                               <span
                                 aria-hidden="true"
-                                className={`mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center ${
+                                className={`relative z-10 mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center ${
                                   isStepDone
-                                    ? 'bg-[#34D399]/12 border border-[#34D399]/30'
+                                    ? 'bg-[#34D399]/14 border border-[#34D399]/35'
                                     : isStepActive
-                                    ? 'bg-amber-400/15 border border-amber-400/45'
-                                    : 'border border-white/12'
+                                    ? 'bg-amber-400/18 border border-amber-400/50'
+                                    : 'bg-[rgb(var(--ui-surface-rgb))] border border-white/14'
                                 }`}
                               >
                                 {isStepDone ? (
@@ -577,7 +718,7 @@ export function ThreadTaskBanner({
                                     ? 'text-white font-medium'
                                     : isStepDone
                                     ? 'text-emerald-100/65'
-                                    : 'text-emerald-100/40'
+                                    : 'text-emerald-100/42'
                                 }
                               >
                                 {step.text}
@@ -590,7 +731,7 @@ export function ThreadTaskBanner({
                       {onSteerTask && (
                         <form
                           onSubmit={(e) => void handleSteerSubmit(e, task.id)}
-                          className="flex items-center gap-2 border-t border-white/[0.07] pt-2.5 focus-within:border-[#34D399]/35 transition-colors"
+                          className="flex items-center gap-2 rounded-xl bg-black/25 border border-white/10 px-2.5 py-1.5 focus-within:border-[#34D399]/45 transition-colors"
                         >
                           <label htmlFor={`steer-task-inline-${task.id}`} className="sr-only">
                             Steer {task.title}
@@ -619,7 +760,7 @@ export function ThreadTaskBanner({
                         </form>
                       )}
 
-                      <div className="pt-1.5 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] tabular-nums text-emerald-100/45">
+                      <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] tabular-nums text-emerald-100/45 pt-0.5">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {startedClock && <span>started {startedClock}</span>}
                           {startedClock && <span aria-hidden="true">·</span>}
@@ -637,9 +778,10 @@ export function ThreadTaskBanner({
               );
             })}
 
-            {/* Completed / Finished Tasks with Operator Confirmation Semantics */}
+            {/* Completed / Finished Tasks with Fluid Progress Bar & Operator Confirmation */}
             {partition.completed.map((task) => {
               const breakdown = resolveTaskStepBreakdown(task);
+              const progressInfo = resolveTaskProgress(task);
               const statusDisplay = getTaskStatusDisplay(task);
               const confirmState = getTaskConfirmationState(task);
               const confirmLabel = getTaskConfirmationLabel(task);
@@ -656,10 +798,10 @@ export function ThreadTaskBanner({
                   data-testid={`thread-task-card-${task.id}`}
                   data-status={task.rawStatus ?? task.status}
                   data-confirm-state={confirmState}
-                  className={`rounded-xl border transition-colors p-3.5 sm:p-4 space-y-2.5 ${
+                  className={`ui-card-enter rounded-2xl border transition-colors duration-200 p-3.5 sm:p-4 space-y-3 ${
                     confirmState === 'needs-confirm'
-                      ? 'bg-white/[0.03] border-[#34D399]/28'
-                      : 'bg-white/[0.02] border-white/10'
+                      ? 'bg-white/[0.028] border-[#34D399]/28 hover:border-[#34D399]/45'
+                      : 'bg-white/[0.02] border-white/10 hover:border-white/18'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -685,9 +827,9 @@ export function ThreadTaskBanner({
                           {statusDisplay.label}
                         </span>
                         <span aria-hidden="true" className="text-emerald-100/25">·</span>
-                        <span className="text-emerald-100/70">{kindLabel}</span>
+                        <span className="text-emerald-100/65">{kindLabel}</span>
                         <span aria-hidden="true" className="text-emerald-100/25">·</span>
-                        <span className="text-emerald-100/60">{breakdown.ratioLabel}</span>
+                        <span className="text-emerald-100/75">{breakdown.ratioLabel}</span>
                         <span aria-hidden="true" className="text-emerald-100/25">·</span>
                         <span className="text-emerald-100/50">{runtime}</span>
                       </div>
@@ -706,16 +848,56 @@ export function ThreadTaskBanner({
                       className="ui-tactile w-7 h-7 rounded-lg text-emerald-100/55 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                     >
                       <ChevronDown
-                        className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                        className={`w-3.5 h-3.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
                           isExpanded ? 'rotate-180' : ''
                         }`}
                       />
                     </button>
                   </div>
 
+                  <TaskProgressTrack
+                    pct={progressInfo.pct}
+                    tone={statusDisplay.tone}
+                    isRunning={false}
+                    stepCount={breakdown.totalCount}
+                    label={`${task.title} progress`}
+                    testId={`thread-task-progress-${task.id}`}
+                  />
+
+                  <AnimatedCollapsible open={isExpanded}>
+                    <div className="space-y-2.5 pt-0.5">
+                      <ul className="relative space-y-1.5 pl-0.5" aria-label="Completed task steps">
+                        {breakdown.steps.map((step, i) => {
+                          const isLast = i === breakdown.steps.length - 1;
+                          return (
+                            <li
+                              key={`${task.id}-done-step-${i}`}
+                              style={getStaggerVars(i)}
+                              className="ui-stagger-enter relative flex items-start gap-2.5 text-[12.5px] text-emerald-100/65 leading-snug py-0.5"
+                            >
+                              {!isLast && (
+                                <span
+                                  aria-hidden="true"
+                                  className="absolute left-[7px] top-5 bottom-[-8px] w-px bg-[#34D399]/22"
+                                />
+                              )}
+                              <span
+                                aria-hidden="true"
+                                className="relative z-10 mt-0.5 shrink-0 w-4 h-4 rounded-full bg-[#34D399]/14 border border-[#34D399]/35 flex items-center justify-center"
+                              >
+                                <Check className="w-2.5 h-2.5 text-[#34D399]" />
+                              </span>
+                              <span>{step.text}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  </AnimatedCollapsible>
+
                   {/* Agent Done vs Operator Confirmed review bar */}
                   {confirmState !== 'open' && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
                       <span
                         className={`text-[11.5px] font-mono ${
                           confirmState === 'needs-confirm'
@@ -747,27 +929,6 @@ export function ThreadTaskBanner({
                       )}
                     </div>
                   )}
-
-                  <AnimatedCollapsible open={isExpanded}>
-                    <div className="pt-2 border-t border-white/[0.06] space-y-1.5">
-                      <ul className="space-y-1.5">
-                        {breakdown.steps.map((step, i) => (
-                          <li
-                            key={`${task.id}-done-step-${i}`}
-                            className="flex items-start gap-2.5 text-[12.5px] text-emerald-100/65 leading-snug"
-                          >
-                            <span
-                              aria-hidden="true"
-                              className="mt-0.5 shrink-0 w-4 h-4 rounded-full bg-[#34D399]/12 border border-[#34D399]/30 flex items-center justify-center"
-                            >
-                              <Check className="w-2.5 h-2.5 text-[#34D399]" />
-                            </span>
-                            <span>{step.text}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </AnimatedCollapsible>
                 </div>
               );
             })}

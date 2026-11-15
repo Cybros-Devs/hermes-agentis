@@ -1,9 +1,14 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { LookTarget } from '../utils/asciiPortraitEngine';
-import { createHorizonAnimator, renderBrailleHorizon } from '../utils/brailleFieldEngine';
+import {
+  createHorizonAnimator,
+  renderBrailleHorizon,
+  type BrailleHorizonStyle,
+} from '../utils/brailleFieldEngine';
 import {
   createRasterSurface,
   rasterizeTonalDotBucketsToSurface,
+  type BrailleDotProfile,
   type BrailleRasterSurface,
   type TonalDotBucketSpec,
 } from '../utils/brailleCanvasRaster';
@@ -13,6 +18,9 @@ interface BrailleHorizonCanvasProps {
   isActive: boolean;
   frequencyBands: number[];
   lookTargetRef?: RefObject<LookTarget | null>;
+  dotProfile?: BrailleDotProfile;
+  bloom?: number;
+  horizonStyle?: BrailleHorizonStyle;
   speedScale?: number;
   reducedMotionOverride?: boolean;
   className?: string;
@@ -54,6 +62,9 @@ export function BrailleHorizonCanvas({
   isActive,
   frequencyBands,
   lookTargetRef,
+  dotProfile = 'balanced',
+  bloom = 0.75,
+  horizonStyle = 'silk',
   speedScale = 1,
   reducedMotionOverride = false,
   className = '',
@@ -64,6 +75,9 @@ export function BrailleHorizonCanvas({
     isActive,
     frequencyBands,
     lookTargetRef,
+    dotProfile,
+    bloom,
+    horizonStyle,
     speedScale,
     reducedMotionOverride,
   });
@@ -72,6 +86,9 @@ export function BrailleHorizonCanvas({
     isActive,
     frequencyBands,
     lookTargetRef,
+    dotProfile,
+    bloom,
+    horizonStyle,
     speedScale,
     reducedMotionOverride,
   };
@@ -187,6 +204,7 @@ export function BrailleHorizonCanvas({
         pointerY: motion.pointerY,
         bands: motion.bands,
         motion,
+        style: s.horizonStyle,
       });
 
       const cellW = width / frame.cols;
@@ -299,7 +317,10 @@ export function BrailleHorizonCanvas({
       buckets[4].hex = s.isActive ? '#FFFFFF' : '#E6F0EC';
       buckets[4].alpha = s.isActive ? 0.88 : 0.76;
 
-      rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter);
+      rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {
+        dotProfile: s.dotProfile,
+        bloom: s.bloom * 0.65,
+      });
       ctx.putImageData(surface.imageData, 0, 0);
     };
 
@@ -322,7 +343,7 @@ export function BrailleHorizonCanvas({
       const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
       const look = s.lookTargetRef?.current;
       if (isReduced) {
-        const reducedKey = `${width}x${height}|${s.isActive}|${Math.round(s.energy * 100)}|${
+        const reducedKey = `${width}x${height}|${s.isActive}|${s.horizonStyle}|${s.dotProfile}|${s.bloom.toFixed(2)}|${Math.round(s.energy * 100)}|${
           look ? `${look.x.toFixed(2)},${look.y.toFixed(2)}` : ''
         }`;
         if (reducedKey !== lastReducedKey) {

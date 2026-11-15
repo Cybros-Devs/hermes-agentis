@@ -5,6 +5,11 @@ import {
   type BrailleShapeTint,
 } from './brailleShapesEngine';
 
+export type DotAutonomyMode = 'manual' | 'scheduled' | 'watch';
+export type DotSandboxEnv = 'cloud-sandbox' | 'local-repo' | 'browser-worker';
+export type CanvasFormationPreset = 'constellation' | 'orbit' | 'grid';
+export type CanvasSessionFilter = 'all' | 'live' | 'autonomous';
+
 export interface CanvasSession {
   id: string;
   channelId: ChannelId;
@@ -20,6 +25,46 @@ export interface CanvasSession {
   mood: ExpressionMood;
   eyeStyle: 'open' | 'sleepy';
   isCore?: boolean;
+  /** OpenAI Dots-inspired autonomy & dedicated computer metadata */
+  autonomyMode: DotAutonomyMode;
+  scheduleLabel: string;
+  autonomyPaused?: boolean;
+  sandboxEnv: DotSandboxEnv;
+  workspaceDir: string;
+  skills: string[];
+  connectedTo?: ChannelId[];
+}
+
+export type CanvasPinKind = 'brief' | 'repo' | 'note' | 'skill';
+
+export interface CanvasPin {
+  id: string;
+  kind: CanvasPinKind;
+  title: string;
+  detail: string;
+  meta: string;
+  xPct: number;
+  yPct: number;
+  linkedChannelId?: ChannelId;
+}
+
+export interface CanvasViewport {
+  panX: number;
+  panY: number;
+  zoom: number;
+}
+
+export interface DotStarterTemplate {
+  id: string;
+  label: string;
+  subtitle: string;
+  shape: BrailleShapeKind;
+  tint: BrailleShapeTint;
+  autonomyMode: DotAutonomyMode;
+  scheduleLabel: string;
+  sandboxEnv: DotSandboxEnv;
+  skills: string[];
+  persona: string;
 }
 
 export const CANVAS_BOUNDS = {
@@ -28,6 +73,78 @@ export const CANVAS_BOUNDS = {
   minY: 18,
   maxY: 74,
 } as const;
+
+export const CANVAS_ZOOM_BOUNDS = {
+  min: 0.65,
+  max: 1.5,
+  step: 0.15,
+} as const;
+
+export const DEFAULT_CANVAS_VIEWPORT: CanvasViewport = {
+  panX: 0,
+  panY: 0,
+  zoom: 1,
+};
+
+export const AVAILABLE_DOT_SKILLS: readonly { id: string; label: string; summary: string }[] = [
+  { id: 'browser', label: 'Browser', summary: 'Headless web inspection & screenshots' },
+  { id: 'shell', label: 'Terminal', summary: 'Isolated sandbox shell execution' },
+  { id: 'files', label: 'Workspace FS', summary: 'Read/patch project files' },
+  { id: 'mail', label: 'Mail Gate', summary: 'Draft & dispatch gated email' },
+  { id: 'calendar', label: 'Calendar', summary: 'Schedule triage & conflict checks' },
+  { id: 'research', label: 'Web Research', summary: 'Multi-source citations & synthesis' },
+];
+
+export const DOT_STARTER_TEMPLATES: readonly DotStarterTemplate[] = [
+  {
+    id: 'custom',
+    label: 'Custom Companion',
+    subtitle: 'Interactive single-thread collaborator',
+    shape: 'ghost',
+    tint: 'pink',
+    autonomyMode: 'manual',
+    scheduleLabel: 'On-demand',
+    sandboxEnv: 'cloud-sandbox',
+    skills: ['browser', 'files'],
+    persona: 'Adaptive Hermes specialist balancing fast terminal execution with clear status briefs.',
+  },
+  {
+    id: 'ops-watchdog',
+    label: 'Ops Watchdog',
+    subtitle: 'Continuous build & health monitor',
+    shape: 'trapezoid',
+    tint: 'amber',
+    autonomyMode: 'watch',
+    scheduleLabel: 'Continuous watch',
+    sandboxEnv: 'local-repo',
+    skills: ['shell', 'files', 'browser'],
+    persona: 'Proactive reliability monitor tracking CI pipelines, dev servers, and regression alerts.',
+  },
+  {
+    id: 'research-scout',
+    label: 'Research Scout',
+    subtitle: 'Scheduled multi-source synthesis',
+    shape: 'pebble',
+    tint: 'periwinkle',
+    autonomyMode: 'scheduled',
+    scheduleLabel: 'Every 30m',
+    sandboxEnv: 'browser-worker',
+    skills: ['research', 'browser', 'files'],
+    persona: 'Methodical research scout gathering citations, diffing specs, and posting concise briefs.',
+  },
+  {
+    id: 'release-dispatch',
+    label: 'Release Dispatch',
+    subtitle: 'Gated rollout & comms coordinator',
+    shape: 'star',
+    tint: 'lime',
+    autonomyMode: 'scheduled',
+    scheduleLabel: 'Hourly check',
+    sandboxEnv: 'cloud-sandbox',
+    skills: ['mail', 'calendar', 'shell'],
+    persona: 'Release coordinator preparing changelog drafts, gating outbound mail, and checking windows.',
+  },
+];
 
 const VALID_SHAPES = new Set<BrailleShapeKind>(BRAILLE_SHAPE_CATALOG.map((m) => m.kind));
 const VALID_MOODS = new Set<ExpressionMood>([
@@ -39,6 +156,9 @@ const VALID_MOODS = new Set<ExpressionMood>([
   'focused',
   'alert',
 ]);
+const VALID_AUTONOMY = new Set<DotAutonomyMode>(['manual', 'scheduled', 'watch']);
+const VALID_SANDBOX = new Set<DotSandboxEnv>(['cloud-sandbox', 'local-repo', 'browser-worker']);
+const VALID_PIN_KINDS = new Set<CanvasPinKind>(['brief', 'repo', 'note', 'skill']);
 
 export function createHermesSessionId(channelId: string): string {
   const clean = channelId
@@ -58,6 +178,92 @@ export function clampCanvasPosition(xPct: number, yPct: number): { xPct: number;
     xPct: Math.max(CANVAS_BOUNDS.minX, Math.min(CANVAS_BOUNDS.maxX, Number(xPct.toFixed(2)))),
     yPct: Math.max(CANVAS_BOUNDS.minY, Math.min(CANVAS_BOUNDS.maxY, Number(yPct.toFixed(2)))),
   };
+}
+
+export function clampPinPosition(xPct: number, yPct: number): { xPct: number; yPct: number } {
+  return {
+    xPct: Math.max(10, Math.min(90, Number(xPct.toFixed(2)))),
+    yPct: Math.max(14, Math.min(82, Number(yPct.toFixed(2)))),
+  };
+}
+
+export function clampCanvasZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return 1;
+  return Number(
+    Math.max(CANVAS_ZOOM_BOUNDS.min, Math.min(CANVAS_ZOOM_BOUNDS.max, zoom)).toFixed(3)
+  );
+}
+
+export function clampCanvasPan(panX: number, panY: number, zoom: number): { panX: number; panY: number } {
+  const maxPan = 420 * Math.max(1, zoom);
+  return {
+    panX: Math.max(-maxPan, Math.min(maxPan, Number((Number.isFinite(panX) ? panX : 0).toFixed(1)))),
+    panY: Math.max(-maxPan, Math.min(maxPan, Number((Number.isFinite(panY) ? panY : 0).toFixed(1)))),
+  };
+}
+
+export function zoomViewportAroundPoint(
+  current: CanvasViewport,
+  nextZoomRaw: number,
+  cursorLocalX: number,
+  cursorLocalY: number,
+  stageWidth: number,
+  stageHeight: number
+): CanvasViewport {
+  const nextZoom = clampCanvasZoom(nextZoomRaw);
+  const prevZoom = clampCanvasZoom(current.zoom);
+  if (Math.abs(nextZoom - prevZoom) < 0.0001 || stageWidth <= 0 || stageHeight <= 0) {
+    return { ...current, zoom: nextZoom };
+  }
+  const cx = cursorLocalX - stageWidth * 0.5;
+  const cy = cursorLocalY - stageHeight * 0.5;
+  const ratio = nextZoom / prevZoom;
+  const rawPanX = cx - (cx - current.panX) * ratio;
+  const rawPanY = cy - (cy - current.panY) * ratio;
+  const clampedPan = clampCanvasPan(rawPanX, rawPanY, nextZoom);
+  return {
+    panX: clampedPan.panX,
+    panY: clampedPan.panY,
+    zoom: nextZoom,
+  };
+}
+
+export function formatSandboxLabel(env: DotSandboxEnv): string {
+  if (env === 'local-repo') return 'Local Repo';
+  if (env === 'browser-worker') return 'Browser Worker';
+  return 'Cloud Sandbox';
+}
+
+export function formatAutonomyLabel(
+  mode: DotAutonomyMode,
+  scheduleLabel: string,
+  paused?: boolean
+): string {
+  if (mode === 'manual') return 'On-demand';
+  const base = scheduleLabel || (mode === 'watch' ? 'Continuous watch' : 'Scheduled');
+  return paused ? `${base} (paused)` : base;
+}
+
+export function isDotAutonomous(session: Pick<CanvasSession, 'autonomyMode' | 'autonomyPaused'>): boolean {
+  return session.autonomyMode !== 'manual' && !session.autonomyPaused;
+}
+
+export function filterCanvasSessions(
+  sessions: CanvasSession[],
+  filter: CanvasSessionFilter,
+  thinkingByChannel: Record<string, boolean>,
+  hermesStatusByChannel?: ReadonlyMap<string, string>
+): CanvasSession[] {
+  if (filter === 'all') return sessions;
+  if (filter === 'live') {
+    return sessions.filter(
+      (s) =>
+        Boolean(thinkingByChannel[s.channelId]) ||
+        hermesStatusByChannel?.get(s.channelId) === 'thinking' ||
+        hermesStatusByChannel?.get(s.channelId) === 'running'
+    );
+  }
+  return sessions.filter((s) => s.autonomyMode !== 'manual');
 }
 
 export function slugifySessionName(raw: string, existingIds: Iterable<string>): string {
@@ -91,8 +297,6 @@ export function findOpenCanvasSpot(existing: Pick<CanvasSession, 'xPct' | 'yPct'
     return { xPct: 50, yPct: 46 };
   }
 
-  // Evaluate a balanced canvas grid using box-overlap Chebyshev clearance
-  // (accounting for ~25% width x ~31% height per character + pill) plus Euclidean tie-breaking.
   const candidates: Array<{ xPct: number; yPct: number }> = [];
   for (let y = 20; y <= 70; y += 5) {
     for (let x = 14; x <= 86; x += 6) {
@@ -116,7 +320,6 @@ export function findOpenCanvasSpot(existing: Pick<CanvasSession, 'xPct' | 'yPct'
     }
     const centerBias =
       1 - Math.hypot((cand.xPct - 50) / 100, (cand.yPct - 48) / 100) * 0.04;
-    // Prioritize avoiding any 2D bounding-box overlap first, then maximize comfortable separation.
     const overlapSafeScore = Math.min(1.05, minBoxClearance) * 2 + minEuclid * 0.35 + centerBias * 0.02;
     if (overlapSafeScore > bestScore) {
       bestScore = overlapSafeScore;
@@ -127,11 +330,91 @@ export function findOpenCanvasSpot(existing: Pick<CanvasSession, 'xPct' | 'yPct'
   return best;
 }
 
+export function findOpenPinSpot(
+  sessions: Pick<CanvasSession, 'xPct' | 'yPct'>[],
+  pins: Pick<CanvasPin, 'xPct' | 'yPct'>[]
+): { xPct: number; yPct: number } {
+  const occupied = [...sessions, ...pins];
+  if (occupied.length === 0) return { xPct: 18, yPct: 22 };
+  const candidates = [
+    { xPct: 14, yPct: 22 },
+    { xPct: 86, yPct: 22 },
+    { xPct: 14, yPct: 72 },
+    { xPct: 86, yPct: 72 },
+    { xPct: 50, yPct: 18 },
+    { xPct: 34, yPct: 76 },
+    { xPct: 66, yPct: 76 },
+  ];
+  let best = candidates[0];
+  let bestDist = -1;
+  for (const c of candidates) {
+    let nearest = Infinity;
+    for (const o of occupied) {
+      const d = Math.hypot((c.xPct - o.xPct) / 20, (c.yPct - o.yPct) / 24);
+      if (d < nearest) nearest = d;
+    }
+    if (nearest > bestDist) {
+      bestDist = nearest;
+      best = c;
+    }
+  }
+  return clampPinPosition(best.xPct, best.yPct);
+}
+
+export function arrangeSessionsFormation(
+  sessions: CanvasSession[],
+  formation: CanvasFormationPreset = 'constellation'
+): CanvasSession[] {
+  const count = sessions.length;
+  if (count === 0) return sessions;
+
+  if (formation === 'orbit') {
+    if (count === 1) {
+      return [{ ...sessions[0], ...clampCanvasPosition(50, 44) }];
+    }
+    const hasHub = count >= 5;
+    return sessions.map((session, idx) => {
+      if (hasHub && idx === 0) {
+        return { ...session, ...clampCanvasPosition(50, 44) };
+      }
+      const ringCount = hasHub ? count - 1 : count;
+      const ringIdx = hasHub ? idx - 1 : idx;
+      const angle = -Math.PI * 0.5 + (ringIdx / ringCount) * Math.PI * 2;
+      const rx = ringCount <= 3 ? 25 : 29;
+      const ry = ringCount <= 3 ? 20 : 26;
+      const clamped = clampCanvasPosition(
+        50 + Math.cos(angle) * rx,
+        46 + Math.sin(angle) * ry
+      );
+      return { ...session, ...clamped };
+    });
+  }
+
+  if (formation === 'grid') {
+    const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
+    const rows = Math.ceil(count / cols);
+    return sessions.map((session, idx) => {
+      const r = Math.floor(idx / cols);
+      const c = idx % cols;
+      const colsInRow = r === rows - 1 ? count - r * cols : cols;
+      const tX = colsInRow === 1 ? 0.5 : c / (colsInRow - 1);
+      const tY = rows === 1 ? 0.5 : r / (rows - 1);
+      const xMargin = colsInRow === 2 ? 26 : 18;
+      const xSpan = colsInRow === 2 ? 48 : 64;
+      const yMin = rows === 1 ? 45 : 26;
+      const ySpan = rows === 1 ? 0 : 40;
+      const clamped = clampCanvasPosition(xMargin + tX * xSpan, yMin + tY * ySpan);
+      return { ...session, ...clamped };
+    });
+  }
+
+  return autoArrangeSessions(sessions);
+}
+
 export function autoArrangeSessions(sessions: CanvasSession[]): CanvasSession[] {
   const count = sessions.length;
   if (count === 0) return sessions;
 
-  // Two-row staggered constellation with generous spacing for per-character input & chat windows
   if (count <= 3) {
     return sessions.map((session, idx) => {
       const t = count === 1 ? 0.5 : idx / (count - 1);
@@ -161,15 +444,123 @@ export function autoArrangeSessions(sessions: CanvasSession[]): CanvasSession[] 
 
 const DEFAULT_SHAPE_PRESETS: Record<
   string,
-  { shape: BrailleShapeKind; tint: BrailleShapeTint; xPct: number; yPct: number; eyeStyle: 'open' | 'sleepy'; mood: ExpressionMood }
+  {
+    shape: BrailleShapeKind;
+    tint: BrailleShapeTint;
+    xPct: number;
+    yPct: number;
+    eyeStyle: 'open' | 'sleepy';
+    mood: ExpressionMood;
+    autonomyMode: DotAutonomyMode;
+    scheduleLabel: string;
+    sandboxEnv: DotSandboxEnv;
+    skills: string[];
+    connectedTo?: string[];
+  }
 > = {
-  general: { shape: 'clover', tint: 'lime', xPct: 18, yPct: 30, eyeStyle: 'open', mood: 'happy' },
-  ops: { shape: 'trapezoid', tint: 'amber', xPct: 50, yPct: 26, eyeStyle: 'sleepy', mood: 'focused' },
-  research: { shape: 'pebble', tint: 'periwinkle', xPct: 82, yPct: 30, eyeStyle: 'sleepy', mood: 'thinking' },
-  launch: { shape: 'star', tint: 'pink', xPct: 26, yPct: 68, eyeStyle: 'open', mood: 'happy' },
-  daemon: { shape: 'ghost', tint: 'lavender', xPct: 76, yPct: 68, eyeStyle: 'open', mood: 'neutral' },
-  memory: { shape: 'cloud', tint: 'orange', xPct: 50, yPct: 68, eyeStyle: 'open', mood: 'happy' },
+  general: {
+    shape: 'clover',
+    tint: 'lime',
+    xPct: 20,
+    yPct: 30,
+    eyeStyle: 'open',
+    mood: 'happy',
+    autonomyMode: 'manual',
+    scheduleLabel: 'On-demand',
+    sandboxEnv: 'cloud-sandbox',
+    skills: ['browser', 'files', 'research'],
+    connectedTo: ['ops', 'research'],
+  },
+  ops: {
+    shape: 'trapezoid',
+    tint: 'amber',
+    xPct: 50,
+    yPct: 26,
+    eyeStyle: 'sleepy',
+    mood: 'focused',
+    autonomyMode: 'scheduled',
+    scheduleLabel: 'Every 15m',
+    sandboxEnv: 'local-repo',
+    skills: ['shell', 'files', 'mail'],
+    connectedTo: ['launch', 'daemon'],
+  },
+  research: {
+    shape: 'pebble',
+    tint: 'periwinkle',
+    xPct: 80,
+    yPct: 30,
+    eyeStyle: 'sleepy',
+    mood: 'thinking',
+    autonomyMode: 'scheduled',
+    scheduleLabel: 'Every 30m',
+    sandboxEnv: 'browser-worker',
+    skills: ['research', 'browser'],
+    connectedTo: ['general'],
+  },
+  launch: {
+    shape: 'star',
+    tint: 'pink',
+    xPct: 30,
+    yPct: 68,
+    eyeStyle: 'open',
+    mood: 'happy',
+    autonomyMode: 'manual',
+    scheduleLabel: 'On-demand',
+    sandboxEnv: 'cloud-sandbox',
+    skills: ['mail', 'calendar', 'browser'],
+    connectedTo: ['ops'],
+  },
+  daemon: {
+    shape: 'ghost',
+    tint: 'lavender',
+    xPct: 72,
+    yPct: 68,
+    eyeStyle: 'open',
+    mood: 'neutral',
+    autonomyMode: 'watch',
+    scheduleLabel: 'Continuous watch',
+    sandboxEnv: 'local-repo',
+    skills: ['shell', 'files'],
+    connectedTo: ['ops'],
+  },
+  memory: {
+    shape: 'cloud',
+    tint: 'orange',
+    xPct: 50,
+    yPct: 68,
+    eyeStyle: 'open',
+    mood: 'happy',
+    autonomyMode: 'watch',
+    scheduleLabel: 'Continuous watch',
+    sandboxEnv: 'cloud-sandbox',
+    skills: ['files', 'research'],
+  },
 };
+
+function defaultAutonomyForChannel(channelId: string): {
+  autonomyMode: DotAutonomyMode;
+  scheduleLabel: string;
+  sandboxEnv: DotSandboxEnv;
+  skills: string[];
+  connectedTo?: string[];
+} {
+  const preset = DEFAULT_SHAPE_PRESETS[channelId];
+  if (preset) {
+    return {
+      autonomyMode: preset.autonomyMode,
+      scheduleLabel: preset.scheduleLabel,
+      sandboxEnv: preset.sandboxEnv,
+      skills: [...preset.skills],
+      connectedTo: preset.connectedTo ? [...preset.connectedTo] : undefined,
+    };
+  }
+  return {
+    autonomyMode: 'manual',
+    scheduleLabel: 'On-demand',
+    sandboxEnv: 'cloud-sandbox',
+    skills: ['browser', 'files'],
+  };
+}
 
 export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): CanvasSession[] {
   const seenChannels = new Set<string>();
@@ -196,6 +587,30 @@ export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): Canv
     const mood: ExpressionMood =
       item.mood && VALID_MOODS.has(item.mood) ? item.mood : 'happy';
 
+    const defaults = defaultAutonomyForChannel(channelId);
+    const autonomyMode: DotAutonomyMode =
+      item.autonomyMode && VALID_AUTONOMY.has(item.autonomyMode)
+        ? item.autonomyMode
+        : defaults.autonomyMode;
+    const sandboxEnv: DotSandboxEnv =
+      item.sandboxEnv && VALID_SANDBOX.has(item.sandboxEnv)
+        ? item.sandboxEnv
+        : defaults.sandboxEnv;
+    const scheduleLabel =
+      typeof item.scheduleLabel === 'string' && item.scheduleLabel.trim()
+        ? item.scheduleLabel.trim()
+        : defaults.scheduleLabel;
+    const workspaceDir =
+      typeof item.workspaceDir === 'string' && item.workspaceDir.trim()
+        ? item.workspaceDir.trim()
+        : `~/hermes/dots/${channelId}`;
+    const skills = Array.isArray(item.skills)
+      ? item.skills.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 8)
+      : defaults.skills;
+    const connectedTo = Array.isArray(item.connectedTo)
+      ? item.connectedTo.filter((c): c is string => typeof c === 'string' && c !== channelId)
+      : defaults.connectedTo;
+
     normalized.push({
       id: typeof item.id === 'string' && item.id ? item.id : `session-${channelId}`,
       channelId,
@@ -221,6 +636,13 @@ export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): Canv
       mood,
       eyeStyle: item.eyeStyle === 'sleepy' ? 'sleepy' : item.eyeStyle === 'open' ? 'open' : meta.defaultEyeStyle,
       isCore: Boolean(item.isCore),
+      autonomyMode,
+      scheduleLabel,
+      autonomyPaused: Boolean(item.autonomyPaused),
+      sandboxEnv,
+      workspaceDir,
+      skills,
+      connectedTo,
     });
   }
 
@@ -239,6 +661,7 @@ export function createSeedCanvasSessions(channels: Channel[]): CanvasSession[] {
     const pos = preset
       ? clampCanvasPosition(preset.xPct, preset.yPct)
       : findOpenCanvasSpot(seeded);
+    const defaults = defaultAutonomyForChannel(ch.id);
 
     seen.add(ch.id);
     seeded.push({
@@ -255,10 +678,16 @@ export function createSeedCanvasSessions(channels: Channel[]): CanvasSession[] {
       mood: preset?.mood ?? 'happy',
       eyeStyle: preset?.eyeStyle ?? shapeMeta.defaultEyeStyle,
       isCore: true,
+      autonomyMode: defaults.autonomyMode,
+      scheduleLabel: defaults.scheduleLabel,
+      autonomyPaused: false,
+      sandboxEnv: defaults.sandboxEnv,
+      workspaceDir: `~/hermes/dots/${ch.id}`,
+      skills: defaults.skills,
+      connectedTo: defaults.connectedTo,
     });
   });
 
-  // Add one floating background companion (Neko daemon) if not already present so the canvas opens rich
   if (!seen.has('daemon') && seeded.length > 0 && seeded.length < 5) {
     const p = DEFAULT_SHAPE_PRESETS.daemon;
     const daemonMeta = getShapeMeta(p.shape);
@@ -276,8 +705,81 @@ export function createSeedCanvasSessions(channels: Channel[]): CanvasSession[] {
       mood: p.mood,
       eyeStyle: p.eyeStyle,
       isCore: false,
+      autonomyMode: p.autonomyMode,
+      scheduleLabel: p.scheduleLabel,
+      autonomyPaused: false,
+      sandboxEnv: p.sandboxEnv,
+      workspaceDir: '~/hermes/dots/daemon',
+      skills: [...p.skills],
+      connectedTo: p.connectedTo ? [...p.connectedTo] : undefined,
     });
   }
 
   return seeded;
+}
+
+export function createSeedCanvasPins(): CanvasPin[] {
+  return [
+    {
+      id: 'pin-workspace-repo',
+      kind: 'repo',
+      title: 'Workspace Brief',
+      detail: 'Isolated hermes-agent sandboxes share portable skills & gated outbound actions.',
+      meta: '~/hermes/workspace · main',
+      xPct: 12,
+      yPct: 16,
+      linkedChannelId: 'general',
+    },
+    {
+      id: 'pin-ops-runbook',
+      kind: 'brief',
+      title: 'Release Checklist',
+      detail: '1. Verify tests  2. Review draft mail gate  3. Confirm rollout window',
+      meta: 'Pinned artifact · #ops',
+      xPct: 88,
+      yPct: 16,
+      linkedChannelId: 'ops',
+    },
+  ];
+}
+
+export function normalizeCanvasPins(rawList: Partial<CanvasPin>[]): CanvasPin[] {
+  const seen = new Set<string>();
+  const out: CanvasPin[] = [];
+  for (let i = 0; i < rawList.length; i++) {
+    const item = rawList[i];
+    if (!item || typeof item !== 'object') continue;
+    const id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `pin-${i + 1}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const kind: CanvasPinKind =
+      item.kind && VALID_PIN_KINDS.has(item.kind) ? item.kind : 'note';
+    const pos = clampPinPosition(
+      typeof item.xPct === 'number' && Number.isFinite(item.xPct) ? item.xPct : 20,
+      typeof item.yPct === 'number' && Number.isFinite(item.yPct) ? item.yPct : 20
+    );
+    out.push({
+      id,
+      kind,
+      title:
+        typeof item.title === 'string' && item.title.trim()
+          ? item.title.trim().slice(0, 48)
+          : 'Workspace Note',
+      detail:
+        typeof item.detail === 'string' && item.detail.trim()
+          ? item.detail.trim().slice(0, 180)
+          : 'Pinned spatial context for connected Dots.',
+      meta:
+        typeof item.meta === 'string' && item.meta.trim()
+          ? item.meta.trim().slice(0, 44)
+          : 'Canvas pin',
+      xPct: pos.xPct,
+      yPct: pos.yPct,
+      linkedChannelId:
+        typeof item.linkedChannelId === 'string' && item.linkedChannelId.trim()
+          ? item.linkedChannelId.trim()
+          : undefined,
+    });
+  }
+  return out;
 }

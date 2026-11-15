@@ -18,6 +18,7 @@ import {
 import {
   createRasterSurface,
   rasterizeTonalDotBucketsToSurface,
+  type BrailleDotProfile,
   type TonalDotBucketSpec,
 } from '../utils/brailleCanvasRaster';
 
@@ -176,6 +177,8 @@ interface AsciiPortraitCanvasProps {
   lookTarget?: LookTarget | null;
   lookTargetRef?: RefObject<LookTarget | null>;
   tintHex?: string | null;
+  dotProfile?: BrailleDotProfile;
+  bloom?: number;
   speedScale?: number;
   reducedMotionOverride?: boolean;
   showLoadingLabel?: boolean;
@@ -223,6 +226,8 @@ export function AsciiPortraitCanvas({
   lookTarget,
   lookTargetRef,
   tintHex = null,
+  dotProfile = 'balanced',
+  bloom = 0.75,
   speedScale = 1,
   reducedMotionOverride = false,
   showLoadingLabel,
@@ -259,6 +264,8 @@ export function AsciiPortraitCanvas({
     spriteBank,
     status,
     tintHex,
+    dotProfile,
+    bloom,
     speedScale,
     reducedMotionOverride,
   });
@@ -275,6 +282,8 @@ export function AsciiPortraitCanvas({
     spriteBank,
     status,
     tintHex,
+    dotProfile,
+    bloom,
     speedScale,
     reducedMotionOverride,
   };
@@ -563,7 +572,10 @@ export function AsciiPortraitCanvas({
       buckets[4].hex = baseHighHex;
       buckets[4].alpha = isLoadingVisual ? 0.95 : 0.99;
 
-      rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter);
+      rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {
+        dotProfile: s.dotProfile,
+        bloom: isThumb ? 0 : s.bloom,
+      });
       ctx.putImageData(surface.imageData, 0, 0);
     };
 
@@ -605,7 +617,7 @@ export function AsciiPortraitCanvas({
       if (isReduced && hasRealCharacter && !isMaterializing) {
         const reducedKey = `${s.mood}|${s.viseme}|${s.eyeState}|${s.isSpeaking}|${s.isListening}|${Math.round(
           s.energy * 100
-        )}|${s.tintHex ?? ''}|${s.status}|${
+        )}|${s.tintHex ?? ''}|${s.status}|${s.dotProfile}|${s.bloom.toFixed(2)}|${
           activeLook ? `${activeLook.x.toFixed(2)},${activeLook.y.toFixed(2)}` : ''
         }`;
         if (reducedKey !== lastReducedKey) {

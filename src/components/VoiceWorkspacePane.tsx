@@ -38,14 +38,19 @@ import type {
 import { amplitudeToViseme } from '../utils/asciiCharacter';
 import type { LookTarget } from '../utils/asciiPortraitEngine';
 import type { PortraitAssetStatus } from '../utils/portraitLoadingEngine';
-import type { BrailleShapeKind, BrailleShapeTint } from '../utils/brailleShapesEngine';
-import { getShapeMeta, type CanvasSession } from '../utils/canvasSessions';
+import {
+  getShapeMeta,
+  type CanvasFormationPreset,
+  type CanvasPin,
+  type CanvasSession,
+} from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
 import { groupThreadTimeline } from '../utils/threadTrace';
 import { computeThreadScrollPin } from '../utils/threadScroll';
 import { shouldShowScrollTopFade } from '../utils/motionChoreography';
 import { partitionChannelTasks } from '../utils/taskInsights';
 import { DEFAULT_UI_CONFIG, type UiCustomizationConfig } from '../utils/uiCustomization';
+import type { CreateDotSessionPayload } from './AddSessionShapeModal';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleHorizonCanvas } from './BrailleHorizonCanvas';
 import { BrailleSessionsCanvas } from './BrailleSessionsCanvas';
@@ -103,20 +108,21 @@ interface VoiceWorkspacePaneProps {
   showThinking: boolean;
   onToggleThinking: () => void;
   canvasSessions: CanvasSession[];
+  canvasPins: CanvasPin[];
   hermesSessions: HermesAgentSession[];
   thinkingByChannel: Record<string, boolean>;
   speakingChannel: ChannelId | null;
   onSelectCanvasSession: (session: CanvasSession) => void;
   onMoveCanvasSession: (id: string, xPct: number, yPct: number) => void;
-  onAddCanvasSession: (payload: {
-    name: string;
-    topic: string;
-    persona: string;
-    shape: BrailleShapeKind;
-    tint: BrailleShapeTint;
-    eyeStyle: 'open' | 'sleepy';
-  }) => void;
-  onAutoArrangeCanvas: () => void;
+  onAddCanvasSession: (payload: CreateDotSessionPayload) => void;
+  onUpdateDotConfig?: (
+    id: string,
+    patch: Partial<Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills'>>
+  ) => void;
+  onAddCanvasPin: (pin: Omit<CanvasPin, 'id'>) => void;
+  onMoveCanvasPin: (id: string, xPct: number, yPct: number) => void;
+  onRemoveCanvasPin: (id: string) => void;
+  onAutoArrangeCanvas: (formation?: CanvasFormationPreset) => void;
   onCycleSessionMood: (id: string) => void;
   onResetSession: (channelId: string) => void;
   onRemoveCanvasSession: (id: string) => void;
@@ -165,12 +171,17 @@ export function VoiceWorkspacePane({
   showThinking,
   onToggleThinking,
   canvasSessions,
+  canvasPins,
   hermesSessions,
   thinkingByChannel,
   speakingChannel,
   onSelectCanvasSession,
   onMoveCanvasSession,
   onAddCanvasSession,
+  onUpdateDotConfig,
+  onAddCanvasPin,
+  onMoveCanvasPin,
+  onRemoveCanvasPin,
   onAutoArrangeCanvas,
   onCycleSessionMood,
   onResetSession,
@@ -722,6 +733,8 @@ export function VoiceWorkspacePane({
                   isListening={voiceState.isListening}
                   lookTargetRef={lookTargetRef}
                   tintHex={effectivePortraitTint}
+                  dotProfile={uiConfig.brailleDotProfile}
+                  bloom={uiConfig.brailleBloom}
                   speedScale={uiConfig.animationSpeed}
                   reducedMotionOverride={uiConfig.reducedMotion}
                   onStatusChange={setPortraitStatus}
@@ -820,21 +833,30 @@ export function VoiceWorkspacePane({
       ) : panelView === 'canvas' ? (
         <BrailleSessionsCanvas
           sessions={canvasSessions}
+          pins={canvasPins}
           hermesSessions={hermesSessions}
+          approvals={approvals}
           thinkingByChannel={thinkingByChannel}
           speakingChannel={speakingChannel}
           activeChannel={activeChannel}
           entries={entries}
           voiceState={voiceState}
           viseme={viseme}
+          dotProfile={uiConfig.brailleDotProfile}
+          bloom={uiConfig.brailleBloom}
+          horizonStyle={uiConfig.horizonStyle}
           speedScale={uiConfig.animationSpeed}
           reducedMotionOverride={uiConfig.reducedMotion}
           onSelectSession={onSelectCanvasSession}
           onMoveSession={onMoveCanvasSession}
           onAddSession={onAddCanvasSession}
+          onUpdateDotConfig={onUpdateDotConfig}
+          onAddPin={onAddCanvasPin}
+          onMovePin={onMoveCanvasPin}
+          onRemovePin={onRemoveCanvasPin}
           onSubmitSessionMessage={onSubmitSessionInput}
           onToggleListening={onToggleListening}
-          onAutoArrange={onAutoArrangeCanvas}
+          onArrangeFormation={(formation) => onAutoArrangeCanvas(formation)}
           onCycleSessionMood={onCycleSessionMood}
           onResetSession={onResetSession}
           onRemoveSession={onRemoveCanvasSession}
@@ -858,6 +880,8 @@ export function VoiceWorkspacePane({
                 isListening={voiceState.isListening}
                 lookTargetRef={lookTargetRef}
                 tintHex={effectivePortraitTint}
+                dotProfile={uiConfig.brailleDotProfile}
+                bloom={uiConfig.brailleBloom}
                 speedScale={uiConfig.animationSpeed}
                 reducedMotionOverride={uiConfig.reducedMotion}
                 onStatusChange={setPortraitStatus}
@@ -947,6 +971,8 @@ export function VoiceWorkspacePane({
                       isListening={voiceState.isListening}
                       lookTargetRef={lookTargetRef}
                       tintHex={effectivePortraitTint}
+                      dotProfile={uiConfig.brailleDotProfile}
+                      bloom={uiConfig.brailleBloom}
                       speedScale={uiConfig.animationSpeed}
                       reducedMotionOverride={uiConfig.reducedMotion}
                       onStatusChange={setPortraitStatus}
@@ -1241,6 +1267,7 @@ export function VoiceWorkspacePane({
             isActive={activeIsSpeaking || voiceState.isListening}
             frequencyBands={voiceState.frequencyBands}
             lookTargetRef={lookTargetRef}
+            horizonStyle={uiConfig.horizonStyle}
             speedScale={uiConfig.animationSpeed}
             reducedMotionOverride={uiConfig.reducedMotion}
           />

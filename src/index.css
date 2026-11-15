@@ -475,6 +475,43 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
   }
 }
 
+@keyframes uiProgressFlow {
+  0% {
+    transform: translate3d(-110%, 0, 0);
+  }
+  100% {
+    transform: translate3d(220%, 0, 0);
+  }
+}
+
+@keyframes uiProgressIndeterminate {
+  0% {
+    transform: translate3d(-45%, 0, 0) scaleX(0.34);
+  }
+  50% {
+    transform: translate3d(38%, 0, 0) scaleX(0.52);
+  }
+  100% {
+    transform: translate3d(115%, 0, 0) scaleX(0.28);
+  }
+}
+
+.ui-progress-fill {
+  transition: transform calc(420ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.ui-progress-flow {
+  animation: uiProgressFlow calc(1.85s / var(--ui-anim-speed, 1)) cubic-bezier(0.35, 0, 0.25, 1) infinite;
+  will-change: transform;
+}
+
+.ui-progress-indeterminate {
+  transform-origin: left center;
+  animation: uiProgressIndeterminate calc(1.55s / var(--ui-anim-speed, 1)) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+
 html[data-ui-motion="reduced"] .ui-view-enter,
 html[data-ui-motion="reduced"] .ui-msg-enter,
 html[data-ui-motion="reduced"] .ui-stagger-enter,
@@ -494,6 +531,9 @@ html[data-ui-motion="reduced"] .ui-tab-glide,
 html[data-ui-motion="reduced"] .ui-collapsible-grid,
 html[data-ui-motion="reduced"] .ui-tactile,
 html[data-ui-motion="reduced"] .ui-canvas-node-glide,
+html[data-ui-motion="reduced"] .ui-progress-fill,
+html[data-ui-motion="reduced"] .ui-progress-flow,
+html[data-ui-motion="reduced"] .ui-progress-indeterminate,
 html[data-ui-motion="reduced"] .motion-safe-only {
   animation: none !important;
   transition: none !important;
@@ -519,6 +559,9 @@ html[data-ui-motion="reduced"] .motion-safe-only {
   .ui-collapsible-grid,
   .ui-tactile,
   .ui-canvas-node-glide,
+  .ui-progress-fill,
+  .ui-progress-flow,
+  .ui-progress-indeterminate,
   .motion-safe-only {
     animation: none !important;
     transition: none !important;

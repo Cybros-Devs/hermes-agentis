@@ -184,6 +184,42 @@ export function resolveTaskStepBreakdown(task: BackgroundTask): TaskStepBreakdow
   };
 }
 
+export interface TaskProgressInfo {
+  pct: number;
+  ratioLabel: string;
+  isIndeterminate: boolean;
+}
+
+/**
+ * Computes normalized 0..100 completion percentage, display ratio, and whether
+ * a running task has 0% known progress (triggering an indeterminate fluid sweep).
+ */
+export function resolveTaskProgress(task: BackgroundTask): TaskProgressInfo {
+  const breakdown = resolveTaskStepBreakdown(task);
+
+  if (task.status === 'completed' && task.rawStatus !== 'failed' && task.rawStatus !== 'cancelled') {
+    return {
+      pct: 100,
+      ratioLabel: breakdown.ratioLabel,
+      isIndeterminate: false,
+    };
+  }
+
+  let pct = Number.isFinite(task.progress) ? Math.max(0, Math.min(100, Math.round(task.progress))) : 0;
+  if (breakdown.totalCount > 1 || (task.steps && task.steps.length > 0)) {
+    const stepPct = Math.round((breakdown.completedCount / Math.max(1, breakdown.totalCount)) * 100);
+    if (stepPct > 0 || pct === 0) {
+      pct = stepPct;
+    }
+  }
+
+  return {
+    pct,
+    ratioLabel: breakdown.ratioLabel,
+    isIndeterminate: task.status === 'running' && pct === 0,
+  };
+}
+
 /**
  * Strictly scopes tasks to the given thread/channel category and orders them
  * with active running tasks first, followed by paused/waiting, then completed

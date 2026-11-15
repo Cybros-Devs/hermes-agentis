@@ -1,3 +1,5 @@
+export type BrailleHorizonStyle = 'silk' | 'peaks' | 'pulse';
+
 export interface HorizonMotionState {
   energy: number;
   pointerX: number;
@@ -23,6 +25,7 @@ export interface BrailleHorizonParams {
   pointerY: number; // -1..1
   bands?: number[];
   motion?: HorizonMotionState | null;
+  style?: BrailleHorizonStyle;
 }
 
 export interface BrailleHorizonFrame {
@@ -110,27 +113,27 @@ export function createHorizonAnimator() {
         return state;
       }
 
-      // Critically-damped 2nd-order filter on energy: smooth fluid takeoff & release
+      // Critically-damped 2nd-order filter on energy: fluid takeoff & release with zero derivative spikes
       const targetEnergy = clamp01(input.energy);
-      const eStiffness = targetEnergy > state.energy ? 110 : 52;
-      const eDamping = targetEnergy > state.energy ? 21 : 15;
+      const eStiffness = targetEnergy > state.energy ? 68 : 42;
+      const eDamping = targetEnergy > state.energy ? 17.5 : 13.5;
       energyVel += ((targetEnergy - state.energy) * eStiffness - energyVel * eDamping) * clampedDt;
       state.energy = clamp01(state.energy + energyVel * clampedDt);
 
       // Exponential pointer smoothing + damped horizontal wake velocity
       const prevPtrX = state.pointerX;
-      const ptrFactor = 1 - Math.exp(-10.5 * clampedDt);
+      const ptrFactor = 1 - Math.exp(-9.5 * clampedDt);
       state.pointerX += (clamp(input.pointerX, -1, 1) - state.pointerX) * ptrFactor;
       state.pointerY += (clamp(input.pointerY, -1, 1) - state.pointerY) * ptrFactor;
 
       const rawVelX = clamp((state.pointerX - prevPtrX) / clampedDt, -3.5, 3.5);
-      const velFactor = 1 - Math.exp(-7.5 * clampedDt);
+      const velFactor = 1 - Math.exp(-7.0 * clampedDt);
       pointerVelX += (rawVelX - pointerVelX) * velFactor;
       wakePhase += clampedDt * (1.2 + Math.abs(pointerVelX) * 2.4 + state.energy * 1.4);
 
       // Fast-attack / graceful-release band filtering
-      const attackFactor = 1 - Math.exp(-12 * clampedDt);
-      const releaseFactor = 1 - Math.exp(-6.5 * clampedDt);
+      const attackFactor = 1 - Math.exp(-9.5 * clampedDt);
+      const releaseFactor = 1 - Math.exp(-6.0 * clampedDt);
       for (let i = 0; i < 12; i++) {
         const target = clamp01(input.bands?.[i] ?? 0);
         const f = target > bands[i] ? attackFactor : releaseFactor;
@@ -159,6 +162,8 @@ let colShimmer = new Float32Array(0);
 let colMist = new Float32Array(0);
 let colSinU = new Float32Array(0);
 let colCosU = new Float32Array(0);
+let colPeakTop = new Float32Array(0);
+let colBarGate = new Float32Array(0);
 let horizonRowChars: string[] = [];
 
 function ensureHorizonBuffers(subLen: number, subW: number, cols: number): Float32Array {
@@ -175,6 +180,8 @@ function ensureHorizonBuffers(subLen: number, subW: number, cols: number): Float
     colMist = new Float32Array(subW);
     colSinU = new Float32Array(subW);
     colCosU = new Float32Array(subW);
+    colPeakTop = new Float32Array(subW);
+    colBarGate = new Float32Array(subW);
   }
   if (horizonRowChars.length !== cols) {
     horizonRowChars = new Array<string>(cols);
@@ -184,10 +191,10 @@ function ensureHorizonBuffers(subLen: number, subW: number, cols: number): Float
 
 /**
  * Renders a fluid, modern 2x4 Unicode Braille wave & acoustic topography field
- * with 8x8 Bayer dithering, directional cursor wake ripples, and subtle acoustic mist.
+ * with 8x8 Bayer dithering, directional cursor wake ripples, subtle mist, and Silk/Peaks/Pulse styles.
  */
 export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHorizonFrame {
-  const { cols, rows, time, motion } = params;
+  const { cols, rows, time, motion, style = 'silk' } = params;
   const energy = motion ? motion.energy : params.energy;
   const pointerX = motion ? motion.pointerX : params.pointerX;
   const pointerY = motion ? motion.pointerY : params.pointerY;
@@ -215,6 +222,9 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
   const c2Amp = 0.11 + voiceAmp * 0.27;
   const c3Amp = 0.07 + voiceAmp * 0.22;
   const shimmerScale = 0.18 * (0.35 + energy * 0.65);
+  const isPeaks = style === 'peaks';
+  const isPulse = style === 'pulse';
+  const barCount = Math.max(18, Math.round(cols * 0.28));
 
   // Precompute column-invariant wave topography, FFT boost, and directional pointer wake
   for (let sx = 0; sx < subW; sx++) {
@@ -225,7 +235,7 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
 
     let wakeWave = 0;
     if (wakeAmp > 0.004) {
-      const behind = (ux - pxTarget) * wakeDir;
+      const behind = dxPtr * wakeDir;
       if (behind > -0.04 && behind < 0.42) {
         const wakeEnv = fastFieldExpNeg(behind * behind * 22);
         wakeWave = wakeEnv * Math.sin(behind * 34 - wakePhase * 6.5) * wakeAmp;
@@ -244,13 +254,18 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       bandBoost = (b0 + (b1 - b0) * smoothFrac) * 0.16;
     }
 
+    const pulseMod = isPulse
+      ? Math.sin(Math.abs(dxPtr) * 32 - time * 5.2) * (0.045 + energy * 0.075) * fastFieldExpNeg(dxPtr * dxPtr * 3.8)
+      : 0;
+
     colCrest1[sx] =
       0.44 -
       Math.sin(ux * 6.2 + time * 0.92) * c1Amp -
       Math.cos(ux * 13.0 - time * 1.32) * 0.055 -
       cursorWave -
       wakeWave -
-      bandBoost;
+      bandBoost -
+      pulseMod;
 
     colCrest2[sx] =
       0.60 -
@@ -258,12 +273,29 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       Math.sin(ux * 19.0 + time * 1.9) * 0.036 -
       cursorWave * 0.65 -
       wakeWave * 0.55 -
-      bandBoost * 0.58;
+      bandBoost * 0.58 -
+      pulseMod * 0.6;
 
     colCrest3[sx] =
       0.74 -
       Math.cos(ux * 8.2 + time * 1.18) * c3Amp -
       bandBoost * 0.42;
+
+    if (isPeaks) {
+      const barPos = ux * barCount;
+      const barIdx = barPos | 0;
+      const barFrac = barPos - barIdx - 0.5;
+      const barCenterU = (barIdx + 0.5) / barCount;
+      const barGate = barFrac > -0.34 && barFrac < 0.34 ? 1 : 0;
+      let barBand = 0.14 + 0.12 * Math.sin(barCenterU * 11 + time * 2.4);
+      if (bandLen > 0) {
+        const bi = Math.min(bandLen - 1, Math.floor(barCenterU * bandLen));
+        barBand = (bands![bi] ?? 0) * 0.42 + 0.08;
+      }
+      const ptrBar = fastFieldExpNeg((barCenterU - pxTarget) * (barCenterU - pxTarget) * 20) * (0.12 + energy * 0.14);
+      colBarGate[sx] = barGate;
+      colPeakTop[sx] = clamp(0.84 - (barBand * (0.55 + energy * 0.75) + ptrBar), 0.18, 0.82);
+    }
 
     colShimmer[sx] = (0.94 + shimmerScale * Math.sin(ux * 22 - time * 3.4)) * 0.98;
     const sparkleGate = Math.sin(ux * 54 - time * 4.6) * Math.cos(ux * 31 + time * 2.9);
@@ -272,7 +304,7 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
         ? clamp01(0.42 + 0.58 * sparkleGate) * energy * 0.42
         : 0;
 
-    const rippleU = ux * 42 - time * 2.25;
+    const rippleU = isPulse ? Math.abs(dxPtr) * 38 - time * 4.4 : ux * 42 - time * 2.25;
     colSinU[sx] = Math.sin(rippleU);
     colCosU[sx] = Math.cos(rippleU);
   }
@@ -290,10 +322,11 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       continue;
     }
 
-    const bottomAnchorWeight = smoothstep(0.35, 0.9, uy) * 0.10;
+    const bottomAnchorWeight = smoothstep(0.35, 0.9, uy) * (isPulse ? 0.15 : 0.10);
     const rippleV = uy * 18;
     const sinV = Math.sin(rippleV);
     const cosV = Math.cos(rippleV);
+    const peakScanMask = isPeaks && (sy % 3 !== 2) ? 1 : 0.42;
 
     for (let sx = 0; sx < subW; sx++) {
       const crest1 = colCrest1[sx];
@@ -325,8 +358,19 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       const sinRipple = colSinU[sx] * cosV + colCosU[sx] * sinV;
       const fineRipple = (0.5 + 0.5 * sinRipple) * bottomAnchorWeight;
 
+      let peakBoost = 0;
+      if (isPeaks && colBarGate[sx] > 0.5) {
+        const peakTop = colPeakTop[sx];
+        if (uy >= peakTop && uy < 0.86) {
+          const capDist = uy - peakTop;
+          const capGlow = capDist < 0.055 ? 0.86 : 0.46 * (1 - smoothstep(peakTop, 0.86, uy) * 0.45);
+          peakBoost = capGlow * peakScanMask;
+        }
+      }
+
       const maxLine = line1 > line2 ? (line1 > line3 ? line1 : line3) : line2 > line3 ? line2 : line3;
-      const lum = clamp01((maxLine + fill1 + fill2 + fineRipple + mist) * fadeEnvelope);
+      const combined = maxLine > peakBoost ? maxLine : peakBoost;
+      const lum = clamp01((combined + fill1 + fill2 + fineRipple + mist) * fadeEnvelope);
       subLum[rowOff + sx] = lum;
     }
   }

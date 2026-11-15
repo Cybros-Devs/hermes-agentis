@@ -1,5 +1,7 @@
 import type { BackgroundPresetKind } from '../backgrounds/types';
 import type { ExpressionMood } from '../types/hermes';
+import type { BrailleDotProfile } from './brailleCanvasRaster';
+import type { BrailleHorizonStyle } from './brailleFieldEngine';
 
 export type UiAccentPreset =
   | 'emerald'
@@ -50,8 +52,11 @@ export interface UiCustomizationConfig {
   portraitVisible: boolean;
   portraitScale: number;
   portraitTintHex: string | null;
+  brailleDotProfile: BrailleDotProfile;
+  brailleBloom: number;
   horizonVisible: boolean;
   horizonOpacity: number;
+  horizonStyle: BrailleHorizonStyle;
   statusReadoutVisible: boolean;
   animationSpeed: number;
   reducedMotion: boolean;
@@ -186,8 +191,11 @@ export const CURATED_UI_PRESETS: readonly CuratedUiPreset[] = [
       portraitVisible: true,
       portraitScale: 1.0,
       portraitTintHex: null,
+      brailleDotProfile: 'balanced',
+      brailleBloom: 0.75,
       horizonVisible: true,
       horizonOpacity: 0.8,
+      horizonStyle: 'silk',
       statusReadoutVisible: true,
       animationSpeed: 1.0,
       reducedMotion: false,
@@ -216,8 +224,11 @@ export const CURATED_UI_PRESETS: readonly CuratedUiPreset[] = [
       fontPreset: 'display',
       fontScale: 1.0,
       portraitTintHex: '#E9D5FF',
+      brailleDotProfile: 'phosphor',
+      brailleBloom: 1.1,
       horizonVisible: true,
       horizonOpacity: 0.85,
+      horizonStyle: 'pulse',
     },
   },
   {
@@ -244,8 +255,11 @@ export const CURATED_UI_PRESETS: readonly CuratedUiPreset[] = [
       fontScale: 0.98,
       composerStyle: 'docked',
       portraitTintHex: '#FDE68A',
+      brailleDotProfile: 'crisp',
+      brailleBloom: 0.85,
       horizonVisible: true,
       horizonOpacity: 0.72,
+      horizonStyle: 'peaks',
     },
   },
   {
@@ -363,8 +377,11 @@ export const DEFAULT_UI_CONFIG: UiCustomizationConfig = {
   portraitVisible: true,
   portraitScale: 1.0,
   portraitTintHex: null,
+  brailleDotProfile: 'balanced',
+  brailleBloom: 0.75,
   horizonVisible: true,
   horizonOpacity: 0.8,
+  horizonStyle: 'silk',
   statusReadoutVisible: true,
   animationSpeed: 1.0,
   reducedMotion: false,
@@ -439,6 +456,8 @@ const VALID_SIDEBAR_POSITIONS = new Set<UiSidebarPosition>(['left', 'right']);
 const VALID_COMPOSER_STYLES = new Set<UiComposerStyle>(['docked', 'floating', 'minimal']);
 const VALID_DENSITIES = new Set<UiDensity>(['compact', 'comfortable', 'airy']);
 const VALID_VIEWS = new Set<UiPanelView>(['home', 'canvas', 'voice', 'queue', 'cli']);
+const VALID_BRAILLE_PROFILES = new Set<BrailleDotProfile>(['crisp', 'balanced', 'phosphor']);
+const VALID_HORIZON_STYLES = new Set<BrailleHorizonStyle>(['silk', 'peaks', 'pulse']);
 const VALID_MOODS = new Set<ExpressionMood>([
   'neutral',
   'listening',
@@ -564,8 +583,15 @@ export function sanitizeUiPatch(raw: unknown): UiCustomizationPatch {
     if (pt) out.portraitTintHex = pt;
   }
 
+  if (typeof src.brailleDotProfile === 'string' && VALID_BRAILLE_PROFILES.has(src.brailleDotProfile as BrailleDotProfile)) {
+    out.brailleDotProfile = src.brailleDotProfile as BrailleDotProfile;
+  }
+  if (typeof src.brailleBloom === 'number') out.brailleBloom = clampNumber(src.brailleBloom, 0, 1.5, DEFAULT_UI_CONFIG.brailleBloom);
   if (typeof src.horizonVisible === 'boolean') out.horizonVisible = src.horizonVisible;
   if (typeof src.horizonOpacity === 'number') out.horizonOpacity = clampNumber(src.horizonOpacity, 0, 1, DEFAULT_UI_CONFIG.horizonOpacity);
+  if (typeof src.horizonStyle === 'string' && VALID_HORIZON_STYLES.has(src.horizonStyle as BrailleHorizonStyle)) {
+    out.horizonStyle = src.horizonStyle as BrailleHorizonStyle;
+  }
   if (typeof src.statusReadoutVisible === 'boolean') out.statusReadoutVisible = src.statusReadoutVisible;
   if (typeof src.animationSpeed === 'number') out.animationSpeed = clampNumber(src.animationSpeed, 0.3, 1.8, DEFAULT_UI_CONFIG.animationSpeed);
   if (typeof src.reducedMotion === 'boolean') out.reducedMotion = src.reducedMotion;
@@ -684,7 +710,7 @@ export function parseNaturalUiIntent(
       lower
     );
   const hasUiNoun =
-    /\b(ui|interface|theme|preset|color|colour|accent|palette|violet|purple|amber|gold|cyan|blue|rose|pink|crimson|red|emerald|green|mono|monochrome|stealth|zen|sakura|solaris|glacier|sidebar|panel|nav|tabs|header|title|brand|portrait|character|avatar|horizon|wave|footer|composer|input|font|monospace|jakarta|text|corner|corners|sharp|pill|rounded|blur|opacity|glow|border|compact|airy|comfortable|motion|animation|speed|background|backdrop|aurora|braille rain|matrix|scanline|nebula|constellation|mesh|canvas|queue|cli|thread|studio|customizer)\b/i.test(
+    /\b(ui|interface|theme|preset|color|colour|accent|palette|violet|purple|amber|gold|cyan|blue|rose|pink|crimson|red|emerald|green|mono|monochrome|stealth|zen|sakura|solaris|glacier|sidebar|panel|nav|tabs|header|title|brand|portrait|character|avatar|horizon|wave|footer|composer|input|font|monospace|jakarta|text|corner|corners|sharp|pill|rounded|blur|opacity|glow|border|compact|airy|comfortable|motion|animation|speed|background|backdrop|aurora|braille|dots|bloom|phosphor|peaks|silk|pulse|rain|matrix|scanline|nebula|constellation|mesh|canvas|queue|cli|thread|studio|customizer)\b/i.test(
       lower
     );
   const isDirectPresetOrHex =
@@ -871,12 +897,43 @@ export function parseNaturalUiIntent(
     mark();
   }
 
-  // Horizon / Wave
+  // Horizon / Wave & Braille Optics
   if (/\b(hide|remove|turn\s*off|disable)\b.*\b(horizon|wave|waves)\b/i.test(lower)) {
     patch.horizonVisible = false;
     mark();
   } else if (/\b(show|enable|turn\s*on)\b.*\b(horizon|wave|waves)\b/i.test(lower)) {
     patch.horizonVisible = true;
+    mark();
+  }
+  if (/\b(spectral\s*peaks?|peaks\s*horizon|bars?\s*horizon)\b/i.test(lower)) {
+    patch.horizonStyle = 'peaks';
+    patch.horizonVisible = true;
+    mark();
+  } else if (/\b(pulse\s*tide|interference\s*wave|pulse\s*horizon)\b/i.test(lower)) {
+    patch.horizonStyle = 'pulse';
+    patch.horizonVisible = true;
+    mark();
+  } else if (/\b(silk\s*waves?|silk\s*horizon|fluid\s*horizon)\b/i.test(lower)) {
+    patch.horizonStyle = 'silk';
+    patch.horizonVisible = true;
+    mark();
+  }
+  if (/\b(crisp\s*dots?|crisp\s*braille|sharp\s*dots?)\b/i.test(lower)) {
+    patch.brailleDotProfile = 'crisp';
+    mark();
+  } else if (/\b(phosphor\s*dots?|phosphor\s*braille|phosphor\s*bloom)\b/i.test(lower)) {
+    patch.brailleDotProfile = 'phosphor';
+    patch.brailleBloom = 1.15;
+    mark();
+  } else if (/\b(balanced\s*dots?|balanced\s*braille)\b/i.test(lower)) {
+    patch.brailleDotProfile = 'balanced';
+    mark();
+  }
+  if (/\b(no\s*bloom|disable\s*bloom|zero\s*bloom)\b/i.test(lower)) {
+    patch.brailleBloom = 0;
+    mark();
+  } else if (/\b(high\s*bloom|max\s*bloom|extra\s*bloom|boost\s*bloom)\b/i.test(lower)) {
+    patch.brailleBloom = 1.35;
     mark();
   }
 

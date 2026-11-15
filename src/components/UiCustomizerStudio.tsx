@@ -23,6 +23,8 @@ import {
 } from '../backgrounds/persistence';
 import type { BackgroundCustomSlot, BackgroundSettings } from '../backgrounds/types';
 import type { ExpressionMood } from '../types/hermes';
+import type { BrailleDotProfile } from '../utils/brailleCanvasRaster';
+import type { BrailleHorizonStyle } from '../utils/brailleFieldEngine';
 import {
   ACCENT_SWATCHES,
   CURATED_UI_PRESETS,
@@ -663,6 +665,15 @@ export function UiCustomizerStudio({
                   onChange={(val) => onApplyPatch({ horizonOpacity: val }, 'studio')}
                 />
                 <SliderRow
+                  label="Phosphor dot bloom"
+                  valueLabel={`${Math.round(config.brailleBloom * 100)}%`}
+                  min={0}
+                  max={1.5}
+                  step={0.05}
+                  value={config.brailleBloom}
+                  onChange={(val) => onApplyPatch({ brailleBloom: val }, 'studio')}
+                />
+                <SliderRow
                   label="Animation speed"
                   valueLabel={`${config.animationSpeed.toFixed(2)}x`}
                   min={0.3}
@@ -670,6 +681,26 @@ export function UiCustomizerStudio({
                   step={0.05}
                   value={config.animationSpeed}
                   onChange={(val) => onApplyPatch({ animationSpeed: val }, 'studio')}
+                />
+                <SegmentedRow<BrailleDotProfile>
+                  label="Braille dot matrix optics"
+                  value={config.brailleDotProfile}
+                  options={[
+                    { id: 'crisp', label: 'Crisp' },
+                    { id: 'balanced', label: 'Balanced' },
+                    { id: 'phosphor', label: 'Phosphor' },
+                  ]}
+                  onChange={(val) => onApplyPatch({ brailleDotProfile: val }, 'studio')}
+                />
+                <SegmentedRow<BrailleHorizonStyle>
+                  label="Horizon wave mode"
+                  value={config.horizonStyle}
+                  options={[
+                    { id: 'silk', label: 'Silk' },
+                    { id: 'peaks', label: 'Peaks' },
+                    { id: 'pulse', label: 'Pulse' },
+                  ]}
+                  onChange={(val) => onApplyPatch({ horizonStyle: val, horizonVisible: true }, 'studio')}
                 />
               </div>
 

@@ -18,14 +18,19 @@ import type {
   ExpressionMood,
   TerminalEntry,
 } from './types/hermes';
-import type { BrailleShapeKind, BrailleShapeTint } from './utils/brailleShapesEngine';
+import type { CreateDotSessionPayload } from './components/AddSessionShapeModal';
 import {
+  arrangeSessionsFormation,
   autoArrangeSessions,
   createHermesSessionId,
+  createSeedCanvasPins,
   createSeedCanvasSessions,
   findOpenCanvasSpot,
+  normalizeCanvasPins,
   normalizeCanvasSessions,
   slugifySessionName,
+  type CanvasFormationPreset,
+  type CanvasPin,
   type CanvasSession,
 } from './utils/canvasSessions';
 import { INITIAL_CHANNELS, executeCliInput } from './utils/cliEngine';
@@ -96,6 +101,7 @@ function buildLocalFallbackReply(
 }
 
 const CANVAS_STORAGE_KEY = 'duet.canvasSessions.v2';
+const CANVAS_PINS_STORAGE_KEY = 'duet.canvasPins.v1';
 
 export default function App() {
   const [activeChannel, setActiveChannel] = useState<ChannelId>('general');
@@ -117,6 +123,20 @@ export default function App() {
       // fall back to seeded sessions
     }
     return createSeedCanvasSessions(INITIAL_CHANNELS);
+  });
+  const [canvasPins, setCanvasPins] = useState<CanvasPin[]>(() => {
+    try {
+      const raw = localStorage.getItem(CANVAS_PINS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<CanvasPin>[];
+        if (Array.isArray(parsed)) {
+          return normalizeCanvasPins(parsed);
+        }
+      }
+    } catch {
+      // fall back to seeded pins
+    }
+    return createSeedCanvasPins();
   });
   const [mood, setMood] = useState<ExpressionMood>('happy');
   const [panelView, setPanelView] = useState<WorkspacePanelView>(() => {
@@ -420,7 +440,7 @@ export default function App() {
     void loadChannelHistory(activeChannel);
   }, [hermesConnected, activeChannel, homeSessionDraft, panelView, loadChannelHistory]);
 
-  // Persist Braille Canvas sessions locally
+  // Persist Braille Canvas sessions & Berd workspace pins locally
   useEffect(() => {
     try {
       localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(canvasSessions));
@@ -428,6 +448,14 @@ export default function App() {
       // ignore storage quota errors
     }
   }, [canvasSessions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CANVAS_PINS_STORAGE_KEY, JSON.stringify(canvasPins));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [canvasPins]);
 
   // Sync any custom canvas sessions to the server hermes-agent registry.
   // Seeded core shapes register lazily on first message.
@@ -827,6 +855,11 @@ export default function App() {
         mood: 'thinking',
         eyeStyle: visual.eyeStyle,
         isCore: false,
+        autonomyMode: 'manual',
+        scheduleLabel: 'On-demand',
+        sandboxEnv: 'cloud-sandbox',
+        workspaceDir: `~/hermes-dots/${derived.slug}`,
+        skills: ['browser', 'files'],
       };
 
       syncedSessionsRef.current.add(derived.slug);
@@ -1312,14 +1345,7 @@ export default function App() {
   }, []);
 
   const handleAddCanvasSession = useCallback(
-    (payload: {
-      name: string;
-      topic: string;
-      persona: string;
-      shape: BrailleShapeKind;
-      tint: BrailleShapeTint;
-      eyeStyle: 'open' | 'sleepy';
-    }) => {
+    (payload: CreateDotSessionPayload) => {
       const currentSessions = stateRef.current.canvasSessions;
       const slug = slugifySessionName(
         payload.name,
@@ -1327,6 +1353,14 @@ export default function App() {
       );
       const hermesSessionId = createHermesSessionId(slug);
       const spot = findOpenCanvasSpot(currentSessions);
+      const autonomyMode = payload.autonomyMode ?? 'manual';
+      const scheduleLabel =
+        payload.scheduleLabel ??
+        (autonomyMode === 'scheduled'
+          ? 'Every 30m'
+          : autonomyMode === 'watch'
+          ? 'Continuous watch'
+          : 'On-demand');
       const nextSession: CanvasSession = {
         id: `session-${slug}-${Date.now().toString(36)}`,
         channelId: slug,
@@ -1341,6 +1375,11 @@ export default function App() {
         mood: 'happy',
         eyeStyle: payload.eyeStyle,
         isCore: false,
+        autonomyMode,
+        scheduleLabel,
+        sandboxEnv: payload.sandboxEnv ?? 'cloud-sandbox',
+        workspaceDir: `~/hermes-dots/${slug}`,
+        skills: payload.skills && payload.skills.length > 0 ? payload.skills : ['browser', 'files'],
       };
       syncedSessionsRef.current.add(slug);
       setHomeSessionDraft(false);
@@ -1348,7 +1387,7 @@ export default function App() {
       setActiveChannel(slug);
       setMood('happy');
 
-      const msg = `Isolated session ${hermesSessionId} online (#${slug}). ${payload.topic}`;
+      const msg = `Isolated Dot ${hermesSessionId} online (#${slug} · ${scheduleLabel}). ${payload.topic}`;
       updateSpokenLine(msg, slug);
 
       if (hermesConnected) {
@@ -1380,8 +1419,33 @@ export default function App() {
     [appendEntry, createHermesSession, hermesConnected, updateSpokenLine]
   );
 
-  const handleAutoArrangeCanvas = useCallback(() => {
-    setCanvasSessions((prev) => autoArrangeSessions(prev));
+  const handleUpdateDotConfig = useCallback(
+    (
+      id: string,
+      patch: Partial<Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills'>>
+    ) => {
+      setCanvasSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+      );
+    },
+    []
+  );
+
+  const handleAddCanvasPin = useCallback((pin: Omit<CanvasPin, 'id'>) => {
+    const id = `pin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    setCanvasPins((prev) => [...prev, { ...pin, id }]);
+  }, []);
+
+  const handleMoveCanvasPin = useCallback((id: string, xPct: number, yPct: number) => {
+    setCanvasPins((prev) => prev.map((p) => (p.id === id ? { ...p, xPct, yPct } : p)));
+  }, []);
+
+  const handleRemoveCanvasPin = useCallback((id: string) => {
+    setCanvasPins((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const handleAutoArrangeCanvas = useCallback((formation?: CanvasFormationPreset) => {
+    setCanvasSessions((prev) => arrangeSessionsFormation(prev, formation ?? 'constellation'));
   }, []);
 
   const handleCycleSessionMood = useCallback(
@@ -1587,12 +1651,17 @@ export default function App() {
             showThinking={showThinking}
             onToggleThinking={handleToggleThinking}
             canvasSessions={canvasSessions}
+            canvasPins={canvasPins}
             hermesSessions={hermes.sessions}
             thinkingByChannel={thinkingByChannel}
             speakingChannel={voice.voiceState.isSpeaking ? speakingChannel : null}
             onSelectCanvasSession={handleSelectCanvasSession}
             onMoveCanvasSession={handleMoveCanvasSession}
             onAddCanvasSession={handleAddCanvasSession}
+            onUpdateDotConfig={handleUpdateDotConfig}
+            onAddCanvasPin={handleAddCanvasPin}
+            onMoveCanvasPin={handleMoveCanvasPin}
+            onRemoveCanvasPin={handleRemoveCanvasPin}
             onAutoArrangeCanvas={handleAutoArrangeCanvas}
             onCycleSessionMood={handleCycleSessionMood}
             onResetSession={handleResetCanvasSession}

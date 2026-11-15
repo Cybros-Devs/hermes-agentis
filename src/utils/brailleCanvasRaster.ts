@@ -13,6 +13,15 @@ export interface BrailleRasterSurface {
   height: number;
 }
 
+export type BrailleDotProfile = 'crisp' | 'balanced' | 'phosphor';
+
+export interface TonalRasterOptions {
+  /** Optical dot matrix profile modulating core crispness and diameter range */
+  dotProfile?: BrailleDotProfile;
+  /** Additive-weighted phosphor bloom halo intensity around high-tier highlight dots (0..1.5) */
+  bloom?: number;
+}
+
 const IS_LITTLE_ENDIAN = (() => {
   const buf = new ArrayBuffer(4);
   new Uint32Array(buf)[0] = 0x0a0b0c0d;
@@ -141,24 +150,113 @@ export function rasterizeDotBucketsToSurface(
 export interface TonalDotBucketSpec extends DotBucketSpec {
   /** Relative diameter scale for halftone dot-size modulation (e.g. 0.68 shadows .. 1.18 highlights). */
   diameterScale?: number;
+  /** Optional phosphor bloom intensity override for luminous highlight dots. */
+  bloomWeight?: number;
 }
 
 /**
- * Multi-tier halftone rasterizer with per-bucket dot-size modulation and circular
- * anti-aliased subpixel coverage so bright highlights bloom cleanly and subtle
- * shadows render as delicate crisp pinpoints without harsh square pixel stairs.
+ * Multi-tier halftone rasterizer with per-bucket dot-size modulation, squared-radial
+ * circular anti-aliasing (zero per-pixel sqrt), and optional soft phosphor corona bloom
+ * for luminous eyes, crests, and anime rim highlights.
  */
 export function rasterizeTonalDotBucketsToSurface(
   surface: BrailleRasterSurface,
   buckets: readonly TonalDotBucketSpec[],
   dpr: number,
-  baseDotDiameterCss: number
+  baseDotDiameterCss: number,
+  options?: TonalRasterOptions
 ): void {
   const { u32, bytes, width, height } = surface;
   u32.fill(0);
 
-  const baseDotPx = Math.max(0.75, baseDotDiameterCss * dpr);
+  const profile = options?.dotProfile ?? 'balanced';
+  const bloom = Math.max(0, Math.min(1.5, options?.bloom ?? 0));
+  const profileScale = profile === 'crisp' ? 0.88 : profile === 'phosphor' ? 1.14 : 1.0;
+  const softEdgeCut = profile === 'crisp' ? 0.44 : profile === 'phosphor' ? 0.24 : 0.3364; // (0.58)^2 = 0.3364
+  const invEdgeSpan = 1 / (1.3225 - softEdgeCut); // (1.15)^2 = 1.3225
 
+  const baseDotPx = Math.max(0.75, baseDotDiameterCss * dpr * profileScale);
+
+  // Pass 1 (optional): Subtle soft phosphor halo beneath top-tier bright dots
+  if (bloom > 0.04) {
+    const startBloomBucket = Math.max(0, buckets.length - 2);
+    for (let bIdx = startBloomBucket; bIdx < buckets.length; bIdx++) {
+      const bucket = buckets[bIdx];
+      const len = bucket.len;
+      if (len <= 0) continue;
+
+      const tierGain = bIdx === buckets.length - 1 ? 1.0 : 0.48;
+      const haloAlphaMax = Math.min(
+        96,
+        Math.round(bucket.alpha * bloom * tierGain * (bucket.bloomWeight ?? 1) * 62)
+      );
+      if (haloAlphaMax <= 2) continue;
+
+      const [r, g, b] = parseHexRgb(bucket.hex);
+      const scale = bucket.diameterScale ?? 1;
+      const dotPx = Math.max(0.65, baseDotPx * scale);
+      const centerShift = (baseDotPx - dotPx) * 0.5;
+      const haloRadius = dotPx * (0.95 + bloom * 0.38);
+      const invHaloR2 = 1 / (haloRadius * haloRadius);
+      const packedRgb = (b << 16) | (g << 8) | r;
+      const xy = bucket.xy;
+
+      for (let i = 0; i < len; i += 2) {
+        const cx = xy[i] * dpr + centerShift + dotPx * 0.5;
+        const cy = xy[i + 1] * dpr + centerShift + dotPx * 0.5;
+
+        let ix0 = (cx - haloRadius) | 0;
+        if (ix0 < 0) ix0 = 0;
+        let iy0 = (cy - haloRadius) | 0;
+        if (iy0 < 0) iy0 = 0;
+        let ix1 = (cx + haloRadius) | 0;
+        if (ix1 >= width) ix1 = width - 1;
+        let iy1 = (cy + haloRadius) | 0;
+        if (iy1 >= height) iy1 = height - 1;
+
+        for (let py = iy0; py <= iy1; py++) {
+          const dy = py + 0.5 - cy;
+          const dy2 = dy * dy;
+          const rowPixel = py * width;
+
+          for (let px = ix0; px <= ix1; px++) {
+            const dx = px + 0.5 - cx;
+            const norm2 = (dx * dx + dy2) * invHaloR2;
+            if (norm2 >= 1) continue;
+
+            const falloff = 1 - norm2;
+            const covA = (haloAlphaMax * falloff * falloff + 0.5) | 0;
+            if (covA <= 1) continue;
+
+            const pIdx = rowPixel + px;
+            const off = pIdx << 2;
+            const prevA = bytes[off + 3];
+            if (prevA === 0) {
+              if (IS_LITTLE_ENDIAN) {
+                u32[pIdx] = (covA << 24) | packedRgb;
+              } else {
+                bytes[off] = r;
+                bytes[off + 1] = g;
+                bytes[off + 2] = b;
+                bytes[off + 3] = covA;
+              }
+            } else {
+              const nextA = prevA + covA > 210 ? 210 : prevA + covA;
+              const nr = bytes[off] + ((r * covA) >> 8);
+              const ng = bytes[off + 1] + ((g * covA) >> 8);
+              const nb = bytes[off + 2] + ((b * covA) >> 8);
+              bytes[off] = nr > 255 ? 255 : nr;
+              bytes[off + 1] = ng > 255 ? 255 : ng;
+              bytes[off + 2] = nb > 255 ? 255 : nb;
+              bytes[off + 3] = nextA;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Pass 2: Crisp circular anti-aliased halftone dot cores
   for (let bIdx = 0; bIdx < buckets.length; bIdx++) {
     const bucket = buckets[bIdx];
     const len = bucket.len;
@@ -173,7 +271,8 @@ export function rasterizeTonalDotBucketsToSurface(
     const radius = dotPx * 0.5;
     // Slight centering shift so varying dot diameters stay aligned on their subpixel center
     const centerShift = (baseDotPx - dotPx) * 0.5;
-    const invRadius = 1 / Math.max(0.45, radius + 0.45);
+    const effRadius = radius + 0.45;
+    const invRadius2 = 1 / (effRadius * effRadius);
     const xy = bucket.xy;
     const packedRgb = (b << 16) | (g << 8) | r;
 
@@ -201,12 +300,11 @@ export function rasterizeTonalDotBucketsToSurface(
 
         for (let px = ix0; px <= ix1; px++) {
           const dx = px + 0.5 - cx;
-          const dist = Math.sqrt(dx * dx + dy2);
-          const norm = dist * invRadius;
-          if (norm >= 1.15) continue;
+          const norm2 = (dx * dx + dy2) * invRadius2;
+          if (norm2 >= 1.3225) continue;
 
-          // Smooth circular anti-aliased kernel with crisp core
-          const radialCov = norm <= 0.58 ? 1 : Math.max(0, 1 - (norm - 0.58) / 0.57);
+          // Smooth circular anti-aliased kernel without per-pixel sqrt
+          const radialCov = norm2 <= softEdgeCut ? 1 : (1.3225 - norm2) * invEdgeSpan;
           const covA = (baseA * radialCov + 0.5) | 0;
           if (covA <= 0) continue;
 

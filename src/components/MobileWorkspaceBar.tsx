@@ -116,17 +116,19 @@ export function MobileWorkspaceBar({
             aria-label={`Cycle Hermes mood (current: ${mood})`}
             className="w-8 h-8 rounded-full overflow-hidden border border-[#34D399]/40 bg-black/50 flex items-center justify-center shrink-0 cursor-pointer"
           >
-            <div className="scale-[0.76] origin-center">
-              <AsciiPortraitCanvas
-                variant="thumb"
-                mood={mood}
-                viseme={viseme}
-                eyeState="open"
-                energy={isSpeaking ? 0.65 : isListening ? 0.35 : 0.1}
-                isSpeaking={isSpeaking}
-                isListening={isListening}
-              />
-            </div>
+            <span className="w-8 h-8 overflow-hidden flex items-center justify-center pointer-events-none">
+              <span className="scale-[0.76] origin-center shrink-0">
+                <AsciiPortraitCanvas
+                  variant="thumb"
+                  mood={mood}
+                  viseme={viseme}
+                  eyeState="open"
+                  energy={isSpeaking ? 0.65 : isListening ? 0.35 : 0.1}
+                  isSpeaking={isSpeaking}
+                  isListening={isListening}
+                />
+              </span>
+            </span>
           </button>
 
           <button
@@ -320,15 +322,18 @@ export function MobileWorkspaceBar({
                       : 'border-white/20 bg-[#08120F]'
                   }`}
                 >
-                  <div className="scale-[0.28] origin-center pointer-events-none">
-                    <BrailleShapeCanvas
-                      shape={session.shape}
-                      tint={session.tint}
-                      mood={session.mood}
-                      eyeStyle={session.eyeStyle}
-                      variant="preview"
-                    />
-                  </div>
+                  <span className="w-7 h-7 overflow-hidden flex items-center justify-center pointer-events-none">
+                    <span className="scale-[0.28] origin-center shrink-0">
+                      <BrailleShapeCanvas
+                        shape={session.shape}
+                        tint={session.tint}
+                        mood={session.mood}
+                        eyeStyle={session.eyeStyle}
+                        variant="preview"
+                        reducedMotionOverride
+                      />
+                    </span>
+                  </span>
                 </button>
               );
             })}

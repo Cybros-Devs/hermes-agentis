@@ -9,6 +9,7 @@ import {
   getTaskKindLabel,
   getTaskStatusDisplay,
   partitionChannelTasks,
+  resolveTaskProgress,
   resolveTaskStepBreakdown,
   summarizeChannelTaskActivity,
 } from './taskInsights';
@@ -195,4 +196,48 @@ test('getTaskStatusDisplay and confirmation helpers align with hermes-duet seman
     getTaskConfirmationLabel({ ...SAMPLE_TASKS[1], confirmedAtMs: 1_700_000_000_000 }),
     'Confirmed by you'
   );
+});
+
+test('resolveTaskProgress computes step percentages, 100% completion, and indeterminate running state', () => {
+  assert.deepEqual(resolveTaskProgress(SAMPLE_TASKS[0]), {
+    pct: 67,
+    ratioLabel: '4/6',
+    isIndeterminate: false,
+  });
+
+  assert.deepEqual(resolveTaskProgress(SAMPLE_TASKS[1]), {
+    pct: 100,
+    ratioLabel: '2/2',
+    isIndeterminate: false,
+  });
+
+  assert.deepEqual(resolveTaskProgress(SAMPLE_TASKS[2]), {
+    pct: 40,
+    ratioLabel: '40%',
+    isIndeterminate: false,
+  });
+
+  const zeroRunning: BackgroundTask = {
+    id: 't-zero',
+    channelId: 'general',
+    title: 'Starting task',
+    status: 'running',
+    progress: 0,
+    progressLabel: '0/4',
+    lastStep: 'Initializing runner',
+    updatedAt: '15:00',
+  };
+  assert.deepEqual(resolveTaskProgress(zeroRunning), {
+    pct: 0,
+    ratioLabel: '0/4',
+    isIndeterminate: true,
+  });
+
+  const failedPartial: BackgroundTask = {
+    ...SAMPLE_TASKS[0],
+    status: 'completed',
+    rawStatus: 'failed',
+    progress: 50,
+  };
+  assert.equal(resolveTaskProgress(failedPartial).pct, 67);
 });

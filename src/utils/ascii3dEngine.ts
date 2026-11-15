@@ -103,6 +103,12 @@ const MAT_NAMES: AsciiMaterial[] = [
   'pulse',
 ];
 
+const BG_EMPTY_CELL: AsciiCell = Object.freeze({
+  ch: ' ',
+  intensity: 0,
+  material: 'bg',
+});
+
 export function vec3(x: number, y: number, z: number): Vec3 {
   return { x, y, z };
 }
@@ -346,15 +352,33 @@ function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, ex
   const pz = py1 * fc.sTalkX + wz * fc.cTalkX;
   const ax = px < 0 ? -px : px;
   const awx = wx < 0 ? -wx : wx;
+  const awy = wy < 0 ? -wy : wy;
+  const awz = wz < 0 ? -wz : wz;
 
-  // Conservative spherical bounds for each sub-assembly (fast sqrt vs varargs Math.hypot)
-  const bHead = Math.sqrt(px * px + (py - 0.1) * (py - 0.1) + (pz - 0.04) * (pz - 0.04)) - 0.96;
-  const bTorso = Math.sqrt(px * px + (py + 0.85) * (py + 0.85) + (pz + 0.02) * (pz + 0.02)) - 1.12;
-  const bWing = Math.sqrt((ax - 0.92) * (ax - 0.92) + (py - 0.32) * (py - 0.32) + (pz + 0.04) * (pz + 0.04)) - 0.78;
-  const rLen = Math.sqrt(wx * wx + wy * wy + wz * wz);
-  const rDiff = rLen - 1.52;
-  const bRings = (rDiff < 0 ? -rDiff : rDiff) - 0.36;
-  const bPillars = Math.sqrt((awx - 1.56) * (awx - 1.56) + (wy + 0.98) * (wy + 0.98) + (wz + 0.68) * (wz + 0.68)) - 0.75;
+  // Zero-sqrt conservative Cauchy-Schwarz lower bounds for sub-assemblies:
+  // (|dx| + |dy| + |dz|) * 0.57735026 <= sqrt(dx^2 + dy^2 + dz^2) everywhere.
+  const bHead = (ax + Math.abs(py - 0.1) + Math.abs(pz - 0.04)) * 0.57735026 - 0.96;
+  const bTorso = (ax + Math.abs(py + 0.85) + Math.abs(pz + 0.02)) * 0.57735026 - 1.12;
+  const bWing =
+    py < -0.55 || ax < 0.10
+      ? 99
+      : (Math.abs(ax - 0.92) + Math.abs(py - 0.32) + Math.abs(pz + 0.04)) * 0.57735026 - 0.78;
+  const r2 = wx * wx + wy * wy + wz * wz;
+  let bRings: number;
+  if (r2 >= 3.5344) {
+    // r >= 1.88 -> outside outer shell (1.52 + 0.36)
+    bRings = (awx + awy + awz) * 0.57735026 - 1.88;
+  } else if (r2 <= 1.3456) {
+    // r <= 1.16 -> inside inner shell (1.52 - 0.36)
+    const rUpper = awx + awy + awz;
+    bRings = rUpper < 1.16 ? 1.16 - rUpper : Math.abs(Math.sqrt(r2) - 1.52) - 0.36;
+  } else {
+    bRings = Math.abs(Math.sqrt(r2) - 1.52) - 0.36;
+  }
+  const bPillars =
+    wy > -0.10 || awx < 0.78
+      ? 99
+      : (Math.abs(awx - 1.56) + Math.abs(wy + 0.98) + Math.abs(wz + 0.68)) * 0.57735026 - 0.75;
 
   let minBound = bHead;
   if (bTorso < minBound) minBound = bTorso;
@@ -363,7 +387,7 @@ function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, ex
   if (bPillars < minBound) minBound = bPillars;
 
   // Safe empty-space acceleration: when strictly outside all sub-assembly envelopes, step by minBound
-  if (!exactMode && minBound > 0.22) {
+  if (!exactMode && minBound > 0.20) {
     lastHitMat = MAT_BG;
     return minBound;
   }
@@ -438,43 +462,59 @@ function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, ex
     const hax = hpx < 0 ? -hpx : hpx;
 
     const cranium = sdEllipsoid(hpx, py - 0.13, hpz, 0.61, 0.68, 0.58);
-    const chin = sdEllipsoid(hpx, py + 0.26, hpz - 0.09, 0.39, 0.43, 0.45);
+    const chin = py < 0.38 ? sdEllipsoid(hpx, py + 0.26, hpz - 0.09, 0.39, 0.43, 0.45) : 99;
     let headDist = smin(cranium, chin, 0.22);
-    const nose = sdCapsule(hpx, py, hpz, 0, 0.07, 0.54, 0, -0.09, 0.62, 0.048);
-    headDist = smin(headDist, nose, 0.05);
-    const eyeSocket = sdEllipsoid(hax - 0.22, py - 0.08, hpz - 0.56, 0.135, 0.125, 0.08);
-    headDist = Math.max(headDist, -eyeSocket * 0.65);
-    const smileBend = fc.isSmile ? hpx * hpx * 0.42 : 0;
-    const mouthCavity = sdEllipsoid(hpx, py + 0.27 - smileBend, hpz - 0.49, fc.mouthRx, fc.mouthRy, 0.16);
-    headDist = Math.max(headDist, -mouthCavity);
+    if (hpz > 0.24 && hax < 0.32 && py > -0.35 && py < 0.32) {
+      const nose = sdCapsule(hpx, py, hpz, 0, 0.07, 0.54, 0, -0.09, 0.62, 0.048);
+      headDist = smin(headDist, nose, 0.05);
+    }
+    if (hpz > 0.40 && hax < 0.42 && py > -0.10 && py < 0.26) {
+      const eyeSocket = sdEllipsoid(hax - 0.22, py - 0.08, hpz - 0.56, 0.135, 0.125, 0.08);
+      if (eyeSocket < 0) headDist = Math.max(headDist, -eyeSocket * 0.65);
+    }
+    if (hpz > 0.26 && hax < 0.34 && py > -0.48 && py < -0.02) {
+      const smileBend = fc.isSmile ? hpx * hpx * 0.42 : 0;
+      const mouthCavity = sdEllipsoid(hpx, py + 0.27 - smileBend, hpz - 0.49, fc.mouthRx, fc.mouthRy, 0.16);
+      if (mouthCavity < 0) headDist = Math.max(headDist, -mouthCavity);
+    }
     if (headDist < minD) { minD = headDist; mat = MAT_BODY; }
 
-    if (fc.mouthOpen) {
+    if (fc.mouthOpen && hpz > 0.10 && hax < 0.42 && py > -0.58 && py < 0.08) {
       const vocalCore = sdEllipsoid(hpx, py + 0.27, hpz - 0.43, fc.mouthRx * 0.76, fc.mouthRy * 0.78, 0.09);
       if (vocalCore < minD) { minD = vocalCore; mat = MAT_MOUTH; }
     }
 
     const hairBack = sdEllipsoid(hpx, py - 0.16, hpz + 0.14, 0.71, 0.77, 0.64);
-    const faceWindow = sdEllipsoid(hpx, py + 0.01, hpz - 0.36, 0.52, 0.56, 0.48);
-    const hairShell = Math.max(hairBack, -faceWindow);
-    const bangL = sdCapsule(hpx, py, hpz, -0.22, 0.72, 0.33, -0.56, -0.2, 0.36, 0.125);
-    const bangR = sdCapsule(hpx, py, hpz, 0.22, 0.72, 0.33, 0.56, -0.2, 0.36, 0.125);
-    const bangC = sdCapsule(hpx, py, hpz, 0.04, 0.76, 0.44, -0.06, 0.41, 0.52, 0.085);
-    const hairDist = smin(Math.min(hairShell, Math.min(bangL, bangR)), bangC, 0.07);
+    let hairShell = hairBack;
+    if (hpz > -0.20) {
+      const faceWindow = sdEllipsoid(hpx, py + 0.01, hpz - 0.36, 0.52, 0.56, 0.48);
+      if (-faceWindow > hairShell) hairShell = -faceWindow;
+    }
+    const bangL = hpx < 0.06 && hpz > 0.04 && py > -0.45 ? sdCapsule(hpx, py, hpz, -0.22, 0.72, 0.33, -0.56, -0.2, 0.36, 0.125) : 99;
+    const bangR = hpx > -0.06 && hpz > 0.04 && py > -0.45 ? sdCapsule(hpx, py, hpz, 0.22, 0.72, 0.33, 0.56, -0.2, 0.36, 0.125) : 99;
+    const bangC = hax < 0.28 && hpz > 0.18 && py > 0.15 ? sdCapsule(hpx, py, hpz, 0.04, 0.76, 0.44, -0.06, 0.41, 0.52, 0.085) : 99;
+    const hairMin = hairShell < bangL ? (hairShell < bangR ? hairShell : bangR) : (bangL < bangR ? bangL : bangR);
+    const hairDist = smin(hairMin, bangC, 0.07);
     if (hairDist < minD) { minD = hairDist; mat = MAT_HAIR; }
 
-    const eyeDist = sdEllipsoid(hax - 0.22 - fc.eyeGazeX, py - 0.08, hpz - 0.53, 0.115, fc.eyeScaleY, 0.09);
-    if (eyeDist < minD) { minD = eyeDist; mat = MAT_EYE; }
+    if (hpz > 0.18 && py > -0.22 && py < 0.38 && hax < 0.50) {
+      const eyeDist = sdEllipsoid(hax - 0.22 - fc.eyeGazeX, py - 0.08, hpz - 0.53, 0.115, fc.eyeScaleY, 0.09);
+      if (eyeDist < minD) { minD = eyeDist; mat = MAT_EYE; }
+    }
 
-    const bx0 = hax - 0.22;
-    const by0 = py - 0.26;
-    const browDist = sdBox(bx0 * fc.cBrow - by0 * fc.sBrow, bx0 * fc.sBrow + by0 * fc.cBrow, hpz - 0.54, 0.125, 0.024, 0.042);
-    if (browDist < minD) { minD = browDist; mat = MAT_HAIR; }
+    if (hpz > 0.22 && py > 0.05 && py < 0.48 && hax < 0.50) {
+      const bx0 = hax - 0.22;
+      const by0 = py - 0.26;
+      const browDist = sdBox(bx0 * fc.cBrow - by0 * fc.sBrow, bx0 * fc.sBrow + by0 * fc.cBrow, hpz - 0.54, 0.125, 0.024, 0.042);
+      if (browDist < minD) { minD = browDist; mat = MAT_HAIR; }
+    }
 
-    const vx0 = hpx;
-    const vy0 = py - 0.54;
-    const visorDist = sdBox((vx0 - vy0) * 0.7071, (vx0 + vy0) * 0.7071, hpz - 0.53, 0.085, 0.085, 0.052);
-    if (visorDist < minD) { minD = visorDist; mat = MAT_VISOR; }
+    if (hpz > 0.20 && py > 0.30 && py < 0.80 && hax < 0.36) {
+      const vx0 = hpx;
+      const vy0 = py - 0.54;
+      const visorDist = sdBox((vx0 - vy0) * 0.7071, (vx0 + vy0) * 0.7071, hpz - 0.53, 0.085, 0.085, 0.052);
+      if (visorDist < minD) { minD = visorDist; mat = MAT_VISOR; }
+    }
   }
 
   if ((evaluated & 2) === 0 && bTorso < minD) {
@@ -600,13 +640,13 @@ function calcSoftShadow(
   fc: FramePrecompute
 ): number {
   let res = 1.0;
-  let t = 0.1;
-  for (let i = 0; i < 4; i++) {
+  let t = 0.12;
+  for (let i = 0; i < 3; i++) {
     const h = evalSdfFast(ox + lx * t, oy + ly * t, oz + lz * t, fc);
-    if (h < 0.014) return 0.36;
+    if (h < 0.015) return 0.36;
     const penumbra = (4.0 * h) / t;
     if (penumbra < res) res = penumbra;
-    t += clamp(h, 0.1, 0.3);
+    t += clamp(h, 0.14, 0.34);
     if (t > 1.05) break;
   }
   return clamp(res, 0.36, 1.0);
@@ -687,6 +727,164 @@ function ensureBuffers(total: number) {
   matBuf = new Uint8Array(total);
 }
 
+function shadeHitCell(
+  shaderMode: AsciiShaderMode,
+  hitMat: number,
+  matName: AsciiMaterial,
+  t: number,
+  hx: number,
+  hy: number,
+  hz: number,
+  rdx: number,
+  rdy: number,
+  rdz: number,
+  nX: number,
+  nY: number,
+  nZ: number,
+  r: number,
+  c: number,
+  dither: number,
+  fc: FramePrecompute
+): AsciiCell {
+  if (shaderMode === 'norm') {
+    const rCh = Math.round(clamp(nX * 0.5 + 0.5, 0.12, 1) * 255);
+    const gCh = Math.round(clamp(nY * 0.5 + 0.5, 0.12, 1) * 255);
+    const bCh = Math.round(clamp(nZ * 0.5 + 0.5, 0.18, 1) * 255);
+    const ch =
+      hitMat === MAT_EYE
+        ? '◉'
+        : hitMat === MAT_VISOR
+        ? '◈'
+        : hitMat === MAT_MOUTH
+        ? 'O'
+        : mapVectorNormalToChar(nX, nY, nZ);
+    return {
+      ch,
+      intensity: 0.92,
+      material: matName,
+      rgb: `rgb(${rCh}, ${gCh}, ${bCh})`,
+    };
+  }
+
+  const ndotv = Math.abs(-(nX * rdx + nY * rdy + nZ * rdz));
+
+  if (shaderMode === 'wire') {
+    const isEdge =
+      ndotv < 0.43 ||
+      hitMat === MAT_EYE ||
+      hitMat === MAT_MOUTH ||
+      hitMat === MAT_VISOR ||
+      hitMat === MAT_PILLAR ||
+      hitMat === MAT_ORB ||
+      hitMat === MAT_PULSE;
+    if (isEdge) {
+      const ch =
+        hitMat === MAT_EYE
+          ? '◉'
+          : hitMat === MAT_MOUTH
+          ? 'O'
+          : hitMat === MAT_VISOR
+          ? '◈'
+          : hitMat === MAT_ORB
+          ? '◆'
+          : mapEdgeNormalToChar(nX, nY);
+      return {
+        ch,
+        intensity: clamp(0.68 + (1 - ndotv) * 0.32, 0.54, 1),
+        material: matName,
+        isEdge: true,
+      };
+    }
+    return {
+      ch: (r + c) % 4 === 0 ? '·' : ' ',
+      intensity: 0.22,
+      material: matName,
+    };
+  }
+
+  if (shaderMode === 'holo') {
+    const scanWave = 0.62 + 0.38 * Math.sin(hy * 14 - fc.time * 7.2);
+    const oneMinusNdv = 1 - clamp(ndotv, 0, 1);
+    const fresnel = oneMinusNdv * Math.sqrt(oneMinusNdv);
+    const holoLum = clamp(
+      (0.24 + fresnel * 0.76) * scanWave + (hitMat === MAT_EYE || hitMat === MAT_ORB ? 0.38 : 0),
+      0.12,
+      1
+    );
+    const ch =
+      hitMat === MAT_EYE
+        ? '◉'
+        : hitMat === MAT_VISOR
+        ? '◈'
+        : hitMat === MAT_ORB
+        ? '◆'
+        : hitMat === MAT_MOUTH
+        ? fc.viseme === 'round'
+          ? 'o'
+          : 'O'
+        : r % 2 === 0
+        ? mapLuminanceToChar(holoLum, HOLO_RAMP, dither * 0.4)
+        : '·';
+    return { ch, intensity: holoLum, material: matName };
+  }
+
+  // SOLID shader: Key light + 2-tap AO + 3-tap Soft SDF Shadow + Rim Fresnel + Specular
+  const keyX = 0.468;
+  const keyY = 0.585;
+  const keyZ = 0.663;
+  const ao = calcAOFast(hx, hy, hz, nX, nY, nZ, fc);
+  const diffRaw = Math.max(0, nX * keyX + nY * keyY + nZ * keyZ);
+  const shadow =
+    diffRaw > 0.12 && (hitMat === MAT_BODY || hitMat === MAT_HAIR)
+      ? calcSoftShadow(hx, hy, hz, keyX, keyY, keyZ, fc)
+      : 1.0;
+  const diff = diffRaw * shadow;
+  const oneMinusNdv = 1 - clamp(ndotv, 0, 1);
+  const rim = oneMinusNdv * oneMinusNdv * (0.52 + fc.energy * 0.48);
+  const rimBack = Math.max(0, nX * -0.808 + nY * 0.303 + nZ * -0.505) * 0.4;
+  const hxV = keyX - rdx;
+  const hyV = keyY - rdy;
+  const hzV = keyZ - rdz;
+  const hl = Math.sqrt(hxV * hxV + hyV * hyV + hzV * hzV) || 1;
+  const ndoth = Math.max(0, (nX * hxV + nY * hyV + nZ * hzV) / hl);
+  const nd2 = ndoth * ndoth;
+  const nd4 = nd2 * nd2;
+  const nd8 = nd4 * nd4;
+  const nd16 = nd8 * nd8;
+  const spec = nd16 * nd4 * nd2 * 0.62 * shadow;
+
+  let lum = (0.14 + diff * 0.66) * ao + rim * 0.4 + rimBack + spec;
+  if (hitMat === MAT_EYE || hitMat === MAT_VISOR) {
+    lum = clamp(0.88 + fc.energy * 0.12, 0.86, 1);
+  } else if (hitMat === MAT_MOUTH) {
+    lum = clamp(0.68 + (fc.isSpeaking ? fc.energy * 0.32 : 0.12), 0.62, 1);
+  } else if (hitMat === MAT_RING || hitMat === MAT_PILLAR || hitMat === MAT_ORB || hitMat === MAT_PULSE) {
+    lum = clamp(0.56 + diffRaw * 0.36 + fc.energy * 0.28, 0.44, 1);
+  } else if (hitMat === MAT_HAIR) {
+    lum *= 0.8;
+  } else if (hitMat === MAT_WING) {
+    lum = clamp(lum + 0.1 + fc.energy * 0.18, 0.22, 1);
+  }
+
+  lum = clamp(lum, 0.08, 1);
+  const ch =
+    hitMat === MAT_EYE
+      ? '◉'
+      : hitMat === MAT_VISOR
+      ? '◈'
+      : hitMat === MAT_ORB
+      ? '◆'
+      : hitMat === MAT_PULSE
+      ? '~'
+      : hitMat === MAT_MOUTH
+      ? fc.viseme === 'round'
+        ? 'o'
+        : 'O'
+      : mapLuminanceToChar(lum, CLEAN_RAMP, dither);
+
+  return { ch, intensity: lum, material: matName };
+}
+
 /**
  * Next-Gen 2-Pass 3D ASCII Rendering Engine:
  * Pass 1: Bounded-hierarchy 3D SDF Raymarching + 2-tap AO + 6-tap Soft SDF Shadows + Blinn-Phong + Bayer 4x4 Dithering + Perspective Floor Shadows & Acoustic Ripples.
@@ -729,37 +927,34 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
   const upY = rightZ * fwdX - rightX * fwdZ;
   const upZ = rightX * fwdY;
 
-  const keyX = 0.468;
-  const keyY = 0.585;
-  const keyZ = 0.663;
-  const rimX = -0.808;
-  const rimY = 0.303;
-  const rimZ = -0.505;
-
   const aspect = (cols * 0.52) / Math.max(1, rows);
   const fovScale = 0.82;
-  const boundR2 = 2.38 * 2.38;
+  const boundR2 = 2.26 * 2.26;
+  const camYPlus = camY + 0.1;
+  const camC2Base = camX * camX + camYPlus * camYPlus + camZ * camZ - boundR2;
 
   // PASS 1: 3D SDF Raymarch, AO, Soft Shadows & Lighting
   for (let r = 0; r < rows; r++) {
     const ndcY = 1 - (2 * (r + 0.5)) / rows;
     const bayerRow = (r & 3) * 4;
+    const upYTerm = upY * ndcY * fovScale;
+    const upXTerm = upX * ndcY * fovScale;
+    const upZTerm = upZ * ndcY * fovScale;
     for (let c = 0; c < cols; c++) {
       const idx = r * cols + c;
       const ndcX = ((2 * (c + 0.5)) / cols - 1) * aspect;
       const dither = BAYER_4X4[bayerRow + (c & 3)] * 0.055;
 
-      const rdx0 = fwdX + rightX * ndcX * fovScale + upX * ndcY * fovScale;
-      const rdy0 = fwdY + upY * ndcY * fovScale;
-      const rdz0 = fwdZ + rightZ * ndcX * fovScale + upZ * ndcY * fovScale;
+      const rdx0 = fwdX + rightX * ndcX * fovScale + upXTerm;
+      const rdy0 = fwdY + upYTerm;
+      const rdz0 = fwdZ + rightZ * ndcX * fovScale + upZTerm;
       const rdl = Math.sqrt(rdx0 * rdx0 + rdy0 * rdy0 + rdz0 * rdz0) || 1;
       const rdx = rdx0 / rdl;
       const rdy = rdy0 / rdl;
       const rdz = rdz0 / rdl;
 
-      const b = camX * rdx + (camY + 0.1) * rdy + camZ * rdz;
-      const c2 = camX * camX + (camY + 0.1) * (camY + 0.1) + camZ * camZ - boundR2;
-      const disc = b * b - c2;
+      const b = camX * rdx + camYPlus * rdy + camZ * rdz;
+      const disc = b * b - camC2Base;
 
       let hit = false;
       let t = 0.8;
@@ -770,32 +965,21 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
         const tStart = Math.max(0.4, -b - sqrtD);
         const tEnd = Math.min(6.4, -b + sqrtD);
         t = tStart;
-        for (let step = 0; step < 24; step++) {
+        for (let step = 0; step < 19; step++) {
           const d = evalSdfFast(camX + rdx * t, camY + rdy * t, camZ + rdz * t, fc);
-          if (d < 0.017) {
+          if (d < 0.019) {
             hit = true;
             hitMat = lastHitMat;
             break;
           }
-          t += d * 0.98;
+          t += d * 0.99;
           if (t > tEnd) break;
         }
       }
 
       if (hit) {
-        const hx = camX + rdx * t;
-        const hy = camY + rdy * t;
-        const hz = camZ + rdz * t;
-        calcNormalFastVoid(hx, hy, hz, fc);
-        const nX = normX;
-        const nY = normY;
-        const nZ = normZ;
         const matName = MAT_NAMES[hitMat];
-
         depthBuf[idx] = t;
-        nxBuf[idx] = nX;
-        nyBuf[idx] = nY;
-        nzBuf[idx] = nZ;
         matBuf[idx] = hitMat;
 
         if (shaderMode === 'depth') {
@@ -808,146 +992,37 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
           continue;
         }
 
-        if (shaderMode === 'norm') {
-          const rCh = Math.round(clamp(nX * 0.5 + 0.5, 0.12, 1) * 255);
-          const gCh = Math.round(clamp(nY * 0.5 + 0.5, 0.12, 1) * 255);
-          const bCh = Math.round(clamp(nZ * 0.5 + 0.5, 0.18, 1) * 255);
-          const ch =
-            hitMat === MAT_EYE
-              ? '◉'
-              : hitMat === MAT_VISOR
-              ? '◈'
-              : hitMat === MAT_MOUTH
-              ? 'O'
-              : mapVectorNormalToChar(nX, nY, nZ);
-          cells[idx] = {
-            ch,
-            intensity: 0.92,
-            material: matName,
-            rgb: `rgb(${rCh}, ${gCh}, ${bCh})`,
-          };
-          continue;
-        }
+        const hx = camX + rdx * t;
+        const hy = camY + rdy * t;
+        const hz = camZ + rdz * t;
+        calcNormalFastVoid(hx, hy, hz, fc);
+        const nX = normX;
+        const nY = normY;
+        const nZ = normZ;
 
-        const ndotv = Math.abs(-(nX * rdx + nY * rdy + nZ * rdz));
+        nxBuf[idx] = nX;
+        nyBuf[idx] = nY;
+        nzBuf[idx] = nZ;
 
-        if (shaderMode === 'wire') {
-          const isEdge =
-            ndotv < 0.43 ||
-            hitMat === MAT_EYE ||
-            hitMat === MAT_MOUTH ||
-            hitMat === MAT_VISOR ||
-            hitMat === MAT_PILLAR ||
-            hitMat === MAT_ORB ||
-            hitMat === MAT_PULSE;
-          if (isEdge) {
-            const ch =
-              hitMat === MAT_EYE
-                ? '◉'
-                : hitMat === MAT_MOUTH
-                ? 'O'
-                : hitMat === MAT_VISOR
-                ? '◈'
-                : hitMat === MAT_ORB
-                ? '◆'
-                : mapEdgeNormalToChar(nX, nY);
-            cells[idx] = {
-              ch,
-              intensity: clamp(0.68 + (1 - ndotv) * 0.32, 0.54, 1),
-              material: matName,
-              isEdge: true,
-            };
-          } else {
-            cells[idx] = {
-              ch: (r + c) % 4 === 0 ? '·' : ' ',
-              intensity: 0.22,
-              material: matName,
-            };
-          }
-          continue;
-        }
-
-        if (shaderMode === 'holo') {
-          const scanWave = 0.62 + 0.38 * Math.sin(hy * 14 - time * 7.2);
-          const fresnel = Math.pow(1 - clamp(ndotv, 0, 1), 1.55);
-          const holoLum = clamp(
-            (0.24 + fresnel * 0.76) * scanWave + (hitMat === MAT_EYE || hitMat === MAT_ORB ? 0.38 : 0),
-            0.12,
-            1
-          );
-          const ch =
-            hitMat === MAT_EYE
-              ? '◉'
-              : hitMat === MAT_VISOR
-              ? '◈'
-              : hitMat === MAT_ORB
-              ? '◆'
-              : hitMat === MAT_MOUTH
-              ? fc.viseme === 'round'
-                ? 'o'
-                : 'O'
-              : r % 2 === 0
-              ? mapLuminanceToChar(holoLum, HOLO_RAMP, dither * 0.4)
-              : '·';
-          cells[idx] = {
-            ch,
-            intensity: holoLum,
-            material: matName,
-          };
-          continue;
-        }
-
-        // SOLID shader: Key light + 2-tap AO + 4-tap Soft SDF Shadow + Rim Fresnel + Specular
-        const ao = calcAOFast(hx, hy, hz, nX, nY, nZ, fc);
-        const diffRaw = Math.max(0, nX * keyX + nY * keyY + nZ * keyZ);
-        const shadow =
-          diffRaw > 0.12 && (hitMat === MAT_BODY || hitMat === MAT_HAIR)
-            ? calcSoftShadow(hx, hy, hz, keyX, keyY, keyZ, fc)
-            : 1.0;
-        const diff = diffRaw * shadow;
-        const rim = Math.pow(1 - clamp(ndotv, 0, 1), 2.0) * (0.52 + energy * 0.48);
-        const rimBack = Math.max(0, nX * rimX + nY * rimY + nZ * rimZ) * 0.4;
-        const hxV = keyX - rdx;
-        const hyV = keyY - rdy;
-        const hzV = keyZ - rdz;
-        const hl = Math.sqrt(hxV * hxV + hyV * hyV + hzV * hzV) || 1;
-        const ndoth = Math.max(0, (nX * hxV + nY * hyV + nZ * hzV) / hl);
-        const spec = Math.pow(ndoth, 22) * 0.62 * shadow;
-
-        let lum = (0.14 + diff * 0.66) * ao + rim * 0.4 + rimBack + spec;
-        if (hitMat === MAT_EYE || hitMat === MAT_VISOR) {
-          lum = clamp(0.88 + energy * 0.12, 0.86, 1);
-        } else if (hitMat === MAT_MOUTH) {
-          lum = clamp(0.68 + (isSpeaking ? energy * 0.32 : 0.12), 0.62, 1);
-        } else if (hitMat === MAT_RING || hitMat === MAT_PILLAR || hitMat === MAT_ORB || hitMat === MAT_PULSE) {
-          lum = clamp(0.56 + diffRaw * 0.36 + energy * 0.28, 0.44, 1);
-        } else if (hitMat === MAT_HAIR) {
-          lum *= 0.8;
-        } else if (hitMat === MAT_WING) {
-          lum = clamp(lum + 0.1 + energy * 0.18, 0.22, 1);
-        }
-
-        lum = clamp(lum, 0.08, 1);
-        const ch =
-          hitMat === MAT_EYE
-            ? '◉'
-            : hitMat === MAT_VISOR
-            ? '◈'
-            : hitMat === MAT_ORB
-            ? '◆'
-            : hitMat === MAT_PULSE
-            ? '~'
-            : hitMat === MAT_MOUTH
-            ? fc.viseme === 'round'
-              ? 'o'
-              : 'O'
-            : mapLuminanceToChar(lum, CLEAN_RAMP, dither);
-
-        cells[idx] = {
-          ch,
-          intensity: lum,
-          material: matName,
-        };
+        cells[idx] = shadeHitCell(
+          shaderMode,
+          hitMat,
+          matName,
+          t,
+          hx,
+          hy,
+          hz,
+          rdx,
+          rdy,
+          rdz,
+          nX,
+          nY,
+          nZ,
+          r,
+          c,
+          dither,
+          fc
+        );
         continue;
       }
 
@@ -968,7 +1043,8 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
           const gz = Math.abs(fzScroll - Math.round(fzScroll));
 
           // Ground contact shadow beneath Hermes bust
-          const radialDist = Math.hypot(fxW * 0.85, fzW + 0.1);
+          const fzP = fzW + 0.1;
+          const radialDist = Math.sqrt(fxW * fxW * 0.7225 + fzP * fzP);
           const shadowMask = radialDist < 1.25 ? 0.38 + (radialDist / 1.25) * 0.62 : 1.0;
 
           // Expanding 3D acoustic shockwave ripple on floor plane
@@ -1013,11 +1089,7 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
           material: 'bg',
         };
       } else {
-        cells[idx] = {
-          ch: ' ',
-          intensity: 0,
-          material: 'bg',
-        };
+        cells[idx] = BG_EMPTY_CELL;
       }
     }
   }
