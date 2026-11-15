@@ -295,7 +295,7 @@ function getTargetMotionFromParams(
   const autoBlink = evaluateNaturalBlinkCurve(time, 0, 4);
 
   const blink =
-    eyeState === 'blink' ? 1 : eyeState === 'half' ? 0.48 : autoBlink;
+    eyeState === 'blink' ? 1 : eyeState === 'half' ? Math.max(0.46, autoBlink) : autoBlink;
   const squint =
     eyeState === 'happy' || mood === 'happy'
       ? 0.34 + (isSpeaking ? Math.max(0, speakCadence) * energy * 0.12 : 0)
@@ -535,15 +535,15 @@ export function createPortraitAnimator() {
 
   const triggerImpulse = (kind: 'mood' | 'speak' | 'tap' = 'tap') => {
     if (kind === 'mood' || kind === 'tap') {
-      impulseNodVel += 0.26;
-      impulsePitchVel += 1.45;
-      browVel += 3.6;
-      hairVelX += 0.32;
-      hairVelY += 0.18;
+      impulseNodVel = clamp(impulseNodVel + 0.16, -0.26, 0.26);
+      impulsePitchVel = clamp(impulsePitchVel + 0.95, -1.45, 1.45);
+      browVel = clamp(browVel + 2.4, -3.6, 3.6);
+      hairVelX = clamp(hairVelX + 0.22, -0.36, 0.36);
+      hairVelY = clamp(hairVelY + 0.14, -0.22, 0.22);
     } else if (kind === 'speak') {
-      impulseNodVel += 0.16;
-      browVel += 2.4;
-      hairVelY += 0.1;
+      impulseNodVel = clamp(impulseNodVel + 0.14, -0.22, 0.22);
+      browVel = clamp(browVel + 2.0, -3.2, 3.2);
+      hairVelY = clamp(hairVelY + 0.1, -0.18, 0.18);
     }
   };
 
@@ -1901,17 +1901,19 @@ function sampleSpriteBankWithExpression(
   }
 
   // Co-articulated upper eye/brow band: continuous 3-stage blend (open -> half-lid -> closed)
-  // aligned to actual eye socket coordinates (ay ~ 0.43..0.53) using real closed-eye skin luminance.
-  if ((pose.eyeBlend > 0.015 || pose.blinkAmount > 0.04) && ax >= 0.16 && ax <= 0.53 && ay >= 0.38 && ay <= 0.55) {
-    const exMask = smoothstep(0.16, 0.20, ax) * (1 - smoothstep(0.48, 0.53, ax));
-    const eyMask = smoothstep(0.38, 0.415, ay) * (1 - smoothstep(0.515, 0.55, ay));
+  // aligned cleanly to real sprite-bank eye & lash coordinates (ay ~ 0.42..0.555).
+  if ((pose.eyeBlend > 0.015 || pose.blinkAmount > 0.04) && ax >= 0.16 && ax <= 0.53 && ay >= 0.38 && ay <= 0.575) {
+    const exMask = smoothstep(0.165, 0.198, ax) * (1 - smoothstep(0.475, 0.525, ax));
+    const eyMask = smoothstep(0.38, 0.415, ay) * (1 - smoothstep(0.545, 0.575, ay));
     const socketMask = exMask * eyMask;
 
     if (socketMask > 0.01) {
       let targetEyeLum = lum;
       if (pose.eyeHalfWeight > 0.01 || pose.eyeClosedWeight > 0.01) {
-        const halfBase = bank[clamp(pose.eyeHalfIndex, 0, bank.length - 1)].baseLum;
-        const closedBase = bank[clamp(pose.eyeClosedIndex, 0, bank.length - 1)].baseLum;
+        const halfField = bank[clamp(pose.eyeHalfIndex, 0, bank.length - 1)];
+        const closedField = bank[clamp(pose.eyeClosedIndex, 0, bank.length - 1)];
+        const halfBase = halfField.baseLum;
+        const closedBase = closedField.baseLum;
         const halfLum = halfBase[i00] * w00 + halfBase[i10] * w10 + halfBase[i01] * w01 + halfBase[i11] * w11;
         const closedLum = closedBase[i00] * w00 + closedBase[i10] * w10 + closedBase[i01] * w01 + closedBase[i11] * w11;
 
@@ -1922,46 +1924,20 @@ function sampleSpriteBankWithExpression(
             : lum;
         targetEyeLum = lerp(lum, stageMix, totalBlinkW);
 
-        // Anatomical upper-lid wipe: gently clear upper open-pupil remnants using real closed-eye skin tone
-        // (strictly gated on closedLum > 0.34 so dark bangs/brows are never painted over)
-        const blink = pose.blinkAmount;
-        if (blink > 0.12 && closedLum > 0.34) {
-          const inEyeXL = 1 - smoothstep(0.026, 0.044, Math.abs(ax - 0.246));
-          const inEyeXR = 1 - smoothstep(0.045, 0.068, Math.abs(ax - 0.415));
-          const lidSweepL = lerp(0.452, 0.512, smoothstep(0.10, 0.88, blink));
-          const lidSweepR = lerp(0.442, 0.506, smoothstep(0.10, 0.88, blink));
-
-          if (inEyeXL > 0.02 && ay > 0.436 && ay < lidSweepL - 0.004) {
-            const clearMask =
-              inEyeXL *
-              smoothstep(0.436, 0.448, ay) *
-              (1 - smoothstep(lidSweepL - 0.012, lidSweepL - 0.003, ay)) *
-              smoothstep(0.12, 0.44, blink) *
-              (1 - pose.eyeClosedWeight * 0.78);
-            targetEyeLum = lerp(targetEyeLum, closedLum, clearMask * 0.85);
+        // Preserve crisp half-lid & closed eyelash ink contrast during 3-stage crossfades
+        if (pose.eyeClosedWeight > 0.35) {
+          const closedInkArr = closedField.inkMask;
+          const closedInk =
+            closedInkArr[i00] * w00 + closedInkArr[i10] * w10 + closedInkArr[i01] * w01 + closedInkArr[i11] * w11;
+          if (closedInk > 0.48) {
+            targetEyeLum = lerp(targetEyeLum, Math.min(targetEyeLum, closedLum), pose.eyeClosedWeight * 0.55);
           }
-          if (inEyeXR > 0.02 && ay > 0.428 && ay < lidSweepR - 0.004) {
-            const clearMask =
-              inEyeXR *
-              smoothstep(0.428, 0.440, ay) *
-              (1 - smoothstep(lidSweepR - 0.012, lidSweepR - 0.003, ay)) *
-              smoothstep(0.12, 0.44, blink) *
-              (1 - pose.eyeClosedWeight * 0.78);
-            targetEyeLum = lerp(targetEyeLum, closedLum, clearMask * 0.85);
-          }
-
-          // Subtle descending upper-lash curve during mid-transition
-          const midTransition = Math.sin(clamp01(blink) * Math.PI);
-          if (midTransition > 0.22) {
-            const arcL = -(((ax - 0.246) / 0.032) ** 2) * lerp(-0.002, 0.005, blink);
-            const arcR = -(((ax - 0.415) / 0.056) ** 2) * lerp(-0.002, 0.006, blink);
-            const dLashL = sdCapsule2(ax, ay + arcL, 0.214, lidSweepL, 0.278, lidSweepL - 0.002, 0.0036);
-            const dLashR = sdCapsule2(ax, ay + arcR, 0.365, lidSweepR + 0.001, 0.460, lidSweepR - 0.003, 0.0044);
-            const dLash = Math.min(dLashL, dLashR);
-            if (dLash < 0.006) {
-              const lMask = (1 - smoothstep(-0.002, 0.004, dLash)) * midTransition * 0.65;
-              targetEyeLum = lerp(targetEyeLum, 0.02, lMask);
-            }
+        } else if (pose.eyeHalfWeight > 0.35) {
+          const halfInkArr = halfField.inkMask;
+          const halfInk =
+            halfInkArr[i00] * w00 + halfInkArr[i10] * w10 + halfInkArr[i01] * w01 + halfInkArr[i11] * w11;
+          if (halfInk > 0.48) {
+            targetEyeLum = lerp(targetEyeLum, Math.min(targetEyeLum, halfLum), pose.eyeHalfWeight * 0.45);
           }
         }
       } else if (pose.eyeBlend > 0.01) {

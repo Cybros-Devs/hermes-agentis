@@ -9,6 +9,7 @@ import {
   resolveReferencePoseBlend,
   samplePortraitLuminance,
   type PortraitParams,
+  type PortraitSourceField,
 } from './asciiPortraitEngine';
 
 const BASE: PortraitParams = {
@@ -561,6 +562,135 @@ test('resolveReferencePoseBlend avoids happy-mood half-lid ghosting and smoothly
   );
   assert.ok(b100.eyeClosedWeight > 0.95 && b100.eyeHalfWeight < 0.05, 'Full blink should settle cleanly on closed eye panel');
 });
+
+test('sprite-bank focused half-lid & full blink preserve both eyes cleanly and bound rapid click impulses', () => {
+  const size = 120;
+  const makePanel = (drawEyeBand: (x: number, y: number) => { lum: number; ink: number }): PortraitSourceField => {
+    const baseLum = new Float32Array(size * size);
+    const inkMask = new Float32Array(size * size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const ax = x / (size - 1);
+        const ay = y / (size - 1);
+        const i = y * size + x;
+        if (ax >= 0.14 && ax <= 0.60 && ay >= 0.30 && ay <= 0.80) {
+          const { lum, ink } = drawEyeBand(ax, ay);
+          baseLum[i] = lum;
+          inkMask[i] = ink;
+        }
+      }
+    }
+    return { width: size, height: size, baseLum, inkMask };
+  };
+
+  const openPanel = makePanel((ax, ay) => {
+    const inEyeL = Math.abs(ax - 0.245) < 0.035 && Math.abs(ay - 0.48) < 0.025;
+    const inEyeR = Math.abs(ax - 0.415) < 0.045 && Math.abs(ay - 0.48) < 0.025;
+    return inEyeL || inEyeR ? { lum: 0.03, ink: 0.95 } : { lum: 0.72, ink: 0.02 };
+  });
+  const halfPanel = makePanel((ax, ay) => {
+    // Artist half-lid: upper eyelid skin (0.44..0.48), crisp dark half-closed iris/lid (0.485..0.52)
+    const inHalfL = Math.abs(ax - 0.245) < 0.035 && ay >= 0.485 && ay <= 0.52;
+    const inHalfR = Math.abs(ax - 0.415) < 0.045 && ay >= 0.485 && ay <= 0.52;
+    return inHalfL || inHalfR ? { lum: 0.03, ink: 0.95 } : { lum: 0.72, ink: 0.02 };
+  });
+  const closedPanel = makePanel((ax, ay) => {
+    // Artist closed eye: smooth eyelid skin above 0.525, dark bowed eyelash at 0.525..0.550
+    const inLashL = Math.abs(ax - 0.245) < 0.035 && ay >= 0.525 && ay <= 0.550;
+    const inLashR = Math.abs(ax - 0.415) < 0.048 && ay >= 0.525 && ay <= 0.550;
+    return inLashL || inLashR ? { lum: 0.02, ink: 0.96 } : { lum: 0.72, ink: 0.02 };
+  });
+
+  const bank: PortraitSourceField[] = Array.from({ length: 12 }, (_, idx) => {
+    if (idx === 4 || idx === 6) return halfPanel;
+    if (idx === 5 || idx === 10) return closedPanel;
+    return openPanel;
+  });
+
+  const anim = createPortraitAnimator();
+  const baseMotion = anim.step(
+    { time: 0.1, mood: 'neutral', viseme: 'closed', eyeState: 'open', energy: 0.08, isSpeaking: false, isListening: false },
+    0.016
+  );
+
+  const focusedFrame = renderHalftonePortrait({
+    cols: 80,
+    rows: 40,
+    time: 0.1,
+    mood: 'focused',
+    viseme: 'closed',
+    eyeState: 'half',
+    energy: 0.08,
+    isSpeaking: false,
+    isListening: false,
+    spriteBank: bank,
+    motion: { ...baseMotion, blink: 0.46, squint: 0.56, headYaw: 0, headPitch: 0, headTilt: 0 },
+  });
+
+  const closedFrame = renderHalftonePortrait({
+    cols: 80,
+    rows: 40,
+    time: 0.1,
+    mood: 'neutral',
+    viseme: 'closed',
+    eyeState: 'blink',
+    energy: 0.08,
+    isSpeaking: false,
+    isListening: false,
+    spriteBank: bank,
+    motion: { ...baseMotion, blink: 1.0, squint: 0, headYaw: 0, headPitch: 0, headTilt: 0 },
+  });
+
+  const minBrightnessInBox = (frame: ReturnType<typeof renderHalftonePortrait>, c0: number, c1: number, r0: number, r1: number) => {
+    let minVal = 255;
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        minVal = Math.min(minVal, frame.cells[r * frame.cols + c]);
+      }
+    }
+    return minVal;
+  };
+
+  // Both eye sockets in focused half-lid frame must retain dark eye ink (not wiped to uniform ~184 skin brightness)
+  const focusedLeftMin = minBrightnessInBox(focusedFrame, 16, 25, 17, 23);
+  const focusedRightMin = minBrightnessInBox(focusedFrame, 28, 39, 17, 23);
+  assert.ok(focusedLeftMin < 90, `Expected crisp dark left half-lid in focused mode, got min=${focusedLeftMin}`);
+  assert.ok(focusedRightMin < 90, `Expected crisp dark right half-lid in focused mode, got min=${focusedRightMin}`);
+
+  // Closed eyelash arc at ay=0.525..0.550 must not be clipped by eyMask
+  const closedLeftMin = minBrightnessInBox(closedFrame, 16, 25, 19, 25);
+  const closedRightMin = minBrightnessInBox(closedFrame, 28, 39, 19, 25);
+  assert.ok(closedLeftMin < 90, `Expected crisp dark left closed eyelash, got min=${closedLeftMin}`);
+  assert.ok(closedRightMin < 90, `Expected crisp dark right closed eyelash, got min=${closedRightMin}`);
+
+  // Focused mood must still blink closed naturally rather than staying frozen
+  const focusedAnim = createPortraitAnimator();
+  let sawFocusedBlink = false;
+  for (let i = 0; i < 200; i++) {
+    const s = focusedAnim.step(
+      { time: i * 0.03, mood: 'focused', viseme: 'closed', eyeState: 'half', energy: 0.08, isSpeaking: false, isListening: false },
+      0.03
+    );
+    if (s.blink > 0.90) {
+      sawFocusedBlink = true;
+      break;
+    }
+  }
+  assert.ok(sawFocusedBlink, 'Expected focused mood to still perform full natural blinks');
+
+  // Rapid repeated clicks must clamp impulse velocity without runaway pitch whipping
+  const clickAnim = createPortraitAnimator();
+  for (let i = 0; i < 6; i++) {
+    clickAnim.triggerImpulse('tap');
+    clickAnim.triggerImpulse('mood');
+  }
+  const afterClicks = clickAnim.step(
+    { time: 0.1, mood: 'focused', viseme: 'closed', eyeState: 'half', energy: 0.08, isSpeaking: false, isListening: false },
+    0.05
+  );
+  assert.ok(afterClicks.headPitch < 0.20, `Expected bounded headPitch after rapid clicks, got ${afterClicks.headPitch}`);
+});
+
 
 
 
