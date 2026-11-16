@@ -307,3 +307,188 @@ export function summarizeChannelTaskActivity(
 
   return map;
 }
+
+export interface GenericTaskStep {
+  text: string;
+  done?: boolean;
+  active?: boolean;
+}
+
+const TERMINAL_TOOL_DONE_STATUSES = new Set([
+  'done',
+  'completed',
+  'complete',
+  'success',
+  'succeeded',
+  'ok',
+]);
+
+const TERMINAL_TOOL_ERROR_STATUSES = new Set([
+  'error',
+  'failed',
+  'cancelled',
+  'canceled',
+  'stopped',
+]);
+
+/**
+ * Derives a compact, human-readable task title from a user prompt while keeping
+ * repository/URL targets legible inside narrow cards.
+ */
+export function deriveTurnTaskTitle(prompt: string, fallbackLabel?: string): string {
+  const normalized = prompt
+    .replace(/https?:\/\/(?:www\.)?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) {
+    return fallbackLabel?.trim() || 'Active session turn';
+  }
+  if (normalized.length <= 64) {
+    return normalized;
+  }
+  const clipped = normalized.slice(0, 61);
+  const lastSpace = clipped.lastIndexOf(' ');
+  const head = lastSpace > 36 ? clipped.slice(0, lastSpace) : clipped;
+  return `${head.trimEnd()}…`;
+}
+
+function isBootstrapOrComposingStep(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    lower.startsWith('working in ') ||
+    lower.startsWith('routing ') ||
+    lower === 'composing response'
+  );
+}
+
+/**
+ * Updates a task's step checklist and ratio string when a tool-progress event
+ * arrives from the Hermes Gateway (`hermes.tool.progress`).
+ */
+export function applyToolProgressToSteps(
+  prevSteps: GenericTaskStep[],
+  event: {
+    toolName: string;
+    label?: string;
+    status: string;
+    summary?: string;
+  }
+): { steps: GenericTaskStep[]; progress: string } {
+  const normalizedStatus = (event.status || 'running').toLowerCase();
+  const isDone = TERMINAL_TOOL_DONE_STATUSES.has(normalizedStatus);
+  const isError = TERMINAL_TOOL_ERROR_STATUSES.has(normalizedStatus);
+  const stepText = (event.summary || event.label || event.toolName || 'tool').trim();
+  const toolNeedle = (event.toolName || '').trim().toLowerCase();
+
+  const nextSteps: GenericTaskStep[] = prevSteps.map((s) => ({ ...s }));
+
+  if (!isDone && !isError) {
+    // New active tool invocation: settle prior active/bootstrap open step first.
+    for (let i = 0; i < nextSteps.length; i++) {
+      if (!nextSteps[i].done && (nextSteps[i].active || isBootstrapOrComposingStep(nextSteps[i].text))) {
+        nextSteps[i] = { ...nextSteps[i], done: true, active: false };
+      }
+    }
+    nextSteps.push({ text: stepText, done: false, active: true });
+  } else {
+    // Terminal tool completion/failure: close the matching open step if present.
+    let matchIdx = -1;
+    for (let i = nextSteps.length - 1; i >= 0; i--) {
+      if (nextSteps[i].done) continue;
+      const lowerText = nextSteps[i].text.toLowerCase();
+      if ((toolNeedle && lowerText.includes(toolNeedle)) || nextSteps[i].active) {
+        matchIdx = i;
+        break;
+      }
+    }
+    if (matchIdx >= 0) {
+      const existing = nextSteps[matchIdx];
+      const preferNewText =
+        stepText.length > existing.text.length ||
+        !stepText.toLowerCase().startsWith('running ');
+      nextSteps[matchIdx] = {
+        text: preferNewText ? stepText : existing.text,
+        done: !isError,
+        active: false,
+      };
+    } else {
+      nextSteps.push({ text: stepText, done: !isError, active: false });
+    }
+  }
+
+  const doneCount = nextSteps.filter((s) => s.done).length;
+  return {
+    steps: nextSteps,
+    progress: `${doneCount}/${Math.max(1, nextSteps.length)}`,
+  };
+}
+
+/**
+ * Transitions a task into response-streaming phase once text deltas start arriving.
+ */
+export function applyStreamingDeltaToSteps(
+  prevSteps: GenericTaskStep[]
+): { steps: GenericTaskStep[]; progress: string; changed: boolean } {
+  const last = prevSteps[prevSteps.length - 1];
+  if (last && !last.done && last.active && last.text === 'Composing response') {
+    const doneCount = prevSteps.filter((s) => s.done).length;
+    return {
+      steps: prevSteps,
+      progress: `${doneCount}/${Math.max(1, prevSteps.length)}`,
+      changed: false,
+    };
+  }
+
+  const nextSteps: GenericTaskStep[] = prevSteps.map((s) =>
+    !s.done ? { ...s, done: true, active: false } : { ...s, active: false }
+  );
+  nextSteps.push({ text: 'Composing response', done: false, active: true });
+  const doneCount = nextSteps.filter((s) => s.done).length;
+  return {
+    steps: nextSteps,
+    progress: `${doneCount}/${nextSteps.length}`,
+    changed: true,
+  };
+}
+
+/**
+ * Settles a turn task's steps cleanly when the run finishes, fails, or aborts.
+ */
+export function finalizeTurnTaskSteps(
+  prevSteps: GenericTaskStep[],
+  outcome: 'done' | 'failed' | 'cancelled',
+  finalLabel?: string
+): { steps: GenericTaskStep[]; progress: string } {
+  if (outcome === 'done') {
+    const nextSteps: GenericTaskStep[] =
+      prevSteps.length > 0
+        ? prevSteps.map((s) => ({
+            text:
+              s.text.startsWith('Working in ') && finalLabel
+                ? finalLabel
+                : s.text,
+            done: true,
+            active: false,
+          }))
+        : [{ text: finalLabel || 'Completed response', done: true, active: false }];
+
+    return {
+      steps: nextSteps,
+      progress: `${nextSteps.length}/${nextSteps.length}`,
+    };
+  }
+
+  const nextSteps: GenericTaskStep[] = prevSteps.map((s) => ({
+    ...s,
+    active: false,
+  }));
+  if (finalLabel && !nextSteps.some((s) => s.text === finalLabel)) {
+    nextSteps.push({ text: finalLabel, done: false, active: false });
+  }
+  const doneCount = nextSteps.filter((s) => s.done).length;
+  return {
+    steps: nextSteps,
+    progress: `${doneCount}/${Math.max(1, nextSteps.length)}`,
+  };
+}
+
