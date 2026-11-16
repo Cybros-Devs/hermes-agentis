@@ -77,22 +77,24 @@ export function CommandTerminal({
       className="relative flex flex-col h-full max-w-[780px] mx-auto w-full rounded-xl bg-white/[0.025] border border-white/10 overflow-hidden"
     >
       {/* Clean Single-Row Terminal Header & Unboxed Quick-Command Strip */}
-      <div className="px-4 py-2.5 border-b border-white/[0.07] bg-black/25 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/85 min-w-0">
+      <div className="px-4 py-2.5 border-b border-white/[0.07] bg-black/25 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+        <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/85 min-w-0 sm:max-w-[235px] shrink-0">
           <Terminal className="w-3.5 h-3.5 text-[#34D399] shrink-0" />
           <span className="font-semibold text-white shrink-0">hermes-agent</span>
           <span className="text-emerald-100/35 shrink-0">·</span>
-          <span className="text-emerald-100/70 truncate">{sessionLabel}</span>
+          <span title={sessionLabel} className="text-emerald-100/70 truncate">
+            {sessionLabel}
+          </span>
         </div>
 
-        <div className="flex items-center gap-1 overflow-x-auto cyber-scroll">
+        <div className="flex flex-wrap sm:flex-nowrap items-center sm:justify-end gap-0.5 min-w-0">
           {QUICK_COMMANDS.map(({ cmd, summary }) => (
             <button
               key={cmd}
               type="button"
               title={summary}
               onClick={() => onSubmitInput(cmd)}
-              className="ui-tactile px-2 py-1 rounded-md font-mono text-[11px] text-emerald-100/65 hover:text-[#6EE7B7] hover:bg-white/[0.05] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="ui-tactile px-1.5 py-1 rounded-md font-mono text-[10.5px] text-emerald-100/65 hover:text-[#6EE7B7] hover:bg-white/[0.05] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {cmd}
             </button>

@@ -23,6 +23,7 @@ import type {
   HermesToolset,
   HermesTransportMode,
 } from '../types/hermes';
+import { formatDisplaySessionTitle, formatSourceLabel } from '../utils/sidebarSessions';
 import { EmptyState, MorphTabs, StaggerItem, StatusPulse, type MorphTabItem } from './ui';
 
 interface HermesOperationsPanelProps {
@@ -148,8 +149,8 @@ export function HermesOperationsPanel({
       className="flex flex-col rounded-xl bg-white/[0.025] border border-white/10 overflow-hidden"
     >
       {/* Session Lane Strip */}
-      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/[0.06] bg-white/[0.015] overflow-x-auto cyber-scroll">
-        <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/[0.06] bg-white/[0.015]">
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto cyber-scroll pr-2">
           {channels.length === 0 ? (
             <span className="font-mono text-[11px] text-emerald-100/45">
               No active sessions synced from gateway
@@ -157,10 +158,22 @@ export function HermesOperationsPanel({
           ) : (
             channels.map((ch) => {
               const active = ch.id === activeChannel;
+              const safeChannelId = String(ch.id ?? '');
+              const safeSessionId = String(ch.sessionId ?? safeChannelId);
+              const rawName = String(ch.name ?? safeChannelId).replace(/^#/, '');
+              const srcLabel = formatSourceLabel(undefined, safeSessionId, safeChannelId);
+              const { title, isOpaque } = formatDisplaySessionTitle({
+                topic: ch.description,
+                name: rawName,
+                channelId: safeChannelId,
+                sessionId: safeSessionId,
+                sourceLabel: srcLabel,
+              });
               return (
                 <button
                   key={ch.id}
                   type="button"
+                  title={rawName || safeChannelId}
                   onClick={() => onSelectChannel(ch.id)}
                   className={`ui-tactile px-2 py-1 rounded-md font-mono text-xs flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                     active
@@ -168,14 +181,14 @@ export function HermesOperationsPanel({
                       : 'text-emerald-100/55 hover:text-white hover:bg-white/[0.05]'
                   }`}
                 >
-                  <Hash className="w-3 h-3 opacity-75" />
-                  <span>{ch.name.replace(/^#/, '')}</span>
+                  {!isOpaque && <Hash className="w-3 h-3 opacity-75 shrink-0" />}
+                  <span className="max-w-[148px] truncate">{title}</span>
                 </button>
               );
             })
           )}
         </div>
-        <span className="font-mono text-[10.5px] text-emerald-100/40 whitespace-nowrap shrink-0">
+        <span className="shrink-0 pl-3 border-l border-white/[0.08] font-mono text-[10.5px] text-emerald-100/45 whitespace-nowrap">
           {gatewayStatus?.sessionKeyHeader || 'X-Hermes-Session-Key'}
         </span>
       </div>
@@ -217,11 +230,11 @@ export function HermesOperationsPanel({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-emerald-100/55">
-                          <span>run:{card.runId || card.id}</span>
+                          <span className="max-w-[160px] truncate">run:{card.runId || card.id}</span>
                           {card.requestId && (
                             <>
                               <span aria-hidden="true">·</span>
-                              <span>req:{card.requestId}</span>
+                              <span className="max-w-[140px] truncate">req:{card.requestId}</span>
                             </>
                           )}
                           {typeof card.executionGeneration === 'number' && (
@@ -231,7 +244,7 @@ export function HermesOperationsPanel({
                             </>
                           )}
                           <span aria-hidden="true">·</span>
-                          <span>#{card.channelId}</span>
+                          <span className="max-w-[140px] truncate">#{card.channelId}</span>
                           {card.mcpTool && (
                             <>
                               <span aria-hidden="true">·</span>

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type {
   ExpressionMood,
+  HermesAgentSession,
   MouthViseme,
   TerminalEntry,
 } from '../types/hermes';
@@ -26,6 +27,7 @@ import { BRAILLE_TINT_PALETTE } from '../utils/brailleShapesEngine';
 import {
   AVAILABLE_DOT_SKILLS,
   formatAutonomyLabel,
+  formatCanvasDotLabel,
   formatSandboxLabel,
   getShapeMeta,
   type CanvasSession,
@@ -37,6 +39,7 @@ import { ScrollToBottomButton, StatusPulse } from './ui';
 
 interface CanvasSessionNodeProps {
   session: CanvasSession;
+  hermesSession?: HermesAgentSession;
   index: number;
   livePos: { xPct: number; yPct: number };
   isSelected: boolean;
@@ -51,6 +54,7 @@ interface CanvasSessionNodeProps {
   entries: TerminalEntry[];
   turnCount: number;
   canRemove: boolean;
+  compact?: boolean;
   dotProfile?: BrailleDotProfile;
   bloom?: number;
   speedScale?: number;
@@ -75,6 +79,7 @@ interface CanvasSessionNodeProps {
 
 export function CanvasSessionNode({
   session,
+  hermesSession,
   index,
   livePos,
   isSelected,
@@ -89,6 +94,7 @@ export function CanvasSessionNode({
   entries,
   turnCount,
   canRemove,
+  compact = false,
   dotProfile = 'balanced',
   bloom = 0.75,
   speedScale = 1,
@@ -116,6 +122,7 @@ export function CanvasSessionNode({
 
   const palette = BRAILLE_TINT_PALETTE[session.tint];
   const meta = getShapeMeta(session.shape);
+  const dotLabel = formatCanvasDotLabel(session, hermesSession, turnCount);
 
   const effectiveMood: ExpressionMood = isThinking
     ? 'thinking'
@@ -237,7 +244,7 @@ export function CanvasSessionNode({
           }
         }}
         onKeyDown={onKeyDown}
-        aria-label={`Dot #${session.name} (${session.hermesSessionId}), ${meta.label} anime character, ${formatAutonomyLabel(session.autonomyMode, session.scheduleLabel, session.autonomyPaused)}, ${turnCount} turns. Click to open workspace or drag to move.`}
+        aria-label={`Dot ${dotLabel.primaryLabel} (${session.hermesSessionId}), ${meta.label} anime character, ${formatAutonomyLabel(session.autonomyMode, session.scheduleLabel, session.autonomyPaused)}, ${turnCount} turns. Click to open workspace or drag to move.`}
         aria-expanded={isChatOpen}
         className={`group relative flex flex-col items-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] rounded-2xl transition-transform duration-200 ease-out ${
           isDragged
@@ -293,25 +300,37 @@ export function CanvasSessionNode({
           </svg>
         )}
 
-        <div className="relative z-10 scale-[0.76] sm:scale-[0.86] origin-bottom">
-          <BrailleShapeCanvas
-            shape={session.shape}
-            tint={session.tint}
-            mood={effectiveMood}
-            eyeStyle={session.eyeStyle}
-            viseme={isSpeaking ? viseme : 'closed'}
-            energy={isSpeaking ? energy : isThinking ? 0.28 : 0.08}
-            isSpeaking={isSpeaking}
-            isThinking={isThinking}
-            isDragging={isDragged}
-            isHovered={isHovered}
-            dotProfile={dotProfile}
-            bloom={bloom}
-            speedScale={speedScale}
-            reducedMotionOverride={reducedMotionOverride}
-            blinkPhaseOffset={index * 4.35}
-            gazeRef={gazeRef}
-          />
+        <div
+          className={`relative z-10 ${
+            compact ? 'h-[112px] flex items-end justify-center' : ''
+          }`}
+        >
+          <div
+            className={
+              compact
+                ? 'scale-[0.70] origin-bottom'
+                : 'scale-[0.76] sm:scale-[0.86] origin-bottom'
+            }
+          >
+            <BrailleShapeCanvas
+              shape={session.shape}
+              tint={session.tint}
+              mood={effectiveMood}
+              eyeStyle={session.eyeStyle}
+              viseme={isSpeaking ? viseme : 'closed'}
+              energy={isSpeaking ? energy : isThinking ? 0.28 : 0.08}
+              isSpeaking={isSpeaking}
+              isThinking={isThinking}
+              isDragging={isDragged}
+              isHovered={isHovered}
+              dotProfile={dotProfile}
+              bloom={bloom}
+              speedScale={speedScale}
+              reducedMotionOverride={reducedMotionOverride}
+              blinkPhaseOffset={index * 4.35}
+              gazeRef={gazeRef}
+            />
+          </div>
         </div>
 
         {/* Ground Contact Shadow */}
@@ -326,26 +345,30 @@ export function CanvasSessionNode({
           }}
         />
 
-        {/* Crisp Unboxed Dot Identity & Always-On Autonomy Line */}
-        <div className="relative z-10 mt-0.5 flex flex-col items-center leading-tight whitespace-nowrap">
-          <div className="flex items-center gap-1.5 text-xs">
+        {/* Crisp Unboxed Dot Identity & Bounded Metadata Line */}
+        <div className="relative z-10 mt-0.5 flex flex-col items-center leading-tight whitespace-nowrap max-w-[184px]">
+          <div className="flex items-center gap-1.5 text-xs max-w-full">
             <span
-              className={`font-mono font-semibold ${
+              title={session.name}
+              className={`font-mono font-semibold truncate max-w-[144px] ${
                 isSelected || isChatOpen
                   ? 'text-white'
                   : 'text-emerald-50/85 group-hover:text-white'
               }`}
             >
-              #{session.name}
+              {dotLabel.primaryLabel}
             </span>
             {statusTag && (
-              <span className="font-mono text-[10px]" style={{ color: palette.mid }}>
+              <span className="font-mono text-[10px] shrink-0" style={{ color: palette.mid }}>
                 · {statusTag}
               </span>
             )}
           </div>
-          <span className="font-mono text-[10px] text-emerald-100/50 tabular-nums">
-            {session.hermesSessionId} · {turnCount}t
+          <span
+            title={session.hermesSessionId}
+            className="font-mono text-[10px] text-emerald-100/50 tabular-nums truncate max-w-[172px]"
+          >
+            {dotLabel.secondaryLabel}
             {pendingApprovalCount > 0 ? ` · ${pendingApprovalCount} gate` : ''}
           </span>
         </div>
@@ -367,10 +390,13 @@ export function CanvasSessionNode({
               <StatusPulse
                 state={isThinking ? 'thinking' : isSpeaking ? 'speaking' : 'idle'}
               />
-              <span className="font-mono text-[10.5px] font-medium text-emerald-50/90 truncate">
-                {session.hermesSessionId}
+              <span
+                title={session.hermesSessionId}
+                className="font-mono text-[10.5px] font-medium text-emerald-50/90 truncate"
+              >
+                {dotLabel.primaryLabel}
               </span>
-              <span className="text-[10px] text-emerald-100/45 truncate hidden sm:inline">
+              <span className="text-[10px] text-emerald-100/45 truncate hidden sm:inline shrink-0">
                 · {meta.label}
               </span>
             </div>
@@ -666,8 +692,12 @@ export function CanvasSessionNode({
         onSubmit={handleSubmit}
         onPointerDown={(e) => e.stopPropagation()}
         data-testid={`session-input-form-${session.channelId}`}
-        className={`mt-1.5 ${
-          isChatOpen ? 'w-[min(308px,calc(100vw-2rem))] sm:w-[308px]' : 'w-full max-w-[196px] sm:w-[260px] sm:max-w-none'
+        className={`${compact ? 'mt-1' : 'mt-1.5'} ${
+          isChatOpen
+            ? 'w-[min(308px,calc(100vw-2rem))] sm:w-[308px]'
+            : compact
+            ? 'w-full max-w-[196px] sm:w-[200px] sm:max-w-none'
+            : 'w-full max-w-[196px] sm:w-[216px] sm:max-w-none'
         } flex items-center gap-1 rounded-xl border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow,width] duration-150 ${
           isChatOpen || isSelected
             ? 'border-[#34D399]/65 shadow-[0_0_20px_rgba(52,211,153,0.16)]'
@@ -712,7 +742,7 @@ export function CanvasSessionNode({
           placeholder={
             isThinking
               ? 'Thinking…'
-              : `Ask #${session.name}…`
+              : `Ask ${dotLabel.promptTarget}…`
           }
           className="flex-1 min-w-0 bg-transparent text-xs text-white placeholder:text-emerald-100/45 text-ellipsis focus:outline-none px-1.5 py-1"
         />

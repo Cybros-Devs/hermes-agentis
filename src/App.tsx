@@ -451,14 +451,20 @@ export default function App() {
         return cs;
       });
       const existingIds = new Set(updated.map((s) => s.channelId));
+      const existingRowIds = new Set(updated.map((s) => s.id));
       const additions: CanvasSession[] = [];
       for (const ch of hermes.channels) {
         if (existingIds.has(ch.id)) continue;
         existingIds.add(ch.id);
         const visual = pickNextShapeAndTint([...updated, ...additions]);
         const spot = findOpenCanvasSpot([...updated, ...additions]);
+        let rowId = `session-${ch.id}`;
+        if (existingRowIds.has(rowId)) {
+          rowId = `session-${ch.id}-${additions.length + 1}`;
+        }
+        existingRowIds.add(rowId);
         additions.push({
-          id: `session-${ch.id}`,
+          id: rowId,
           channelId: ch.id,
           hermesSessionId: ch.sessionId || createHermesSessionId(ch.id),
           agentPersona: ch.persona || 'Hermes Agent session synced from gateway.',
@@ -478,7 +484,12 @@ export default function App() {
           skills: [],
         });
       }
-      if (additions.length > 0) return [...updated, ...additions];
+      if (additions.length > 0) {
+        if (updated.length === 0) {
+          return autoArrangeSessions(additions);
+        }
+        return [...updated, ...additions];
+      }
       return changed ? updated : prev;
     });
   }, [hermes.channels]);

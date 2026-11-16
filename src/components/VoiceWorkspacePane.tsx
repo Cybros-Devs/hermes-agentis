@@ -1044,7 +1044,11 @@ export function VoiceWorkspacePane({
                 }`}
                 style={{
                   background:
-                    'radial-gradient(circle at 50% 48%, rgba(var(--ui-accent-rgb), 0.16) 0%, rgba(var(--ui-accent-rgb), 0.05) 44%, transparent 72%)',
+                    effectiveMood === 'thinking'
+                      ? 'radial-gradient(circle at 50% 48%, rgba(245, 158, 11, 0.17) 0%, rgba(245, 158, 11, 0.05) 44%, transparent 72%)'
+                      : effectiveMood === 'alert'
+                      ? 'radial-gradient(circle at 50% 48%, rgba(244, 63, 94, 0.16) 0%, rgba(244, 63, 94, 0.05) 44%, transparent 72%)'
+                      : 'radial-gradient(circle at 50% 48%, rgba(var(--ui-accent-rgb), 0.16) 0%, rgba(var(--ui-accent-rgb), 0.05) 44%, transparent 72%)',
                 }}
               />
               <div className="relative z-10">
@@ -1237,7 +1241,11 @@ export function VoiceWorkspacePane({
                     }`}
                     style={{
                       background:
-                        'radial-gradient(ellipse 65% 58% at 50% 48%, rgba(var(--ui-accent-rgb), 0.14) 0%, rgba(var(--ui-accent-rgb), 0.04) 48%, transparent 74%)',
+                        effectiveMood === 'thinking'
+                          ? 'radial-gradient(ellipse 65% 58% at 50% 48%, rgba(245, 158, 11, 0.16) 0%, rgba(245, 158, 11, 0.04) 48%, transparent 74%)'
+                          : effectiveMood === 'alert'
+                          ? 'radial-gradient(ellipse 65% 58% at 50% 48%, rgba(244, 63, 94, 0.16) 0%, rgba(244, 63, 94, 0.04) 48%, transparent 74%)'
+                          : 'radial-gradient(ellipse 65% 58% at 50% 48%, rgba(var(--ui-accent-rgb), 0.14) 0%, rgba(var(--ui-accent-rgb), 0.04) 48%, transparent 74%)',
                     }}
                   />
                   <div className="relative z-10">
@@ -1266,7 +1274,8 @@ export function VoiceWorkspacePane({
                   <span className="text-white/90">{statusText}</span>
                   <span aria-hidden="true" className="text-emerald-100/30">·</span>
                   <span
-                    className="font-mono text-[11px] text-[#6EE7B7]/90"
+                    className="font-mono text-[11px] text-[#6EE7B7]/90 max-w-[230px] truncate"
+                    title={activeHermesSessionId}
                     data-testid="active-hermes-session-id"
                   >
                     {activeHermesSessionId}
@@ -1300,12 +1309,37 @@ export function VoiceWorkspacePane({
                   )}
                 </div>
 
-                <div
-                  aria-hidden="true"
-                  className="w-full max-w-[740px] px-8 mt-2.5"
-                >
-                  <div className="h-px w-full bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
-                </div>
+                {panelView === 'voice' && uiConfig.horizonVisible ? (
+                  <div
+                    aria-hidden="true"
+                    className="w-full max-w-[740px] px-8 mt-1.5 h-[22px] overflow-hidden"
+                    style={{
+                      opacity:
+                        activeIsSpeaking || voiceState.isListening || activeIsThinking
+                          ? Math.max(0.55, uiConfig.horizonOpacity)
+                          : Math.min(0.42, uiConfig.horizonOpacity * 0.65),
+                    }}
+                  >
+                    <BrailleHorizonCanvas
+                      energy={activeIsThinking && !activeIsSpeaking ? 0.24 : energy}
+                      isActive={activeIsSpeaking || voiceState.isListening || activeIsThinking}
+                      frequencyBands={voiceState.frequencyBands}
+                      lookTargetRef={lookTargetRef}
+                      dotProfile={uiConfig.brailleDotProfile}
+                      bloom={uiConfig.brailleBloom}
+                      horizonStyle="ribbon"
+                      speedScale={uiConfig.animationSpeed}
+                      reducedMotionOverride={uiConfig.reducedMotion}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    aria-hidden="true"
+                    className="w-full max-w-[740px] px-8 mt-2.5"
+                  >
+                    <div className="h-px w-full bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
+                  </div>
+                )}
               </div>
             ) : (
               panelView === 'voice' && (
@@ -1315,7 +1349,8 @@ export function VoiceWorkspacePane({
                       <StatusPulse size="sm" state={statusPulseState} />
                       <span
                         data-testid="active-hermes-session-id"
-                        className="font-mono text-[11px] text-[#6EE7B7]"
+                        title={activeHermesSessionId}
+                        className="font-mono text-[11px] text-[#6EE7B7] max-w-[260px] truncate"
                       >
                         {activeHermesSessionId}
                       </span>

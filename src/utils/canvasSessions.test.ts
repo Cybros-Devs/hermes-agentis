@@ -18,7 +18,9 @@ import {
   findOpenCanvasSpot,
   findOpenPinSpot,
   formatAutonomyLabel,
+  formatCanvasDotLabel,
   formatSandboxLabel,
+  isCanvasBackgroundRun,
   isDotAutonomous,
   normalizeCanvasPins,
   normalizeCanvasSessions,
@@ -205,4 +207,50 @@ test('filterCanvasSessions, formatters, templates, and Berd workspace pins behav
 
   const pinSpot = findOpenPinSpot(seeded, pins);
   assert.ok(pinSpot.xPct >= 10 && pinSpot.xPct <= 90);
+});
+
+test('canvas chats filter excludes idle opaque gateway runs and formatCanvasDotLabel bounds hashes', () => {
+  const interactive = normalizeCanvasSessions([
+    {
+      id: 'session-repo',
+      channelId: 'https-github-com-nousresearch-hermes-agent',
+      hermesSessionId: 'hermes-https-github-com-nousresearch-hermes-agent',
+      name: 'https://github.com/NousResearch/hermes-agent',
+      topic: 'https://github.com/NousResearch/hermes-agent',
+    },
+  ])[0];
+  const opaqueRun = normalizeCanvasSessions([
+    {
+      id: 'session-local-5e52c0948b0bfd7907bf92990a4140f94',
+      channelId: 'local-5e52c0948b0bfd7907bf92990a4140f94',
+      hermesSessionId: 'local:5e52c0948b0bfd7907bf92990a4140f94',
+      name: 'local-5e52c0948b0bfd7907bf92990a4140f94',
+      topic: 'local-5e52c0948b0bfd7907bf92990a4140f94',
+    },
+  ])[0];
+
+  assert.equal(isCanvasBackgroundRun(interactive), false);
+  assert.equal(isCanvasBackgroundRun(opaqueRun), true);
+
+  const chatsOnly = filterCanvasSessions([interactive, opaqueRun], 'chats', {});
+  assert.equal(chatsOnly.length, 1);
+  assert.equal(chatsOnly[0].id, interactive.id);
+
+  const hashLabel = formatCanvasDotLabel(opaqueRun, undefined, 0);
+  assert.ok(hashLabel.primaryLabel.length <= 24, `Expected compact primary label, got ${hashLabel.primaryLabel}`);
+  assert.ok(!hashLabel.primaryLabel.includes('92990a4140f94'));
+
+  // 14-item multi-row layout avoids horizontal collisions on 4 columns
+  const many = Array.from({ length: 14 }, (_, i) => ({
+    ...interactive,
+    id: `s-${i}`,
+    channelId: `c-${i}`,
+  }));
+  const arranged = autoArrangeSessions(many);
+  for (let i = 0; i < arranged.length; i++) {
+    for (let j = i + 1; j < arranged.length; j++) {
+      const dist = Math.hypot(arranged[i].xPct - arranged[j].xPct, arranged[i].yPct - arranged[j].yPct);
+      assert.ok(dist >= 12, `Expected nodes ${i} and ${j} separated, got dist=${dist.toFixed(1)}`);
+    }
+  }
 });

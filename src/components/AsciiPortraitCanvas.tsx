@@ -18,6 +18,7 @@ import {
 import {
   createRasterSurface,
   rasterizeTonalDotBucketsToSurface,
+  resolvePortraitTonePalette,
   type BrailleDotProfile,
   type TonalDotBucketSpec,
 } from '../utils/brailleCanvasRaster';
@@ -184,23 +185,6 @@ interface AsciiPortraitCanvasProps {
   showLoadingLabel?: boolean;
   onStatusChange?: (status: PortraitAssetStatus) => void;
   onClick?: () => void;
-}
-
-function mixPortraitHex(hexA: string, hexB: string, t: number): string {
-  const cleanA = hexA.replace('#', '');
-  const cleanB = hexB.replace('#', '');
-  if (cleanA.length !== 6 || cleanB.length !== 6) return hexA;
-  const r1 = parseInt(cleanA.slice(0, 2), 16);
-  const g1 = parseInt(cleanA.slice(2, 4), 16);
-  const b1 = parseInt(cleanA.slice(4, 6), 16);
-  const r2 = parseInt(cleanB.slice(0, 2), 16);
-  const g2 = parseInt(cleanB.slice(2, 4), 16);
-  const b2 = parseInt(cleanB.slice(4, 6), 16);
-  const w = Math.max(0, Math.min(1, t));
-  const r = Math.round(r1 + (r2 - r1) * w);
-  const g = Math.round(g1 + (g2 - g1) * w);
-  const b = Math.round(b1 + (b2 - b1) * w);
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
 // Bitmask lookup order matching standard Unicode Braille U+2800..U+28FF
@@ -467,10 +451,6 @@ export function AsciiPortraitCanvas({
         }
       }
 
-      const activeTint =
-        !isThumb &&
-        (isLoadingVisual || s.isListening || (s.isSpeaking && smoothEnergy > 0.22));
-
       let len0 = 0;
       let len1 = 0;
       let len2 = 0;
@@ -536,41 +516,22 @@ export function AsciiPortraitCanvas({
         }
       }
 
-      const customTint = s.tintHex;
-      const tintWeight = activeTint ? 0.85 : 0.52;
-      const baseLowHex = customTint
-        ? mixPortraitHex('#738C84', customTint, tintWeight)
-        : activeTint
-        ? '#6EE7B7'
-        : '#8FA69E';
-      const baseMidLowHex = customTint
-        ? mixPortraitHex('#ADC2BB', customTint, tintWeight * 0.85)
-        : activeTint
-        ? '#A7F3D0'
-        : '#B9CCC5';
-      const baseMidHex = customTint ? mixPortraitHex('#DCE8E3', customTint, 0.52) : '#DCE8E3';
-      const baseMidHighHex = customTint ? mixPortraitHex('#F1F7F4', customTint, 0.34) : '#F1F7F4';
-      const baseHighHex = customTint ? mixPortraitHex('#FFFFFF', customTint, 0.16) : '#FFFFFF';
+      const tone = resolvePortraitTonePalette({
+        mood: s.mood,
+        isSpeaking: s.isSpeaking,
+        isListening: s.isListening,
+        isLoading: isLoadingVisual,
+        isThumb,
+        energy: smoothEnergy,
+        tintHex: s.tintHex,
+      });
 
-      buckets[0].len = len0;
-      buckets[0].hex = baseLowHex;
-      buckets[0].alpha = isLoadingVisual ? 0.42 : 0.48;
-
-      buckets[1].len = len1;
-      buckets[1].hex = baseMidLowHex;
-      buckets[1].alpha = isLoadingVisual ? 0.58 : 0.68;
-
-      buckets[2].len = len2;
-      buckets[2].hex = baseMidHex;
-      buckets[2].alpha = isLoadingVisual ? 0.74 : 0.84;
-
-      buckets[3].len = len3;
-      buckets[3].hex = baseMidHighHex;
-      buckets[3].alpha = isLoadingVisual ? 0.86 : 0.94;
-
-      buckets[4].len = len4;
-      buckets[4].hex = baseHighHex;
-      buckets[4].alpha = isLoadingVisual ? 0.95 : 0.99;
+      const lens = [len0, len1, len2, len3, len4];
+      for (let i = 0; i < 5; i++) {
+        buckets[i].len = lens[i];
+        buckets[i].hex = tone.hexes[i];
+        buckets[i].alpha = tone.alphas[i];
+      }
 
       rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {
         dotProfile: s.dotProfile,

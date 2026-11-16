@@ -107,37 +107,44 @@ function cleanDisplayCandidate(raw: string): string {
 }
 
 function formatOpaqueFallback(
-  sessionId: string,
-  channelId: string,
-  sourceLabel: string
+  sessionId?: string | null,
+  channelId?: string | null,
+  sourceLabel?: string | null
 ): string {
-  const localMatch = sessionId.match(LOCAL_HASH_RE) || channelId.match(LOCAL_HASH_RE);
+  const sid = String(sessionId ?? '').trim();
+  const cid = String(channelId ?? '').trim();
+  const src = String(sourceLabel ?? '').trim() || 'Session';
+
+  const localMatch = sid.match(LOCAL_HASH_RE) || cid.match(LOCAL_HASH_RE);
   if (localMatch) {
     return `Local API · ${localMatch[1].slice(0, 6)}`;
   }
-  const runMatch = sessionId.match(RUN_HASH_RE) || channelId.match(RUN_HASH_RE);
+  const runMatch = sid.match(RUN_HASH_RE) || cid.match(RUN_HASH_RE);
   if (runMatch) {
     return `Gateway run · ${runMatch[1].slice(0, 6)}`;
   }
-  const cronMatch = sessionId.match(CRON_ID_RE) || channelId.match(CRON_ID_RE);
+  const cronMatch = sid.match(CRON_ID_RE) || cid.match(CRON_ID_RE);
   if (cronMatch) {
     const cleanCron = cronMatch[1].replace(/[-_]\d{6,}$/, '').slice(0, 14);
     return cleanCron ? `Cron · ${cleanCron}` : 'Scheduled cron';
   }
-  const shortHex = sessionId.replace(/^(?:hermes-)/i, '').slice(0, 8);
-  return `${sourceLabel} · ${shortHex || channelId}`;
+  const shortHex = sid.replace(/^(?:hermes-)/i, '').slice(0, 8);
+  return `${src} · ${shortHex || cid || 'session'}`;
 }
 
 export function formatDisplaySessionTitle(params: {
   topic?: string | null;
   name?: string | null;
-  channelId: string;
-  sessionId: string;
+  channelId?: string | null;
+  sessionId?: string | null;
   lastMessage?: string | null;
-  sourceLabel: string;
+  sourceLabel?: string | null;
 }): { title: string; isOpaque: boolean } {
-  const normalizedChannel = params.channelId.trim().toLowerCase();
-  const normalizedSid = params.sessionId.trim().toLowerCase();
+  const safeChannelId = String(params?.channelId ?? '').trim();
+  const safeSessionId = String(params?.sessionId ?? '').trim();
+  const safeSourceLabel = String(params?.sourceLabel ?? 'Session').trim() || 'Session';
+  const normalizedChannel = safeChannelId.toLowerCase();
+  const normalizedSid = safeSessionId.toLowerCase();
 
   const isMeaningfulLabel = (raw?: string | null): string | null => {
     const s = String(raw ?? '').trim();
@@ -153,17 +160,17 @@ export function formatDisplaySessionTitle(params: {
     return cleaned;
   };
 
-  const topicLabel = isMeaningfulLabel(params.topic);
+  const topicLabel = isMeaningfulLabel(params?.topic);
   if (topicLabel && topicLabel.toLowerCase() !== normalizedChannel) {
     return { title: topicLabel, isOpaque: false };
   }
 
-  const nameLabel = isMeaningfulLabel(params.name);
+  const nameLabel = isMeaningfulLabel(params?.name);
   if (nameLabel && nameLabel.toLowerCase() !== normalizedChannel) {
     return { title: nameLabel, isOpaque: false };
   }
 
-  const previewLabel = isMeaningfulLabel(params.lastMessage);
+  const previewLabel = isMeaningfulLabel(params?.lastMessage);
   if (previewLabel) {
     return {
       title: previewLabel.length > 64 ? `${previewLabel.slice(0, 61).trimEnd()}…` : previewLabel,
@@ -180,22 +187,22 @@ export function formatDisplaySessionTitle(params: {
   }
 
   return {
-    title: formatOpaqueFallback(params.sessionId, params.channelId, params.sourceLabel),
+    title: formatOpaqueFallback(safeSessionId, safeChannelId, safeSourceLabel),
     isOpaque: true,
   };
 }
 
 export function classifySessionBucket(params: {
-  sessionId: string;
-  channelId: string;
+  sessionId?: string | null;
+  channelId?: string | null;
   source?: string | null;
   isOpaqueTitle: boolean;
   turnCount: number;
   hasActiveWork: boolean;
 }): SidebarSessionBucket {
-  const src = String(params.source ?? '').trim().toLowerCase();
-  const sid = params.sessionId.trim();
-  const cid = params.channelId.trim().toLowerCase();
+  const src = String(params?.source ?? '').trim().toLowerCase();
+  const sid = String(params?.sessionId ?? '').trim();
+  const cid = String(params?.channelId ?? '').trim().toLowerCase();
 
   if (
     src === 'cron' ||
@@ -249,8 +256,8 @@ export function buildSidebarSessionEntries(params: {
   const nowMs = params.nowMs ?? Date.now();
   const hermesByKey = new Map<string, HermesAgentSession>();
   for (const hs of params.hermesSessions) {
-    hermesByKey.set(hs.channelId, hs);
-    hermesByKey.set(hs.sessionId, hs);
+    if (hs.channelId) hermesByKey.set(hs.channelId, hs);
+    if (hs.sessionId) hermesByKey.set(hs.sessionId, hs);
   }
 
   // Include non-core sessions (and include daemon under Runs so background cron isn't orphaned into footer LANES)

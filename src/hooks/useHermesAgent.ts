@@ -267,12 +267,12 @@ function mapTask(t: HermesTaskPayload, aliases?: ReadonlyMap<string, string>): B
   };
 }
 
-function mapChannel(ch: HermesChannelPayload): Channel {
+function mapChannel(ch: HermesChannelPayload & { sessionId?: string }): Channel {
   const id = normalizeChannelId(ch.slug || ch.id);
   return {
     id,
-    name: ch.name,
-    sessionId: ch.session_id,
+    name: ch.name || id,
+    sessionId: ch.session_id || ch.sessionId || `hermes-${id}`,
     description: ch.topic ?? '',
     persona: ch.persona ?? ch.instructions ?? undefined,
     unreadCount: 0,

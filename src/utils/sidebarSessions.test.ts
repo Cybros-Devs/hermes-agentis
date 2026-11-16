@@ -302,3 +302,36 @@ test('computeFooterLanes excludes daemon and long background cron strings from b
     ['#general']
   );
 });
+
+test('formatDisplaySessionTitle and classifySessionBucket handle missing or undefined fields without throwing', () => {
+  const partialTitle = formatDisplaySessionTitle({
+    topic: undefined,
+    name: 'ops-review',
+    channelId: undefined,
+    sessionId: undefined,
+    sourceLabel: undefined,
+  });
+  assert.equal(partialTitle.title, 'ops-review');
+  assert.equal(partialTitle.isOpaque, false);
+
+  const fallbackOpaque = formatDisplaySessionTitle({
+    channelId: undefined,
+    sessionId: undefined,
+    sourceLabel: undefined,
+  });
+  assert.equal(fallbackOpaque.title, 'Session · session');
+  assert.equal(fallbackOpaque.isOpaque, true);
+
+  assert.equal(
+    classifySessionBucket({
+      channelId: undefined,
+      sessionId: undefined,
+      source: undefined,
+      isOpaqueTitle: false,
+      turnCount: 0,
+      hasActiveWork: false,
+    }),
+    'chats'
+  );
+});
+

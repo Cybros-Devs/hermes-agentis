@@ -1,14 +1,20 @@
-import type { Channel, ChannelId, ExpressionMood } from '../types/hermes';
+import type { Channel, ChannelId, ExpressionMood, HermesAgentSession } from '../types/hermes';
 import {
   BRAILLE_SHAPE_CATALOG,
   type BrailleShapeKind,
   type BrailleShapeTint,
 } from './brailleShapesEngine';
+import {
+  classifySessionBucket,
+  formatDisplaySessionTitle,
+  formatSourceLabel,
+  isOpaqueSessionIdentifier,
+} from './sidebarSessions';
 
 export type DotAutonomyMode = 'manual' | 'scheduled' | 'watch';
 export type DotSandboxEnv = 'cloud-sandbox' | 'local-repo' | 'browser-worker';
 export type CanvasFormationPreset = 'constellation' | 'orbit' | 'grid';
-export type CanvasSessionFilter = 'all' | 'live' | 'autonomous';
+export type CanvasSessionFilter = 'chats' | 'all' | 'live' | 'autonomous';
 
 export interface CanvasSession {
   id: string;
@@ -248,13 +254,131 @@ export function isDotAutonomous(session: Pick<CanvasSession, 'autonomyMode' | 'a
   return session.autonomyMode !== 'manual' && !session.autonomyPaused;
 }
 
+export function isCanvasBackgroundRun(
+  session: Pick<CanvasSession, 'channelId' | 'hermesSessionId' | 'name' | 'topic' | 'isCore' | 'autonomyMode'>,
+  hermesSession?: HermesAgentSession
+): boolean {
+  if (session.isCore) return false;
+  if (session.autonomyMode !== 'manual') return false;
+  const sourceLabel = formatSourceLabel(
+    hermesSession?.source,
+    session.hermesSessionId,
+    session.channelId
+  );
+  const titleInfo = formatDisplaySessionTitle({
+    topic: hermesSession?.topic || session.topic,
+    name: hermesSession?.name || session.name,
+    channelId: session.channelId,
+    sessionId: session.hermesSessionId,
+    lastMessage: hermesSession?.lastMessage,
+    sourceLabel,
+  });
+  const turnCount = hermesSession?.turnCount ?? 0;
+  const hasActiveWork =
+    hermesSession?.status === 'thinking' ||
+    hermesSession?.status === 'running' ||
+    hermesSession?.status === 'speaking';
+  return (
+    classifySessionBucket({
+      sessionId: session.hermesSessionId,
+      channelId: session.channelId,
+      source: hermesSession?.source,
+      isOpaqueTitle: titleInfo.isOpaque,
+      turnCount,
+      hasActiveWork,
+    }) === 'runs'
+  );
+}
+
+export function formatCanvasDotLabel(
+  session: Pick<CanvasSession, 'channelId' | 'hermesSessionId' | 'name' | 'topic'>,
+  hermesSession?: HermesAgentSession,
+  turnCount = 0
+): {
+  primaryLabel: string;
+  secondaryLabel: string;
+  promptTarget: string;
+  isOpaque: boolean;
+} {
+  const sourceLabel = formatSourceLabel(
+    hermesSession?.source,
+    session.hermesSessionId,
+    session.channelId
+  );
+  const titleInfo = formatDisplaySessionTitle({
+    topic: hermesSession?.topic || session.topic,
+    name: hermesSession?.name || session.name,
+    channelId: session.channelId,
+    sessionId: session.hermesSessionId,
+    lastMessage: hermesSession?.lastMessage,
+    sourceLabel,
+  });
+
+  const compactPrimary =
+    titleInfo.title.length > 24
+      ? `${titleInfo.title.slice(0, 22).trimEnd()}…`
+      : titleInfo.title;
+
+  const isOpaque =
+    titleInfo.isOpaque || isOpaqueSessionIdentifier(session.channelId);
+
+  const shortPromptBase = titleInfo.isOpaque
+    ? titleInfo.title.split('·').pop()?.trim() || session.channelId.slice(0, 8)
+    : session.channelId.length <= 16 && !/^https?-/i.test(session.channelId)
+    ? session.channelId
+    : compactPrimary.includes('/')
+    ? compactPrimary.split('/')[0].slice(0, 14)
+    : compactPrimary.slice(0, 14);
+
+  const parts: string[] = [];
+  if (!titleInfo.isOpaque) {
+    parts.push(sourceLabel);
+  }
+  const effectiveTurns = Math.max(turnCount, hermesSession?.turnCount ?? 0);
+  parts.push(`${effectiveTurns}t`);
+
+  if (hermesSession?.model && hermesSession.model !== 'hermes-agent') {
+    parts.push(hermesSession.model.split('/').pop() || hermesSession.model);
+  } else if (
+    !isOpaque &&
+    session.channelId &&
+    !compactPrimary.toLowerCase().includes(session.channelId.toLowerCase())
+  ) {
+    const cleanSlug =
+      session.channelId.length > 14
+        ? `${session.channelId.slice(0, 12)}…`
+        : session.channelId;
+    parts.push(`#${cleanSlug}`);
+  }
+
+  return {
+    primaryLabel: titleInfo.isOpaque ? compactPrimary : `#${compactPrimary}`,
+    secondaryLabel: parts.join(' · '),
+    promptTarget: shortPromptBase,
+    isOpaque: titleInfo.isOpaque,
+  };
+}
+
 export function filterCanvasSessions(
   sessions: CanvasSession[],
   filter: CanvasSessionFilter,
   thinkingByChannel: Record<string, boolean>,
-  hermesStatusByChannel?: ReadonlyMap<string, string>
+  hermesStatusByChannel?: ReadonlyMap<string, string>,
+  hermesSessionsByChannel?: ReadonlyMap<string, HermesAgentSession>
 ): CanvasSession[] {
   if (filter === 'all') return sessions;
+  if (filter === 'chats') {
+    return sessions.filter((s) => {
+      if (
+        thinkingByChannel[s.channelId] ||
+        hermesStatusByChannel?.get(s.channelId) === 'thinking' ||
+        hermesStatusByChannel?.get(s.channelId) === 'running'
+      ) {
+        return true;
+      }
+      return !isCanvasBackgroundRun(s, hermesSessionsByChannel?.get(s.channelId));
+    });
+  }
   if (filter === 'live') {
     return sessions.filter(
       (s) =>
@@ -391,7 +515,7 @@ export function arrangeSessionsFormation(
   }
 
   if (formation === 'grid') {
-    const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
+    const cols = count <= 2 ? count : count <= 4 ? 2 : count <= 9 ? 3 : 4;
     const rows = Math.ceil(count / cols);
     return sessions.map((session, idx) => {
       const r = Math.floor(idx / cols);
@@ -399,10 +523,10 @@ export function arrangeSessionsFormation(
       const colsInRow = r === rows - 1 ? count - r * cols : cols;
       const tX = colsInRow === 1 ? 0.5 : c / (colsInRow - 1);
       const tY = rows === 1 ? 0.5 : r / (rows - 1);
-      const xMargin = colsInRow === 2 ? 26 : 18;
-      const xSpan = colsInRow === 2 ? 48 : 64;
-      const yMin = rows === 1 ? 45 : 26;
-      const ySpan = rows === 1 ? 0 : 40;
+      const xMargin = colsInRow === 2 ? 26 : cols >= 4 ? 13 : 18;
+      const xSpan = colsInRow === 2 ? 48 : cols >= 4 ? 74 : 64;
+      const yMin = rows === 1 ? 45 : rows >= 4 ? 19 : 24;
+      const ySpan = rows === 1 ? 0 : rows >= 4 ? 54 : 44;
       const clamped = clampCanvasPosition(xMargin + tX * xSpan, yMin + tY * ySpan);
       return { ...session, ...clamped };
     });
@@ -423,18 +547,41 @@ export function autoArrangeSessions(sessions: CanvasSession[]): CanvasSession[] 
     });
   }
 
-  const topCount = Math.ceil(count / 2);
-  const bottomCount = count - topCount;
+  if (count <= 6) {
+    const topCount = Math.ceil(count / 2);
+    const bottomCount = count - topCount;
 
+    return sessions.map((session, idx) => {
+      const isTop = idx < topCount;
+      const rowIdx = isTop ? idx : idx - topCount;
+      const rowLen = isTop ? topCount : bottomCount;
+      const t = rowLen === 1 ? 0.5 : rowIdx / (rowLen - 1);
+      const xMargin = isTop ? 18 : 26;
+      const xSpan = isTop ? 64 : 48;
+      const yPct = isTop ? 28 : 66;
+      const clamped = clampCanvasPosition(xMargin + t * xSpan, yPct);
+      return {
+        ...session,
+        ...clamped,
+      };
+    });
+  }
+
+  // Multi-row staggered constellation for 7+ sessions so nodes never overlap horizontally
+  const cols = count <= 9 ? 3 : 4;
+  const rows = Math.ceil(count / cols);
   return sessions.map((session, idx) => {
-    const isTop = idx < topCount;
-    const rowIdx = isTop ? idx : idx - topCount;
-    const rowLen = isTop ? topCount : bottomCount;
-    const t = rowLen === 1 ? 0.5 : rowIdx / (rowLen - 1);
-    const xMargin = isTop ? 18 : 26;
-    const xSpan = isTop ? 64 : 48;
-    const yPct = isTop ? 28 : 66;
-    const clamped = clampCanvasPosition(xMargin + t * xSpan, yPct);
+    const r = Math.floor(idx / cols);
+    const c = idx % cols;
+    const colsInRow = r === rows - 1 ? count - r * cols : cols;
+    const tX = colsInRow === 1 ? 0.5 : c / (colsInRow - 1);
+    const tY = rows === 1 ? 0.5 : r / (rows - 1);
+    const rowStagger = r % 2 === 1 && colsInRow < cols ? 4 : 0;
+    const xMargin = colsInRow === 2 ? 26 : 14;
+    const xSpan = colsInRow === 2 ? 48 : 72;
+    const yMin = rows >= 4 ? 19 : 22;
+    const ySpan = rows >= 4 ? 54 : 48;
+    const clamped = clampCanvasPosition(xMargin + rowStagger + tX * xSpan, yMin + tY * ySpan);
     return {
       ...session,
       ...clamped,
