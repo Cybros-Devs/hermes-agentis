@@ -164,6 +164,7 @@ export default function App() {
   const [confirmedSyntheticTaskIds, setConfirmedSyntheticTaskIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [dismissedTaskIds, setDismissedTaskIds] = useState<Set<string>>(() => new Set());
   const [speakingChannel, setSpeakingChannel] = useState<ChannelId | null>(null);
   const [lastSpokenByChannel, setLastSpokenByChannel] = useState<Record<string, string>>({});
   const [lastSpokenLine, setLastSpokenLineState] = useState<string>(
@@ -307,7 +308,7 @@ export default function App() {
         const nextThink = sanitized.showThinking;
         setShowThinking(nextThink);
         try {
-          localStorage.setItem('duet.showThinking', nextThink ? '1' : '0');
+          localStorage.setItem('duet.showInlineTrace', nextThink ? '1' : '0');
         } catch {
           // ignore
         }
@@ -517,14 +518,14 @@ export default function App() {
   const effectiveTasks = useMemo(
     () =>
       mergeTasksWithSessionActivity({
-        tasks,
+        tasks: tasks.filter((t) => !dismissedTaskIds.has(t.id)),
         entries,
         sessions: hermes.sessions,
         thinkingByChannel,
         channels,
         confirmedTaskIds: confirmedSyntheticTaskIds,
-      }),
-    [tasks, entries, hermes.sessions, thinkingByChannel, channels, confirmedSyntheticTaskIds]
+      }).filter((t) => !dismissedTaskIds.has(t.id)),
+    [tasks, entries, hermes.sessions, thinkingByChannel, channels, confirmedSyntheticTaskIds, dismissedTaskIds]
   );
   stateRef.current.tasks = effectiveTasks;
 
@@ -575,15 +576,15 @@ export default function App() {
 
   const [showThinking, setShowThinking] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('duet.showThinking') !== '0';
+      return localStorage.getItem('duet.showInlineTrace') === '1';
     } catch {
-      return true;
+      return false;
     }
   });
   const handleToggleThinking = useCallback(() => {
     setShowThinking((v) => {
       try {
-        localStorage.setItem('duet.showThinking', v ? '0' : '1');
+        localStorage.setItem('duet.showInlineTrace', v ? '0' : '1');
       } catch {
         // ignore
       }
@@ -1258,7 +1259,20 @@ export default function App() {
         return;
       }
       if (id.startsWith('trace-turn-')) {
+        setDismissedTaskIds((prev) => new Set([...prev, id]));
         return;
+      }
+      const targetTask = stateRef.current.tasks.find((t) => t.id === id);
+      if (id.startsWith('task-turn-') && targetTask) {
+        const ch = targetTask.channelId;
+        const current = chatAbortsRef.current.get(ch);
+        chatAbortsRef.current.delete(ch);
+        current?.abort();
+        setChannelThinking(ch, false);
+        if (ch === stateRef.current.activeChannel) {
+          setSpeakingChannel(null);
+          voiceRef.current?.stopSpeaking();
+        }
       }
       const now = Date.now();
       setTasks((prev) =>
@@ -1280,6 +1294,27 @@ export default function App() {
       }
     },
     [abortRun, hermesCancelTask, hermesConnected, setChannelThinking]
+  );
+
+  const handleClearCompletedTasks = useCallback(
+    (channelId: ChannelId) => {
+      const toRemove = stateRef.current.tasks
+        .filter((t) => t.channelId === channelId && t.status === 'completed' && Boolean(t.confirmedAtMs))
+        .map((t) => t.id);
+      if (toRemove.length === 0) return;
+
+      const idSet = new Set(toRemove);
+      setDismissedTaskIds((prev) => new Set([...prev, ...toRemove]));
+      setTasks((prev) => prev.filter((t) => !idSet.has(t.id)));
+      if (hermesConnected) {
+        void fetch('/api/hermes/tasks/clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channelId }),
+        }).catch(() => {});
+      }
+    },
+    [hermesConnected]
   );
 
   const handleSteerTask = useCallback(
@@ -1694,6 +1729,7 @@ export default function App() {
             onConfirmTask={handleConfirmTask}
             onReopenTask={handleReopenTask}
             onCancelTask={handleCancelTask}
+            onClearCompletedTasks={handleClearCompletedTasks}
             onSteerTask={handleSteerTask}
             onToggleListening={voice.toggleListening}
             onToggleMute={voice.toggleMute}

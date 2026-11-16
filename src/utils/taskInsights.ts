@@ -386,8 +386,12 @@ const TERMINAL_TOOL_DONE_STATUSES = new Set([
   'done',
   'completed',
   'complete',
+  'finished',
+  'finish',
   'success',
   'succeeded',
+  'passed',
+  'pass',
   'ok',
 ]);
 
@@ -397,6 +401,28 @@ const TERMINAL_TOOL_ERROR_STATUSES = new Set([
   'cancelled',
   'canceled',
   'stopped',
+]);
+
+const VAGUE_PROMPT_TITLE_PATTERNS = new Set([
+  'go',
+  'yes',
+  'yep',
+  'ok',
+  'okay',
+  'sure',
+  'continue',
+  'next',
+  'proceed',
+  'try again',
+  'retry',
+  'check',
+  'status',
+  'what do you suggest',
+  'what do you suggest?',
+  'what should we do',
+  'what should we do?',
+  'any thoughts',
+  'any thoughts?',
 ]);
 
 /**
@@ -420,6 +446,40 @@ export function deriveTurnTaskTitle(prompt: string, fallbackLabel?: string): str
   return `${head.trimEnd()}…`;
 }
 
+/**
+ * Resolves a clear display title for task cards: if a task was spawned from a
+ * short conversational nudge (e.g. "go", "what do you suggest") and already has
+ * descriptive tool steps or a result summary, promotes concise action context.
+ */
+export function resolveTaskDisplayTitle(task: BackgroundTask): string {
+  const raw = (task.title || '').trim();
+  if (!raw) return 'Active task';
+  const normalizedLower = raw.toLowerCase().replace(/[.!?]+$/, '').trim();
+  const isVague =
+    VAGUE_PROMPT_TITLE_PATTERNS.has(raw.toLowerCase()) ||
+    VAGUE_PROMPT_TITLE_PATTERNS.has(normalizedLower);
+
+  if (!isVague) return raw;
+
+  const candidateStep = (task.steps ?? [])
+    .map((s) => s.text.trim())
+    .find(
+      (txt) =>
+        txt.length > 0 &&
+        !/^running\s+/i.test(txt) &&
+        !isBootstrapOrComposingStep(txt) &&
+        !/^completed response$/i.test(txt)
+    );
+
+  if (candidateStep) {
+    return deriveTurnTaskTitle(candidateStep, raw);
+  }
+  if (task.lastStep && !/^running\s+/i.test(task.lastStep) && !isBootstrapOrComposingStep(task.lastStep)) {
+    return deriveTurnTaskTitle(task.lastStep, raw);
+  }
+  return raw;
+}
+
 function isBootstrapOrComposingStep(text: string): boolean {
   const lower = text.toLowerCase();
   return (
@@ -427,6 +487,22 @@ function isBootstrapOrComposingStep(text: string): boolean {
     lower.startsWith('routing ') ||
     lower === 'composing response'
   );
+}
+
+function extractToolNeedleFromText(text: string): string {
+  const trimmed = text.trim().toLowerCase();
+  if (trimmed.startsWith('running ')) {
+    return trimmed.slice('running '.length).split(/[\s:]/)[0] || '';
+  }
+  const colonIdx = trimmed.indexOf(':');
+  if (colonIdx > 0 && colonIdx < 32) {
+    return trimmed.slice(0, colonIdx).trim();
+  }
+  const dashIdx = trimmed.indexOf(' — ');
+  if (dashIdx > 0 && dashIdx < 32) {
+    return trimmed.slice(0, dashIdx).trim();
+  }
+  return trimmed.split(/\s+/)[0] || '';
 }
 
 /**
@@ -447,17 +523,40 @@ export function applyToolProgressToSteps(
   const isError = TERMINAL_TOOL_ERROR_STATUSES.has(normalizedStatus);
   const stepText = (event.summary || event.label || event.toolName || 'tool').trim();
   const toolNeedle = (event.toolName || '').trim().toLowerCase();
+  const isGenericRunningPlaceholder = /^running\s+/i.test(stepText);
 
   const nextSteps: GenericTaskStep[] = prevSteps.map((s) => ({ ...s }));
 
   if (!isDone && !isError) {
-    // New active tool invocation: settle prior active/bootstrap open step first.
-    for (let i = 0; i < nextSteps.length; i++) {
-      if (!nextSteps[i].done && (nextSteps[i].active || isBootstrapOrComposingStep(nextSteps[i].text))) {
-        nextSteps[i] = { ...nextSteps[i], done: true, active: false };
+    // If an earlier open step was merely a generic "Running <tool>" placeholder for this
+    // same tool and we now have a concrete detail summary (e.g. "terminal: gh pr checks"),
+    // upgrade that open placeholder in-place instead of creating a duplicate step.
+    const upgradeIdx =
+      !isGenericRunningPlaceholder && toolNeedle
+        ? nextSteps.findIndex(
+            (s) =>
+              !s.done &&
+              /^running\s+/i.test(s.text.trim()) &&
+              extractToolNeedleFromText(s.text) === toolNeedle
+          )
+        : -1;
+
+    if (upgradeIdx >= 0) {
+      for (let i = 0; i < nextSteps.length; i++) {
+        if (i !== upgradeIdx && !nextSteps[i].done && (nextSteps[i].active || isBootstrapOrComposingStep(nextSteps[i].text))) {
+          nextSteps[i] = { ...nextSteps[i], done: true, active: false };
+        }
       }
+      nextSteps[upgradeIdx] = { text: stepText, done: false, active: true };
+    } else {
+      // New active tool invocation: settle prior active/bootstrap open step first.
+      for (let i = 0; i < nextSteps.length; i++) {
+        if (!nextSteps[i].done && (nextSteps[i].active || isBootstrapOrComposingStep(nextSteps[i].text))) {
+          nextSteps[i] = { ...nextSteps[i], done: true, active: false };
+        }
+      }
+      nextSteps.push({ text: stepText, done: false, active: true });
     }
-    nextSteps.push({ text: stepText, done: false, active: true });
   } else {
     // Terminal tool completion/failure: close the matching open step if present.
     let matchIdx = -1;
@@ -472,15 +571,32 @@ export function applyToolProgressToSteps(
     if (matchIdx >= 0) {
       const existing = nextSteps[matchIdx];
       const preferNewText =
-        stepText.length > existing.text.length ||
-        !stepText.toLowerCase().startsWith('running ');
+        !isGenericRunningPlaceholder &&
+        (stepText.length > existing.text.length ||
+          /^running\s+/i.test(existing.text.trim()));
       nextSteps[matchIdx] = {
         text: preferNewText ? stepText : existing.text,
         done: !isError,
         active: false,
       };
     } else {
-      nextSteps.push({ text: stepText, done: !isError, active: false });
+      // Avoid appending a redundant generic "Running <tool>" step when finishing
+      const last = nextSteps[nextSteps.length - 1];
+      if (
+        last &&
+        !isGenericRunningPlaceholder &&
+        /^running\s+/i.test(last.text.trim()) &&
+        toolNeedle &&
+        extractToolNeedleFromText(last.text) === toolNeedle
+      ) {
+        nextSteps[nextSteps.length - 1] = {
+          text: stepText,
+          done: !isError,
+          active: false,
+        };
+      } else {
+        nextSteps.push({ text: stepText, done: !isError, active: false });
+      }
     }
   }
 
@@ -634,12 +750,51 @@ export function extractTrailingTurnContext(entries: TerminalEntry[]): {
   };
 }
 
+/**
+ * Collapses redundant generic "Running <tool>" placeholder entries when a
+ * concrete or completed step for that same tool appears immediately beside it
+ * (common when gateways emit separate start + result progress frames).
+ */
+export function dedupeActivityEntries(activities: TerminalEntry[]): TerminalEntry[] {
+  const result: TerminalEntry[] = [];
+  for (const entry of activities) {
+    const trimmed = entry.text.trim();
+    const isGenericRunning = /^running\s+/i.test(trimmed);
+    const needle = extractToolNeedleFromText(trimmed);
+
+    if (result.length > 0 && needle) {
+      const prev = result[result.length - 1];
+      const prevTrimmed = prev.text.trim();
+      const prevIsGenericRunning = /^running\s+/i.test(prevTrimmed);
+      const prevNeedle = extractToolNeedleFromText(prevTrimmed);
+
+      // Case 1: previous was "Running <tool>" placeholder and current is "<tool>: <detail>" -> upgrade in-place
+      if (prevIsGenericRunning && prevNeedle === needle && !isGenericRunning) {
+        result[result.length - 1] = entry;
+        continue;
+      }
+      // Case 2: previous was an unsettled "<tool>: <detail>" and trailing generic "Running <tool>" arrived -> skip dupe
+      if (
+        !prevIsGenericRunning &&
+        isGenericRunning &&
+        prevNeedle === needle &&
+        prev.activityStatus !== 'done'
+      ) {
+        continue;
+      }
+    }
+    result.push(entry);
+  }
+  return result;
+}
+
 function buildStepsFromActivities(
   activities: TerminalEntry[],
   sessionId: string,
   stillRunning: boolean
 ): TaskStepItem[] {
-  if (activities.length === 0) {
+  const deduped = dedupeActivityEntries(activities);
+  if (deduped.length === 0) {
     return [
       {
         text: `Working in ${sessionId}`,
@@ -650,10 +805,10 @@ function buildStepsFromActivities(
   }
 
   const steps: TaskStepItem[] = [];
-  for (let i = 0; i < activities.length; i++) {
-    const entry = activities[i];
-    const isLast = i === activities.length - 1;
-    const running = stillRunning && (isActivityEntryRunning(entry) || isLast);
+  for (let i = 0; i < deduped.length; i++) {
+    const entry = deduped[i];
+    const isLast = i === deduped.length - 1;
+    const running = stillRunning && isLast && (isActivityEntryRunning(entry) || !entry.activityStatus);
     const done = !running;
     steps.push({
       text: entry.text.trim() || 'Tool activity',

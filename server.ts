@@ -1046,23 +1046,49 @@ async function createServer() {
           {
             abortSignal: runController.signal,
             onToolProgress: ({ toolName, label, status, summary }) => {
-              toolSeq += 1;
-              const activityItem: HermesItem = {
-                id: `act-${runId}-${toolSeq}`,
-                kind: "activity",
-                created_at: Date.now(),
-                channel_id: channel.id,
-                run_id: runId,
-                text: summary,
-                activity: {
+              const normalizedStatus = (status || "running").toLowerCase();
+              const isGenericRunning = /^running\s+/i.test(summary.trim());
+              const toolKey = toolName.trim().toLowerCase();
+
+              // Settle an existing open placeholder activity entry for the same run + tool instead of creating duplicate lines
+              const existingIdx = items.findIndex(
+                (it) =>
+                  it.kind === "activity" &&
+                  it.run_id === runId &&
+                  it.activity?.steps?.[0]?.name?.toLowerCase() === toolKey &&
+                  (it.activity?.steps?.[0]?.status === "running" || /^running\s+/i.test((it.text ?? "").trim()))
+              );
+
+              if (existingIdx >= 0 && (!isGenericRunning || normalizedStatus !== "running")) {
+                const existing = items[existingIdx];
+                existing.text = summary;
+                existing.updated_at = Date.now();
+                existing.activity = {
                   run_id: runId,
                   status,
                   summary,
                   steps: [{ name: toolName, label, status }],
-                },
-              };
-              items.push(activityItem);
-              broadcastEvent({ type: "item", item: activityItem });
+                };
+                broadcastEvent({ type: "item", item: existing });
+              } else {
+                toolSeq += 1;
+                const activityItem: HermesItem = {
+                  id: `act-${runId}-${toolSeq}`,
+                  kind: "activity",
+                  created_at: Date.now(),
+                  channel_id: channel.id,
+                  run_id: runId,
+                  text: summary,
+                  activity: {
+                    run_id: runId,
+                    status,
+                    summary,
+                    steps: [{ name: toolName, label, status }],
+                  },
+                };
+                items.push(activityItem);
+                broadcastEvent({ type: "item", item: activityItem });
+              }
 
               const updatedSteps = applyToolProgressToSteps(turnTask.steps ?? [], {
                 toolName,
@@ -1110,6 +1136,8 @@ async function createServer() {
             },
           }
         );
+
+        if (runController.signal.aborted) return;
 
         const existingPlaceholder = items.find((it) => it.id === assistantId);
         const finalAssistant: HermesItem = existingPlaceholder ?? {
@@ -1458,10 +1486,45 @@ async function createServer() {
       res.status(404).json({ error: "task not found" });
       return;
     }
+    const chSlug = normalizeChannelKey(task.channel_id || "general") || "general";
+    if (task.id.startsWith("task-turn-")) {
+      const controller = activeRunAborts.get(chSlug);
+      if (controller) {
+        controller.abort();
+        activeRunAborts.delete(chSlug);
+      }
+      sessionStatusMap.set(chSlug, "idle");
+      const finalized = finalizeTurnTaskSteps(
+        task.steps ?? [],
+        "cancelled",
+        "Stopped by operator"
+      );
+      task.steps = finalized.steps;
+      task.progress = finalized.progress;
+      const ch = channels.find((c) => c.id === chSlug);
+      if (ch) {
+        broadcastEvent({ type: "session", session: buildSessionSnapshot(ch) });
+      }
+    }
     task.status = "cancelled";
     task.updated_at = Date.now();
     broadcastEvent({ type: "task", task });
     res.status(200).json({ ok: true, task });
+  });
+
+  app.post("/api/hermes/tasks/clear", (req, res) => {
+    const { channelId } = (req.body ?? {}) as { channelId?: string };
+    const chSlug = channelId ? normalizeChannelKey(channelId) : "";
+    let removed = 0;
+    for (let i = tasks.length - 1; i >= 0; i--) {
+      const t = tasks[i];
+      if (chSlug && (t.channel_id || "general") !== chSlug) continue;
+      if (t.confirmed_at || t.status === "cancelled") {
+        tasks.splice(i, 1);
+        removed += 1;
+      }
+    }
+    res.status(200).json({ ok: true, removed });
   });
 
   app.post("/api/hermes/tasks/:taskId/message", (req, res) => {

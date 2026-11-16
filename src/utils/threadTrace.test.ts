@@ -76,3 +76,25 @@ test('groupThreadTimeline attaches live thinking state to trailing trace or crea
     assert.equal(withTrailingActivity[1].items.length, 1);
   }
 });
+
+test('groupThreadTimeline deduplicates tool pairs and respects includeLivePlaceholder=false', () => {
+  const hiddenLive = groupThreadTimeline([makeEntry('u1', 'user', 'Audit repo')], true, false);
+  assert.equal(hiddenLive.length, 1);
+  assert.equal(hiddenLive[0].kind, 'entry');
+
+  const dedupedTrace = groupThreadTimeline(
+    [
+      makeEntry('u1', 'user', 'Inspect CI'),
+      { ...makeEntry('a1', 'activity', 'Running read_file'), activityStatus: 'running' },
+      { ...makeEntry('a2', 'activity', 'read_file: ci-workflows.test.ts'), activityStatus: 'done' },
+      { ...makeEntry('a3', 'activity', 'Running terminal'), activityStatus: 'running' },
+    ],
+    false
+  );
+  assert.equal(dedupedTrace.length, 2);
+  assert.equal(dedupedTrace[1].kind, 'trace');
+  if (dedupedTrace[1].kind === 'trace') {
+    assert.equal(dedupedTrace[1].items.length, 2);
+    assert.equal(dedupedTrace[1].items[0].label, 'read_file');
+  }
+});

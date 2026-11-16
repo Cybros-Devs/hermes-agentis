@@ -1,4 +1,5 @@
 import type { TerminalEntry } from '../types/hermes';
+import { dedupeActivityEntries } from './taskInsights';
 
 export type TraceStepIcon = 'spawn' | 'tool' | 'link' | 'status';
 
@@ -71,35 +72,40 @@ export function classifyTraceStep(entry: TerminalEntry): ClassifiedTraceStep {
 
 /**
  * Groups consecutive `activity` entries into collapsible vertical trace trees
- * and attaches the live thinking state to the trailing trace tree (or creates
- * a live trace tree when thinking begins).
+ * and optionally attaches the live thinking state to the trailing trace tree.
  */
 export function groupThreadTimeline(
   entries: TerminalEntry[],
-  isThinking: boolean
+  isThinking: boolean,
+  includeLivePlaceholder = true
 ): ThreadTimelineBlock[] {
   const blocks: ThreadTimelineBlock[] = [];
-  let pendingTrace: ClassifiedTraceStep[] = [];
+  let pendingRaw: TerminalEntry[] = [];
   let pendingFirstId = '';
 
   const flushTrace = (live: boolean) => {
-    if (pendingTrace.length === 0 && !live) return;
+    const deduped = dedupeActivityEntries(pendingRaw);
+    if (deduped.length === 0 && !live) {
+      pendingRaw = [];
+      pendingFirstId = '';
+      return;
+    }
     blocks.push({
       kind: 'trace',
       id: pendingFirstId || 'trace-live',
-      items: pendingTrace,
+      items: deduped.map(classifyTraceStep),
       isLive: live,
     });
-    pendingTrace = [];
+    pendingRaw = [];
     pendingFirstId = '';
   };
 
   for (const entry of entries) {
     if (entry.role === 'activity') {
-      if (pendingTrace.length === 0) {
+      if (pendingRaw.length === 0) {
         pendingFirstId = `trace-${entry.id}`;
       }
-      pendingTrace.push(classifyTraceStep(entry));
+      pendingRaw.push(entry);
     } else {
       flushTrace(false);
       blocks.push({
@@ -110,7 +116,7 @@ export function groupThreadTimeline(
     }
   }
 
-  if (pendingTrace.length > 0 || isThinking) {
+  if (pendingRaw.length > 0 || (isThinking && includeLivePlaceholder)) {
     flushTrace(isThinking);
   }
 

@@ -28,7 +28,7 @@ export function ThreadTraceTree({
   isLive,
   hideLiveFooter = false,
 }: ThreadTraceTreeProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [showAllSteps, setShowAllSteps] = useState(false);
 
   const hiddenCount =

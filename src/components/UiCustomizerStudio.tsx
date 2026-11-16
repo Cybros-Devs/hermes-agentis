@@ -634,7 +634,8 @@ export function UiCustomizerStudio({
                   onToggle={(next) => onApplyPatch({ reducedMotion: next }, 'studio')}
                 />
                 <ToggleRow
-                  label="Agent thinking trace in thread"
+                  label="Inline activity trace in chat"
+                  hint="Tasks sidebar already tracks runs; enable to also list steps inline"
                   checked={showThinking}
                   onToggle={(next) => onApplyPatch({ showThinking: next }, 'studio')}
                 />

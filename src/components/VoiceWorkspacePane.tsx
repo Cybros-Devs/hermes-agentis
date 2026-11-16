@@ -97,6 +97,7 @@ interface VoiceWorkspacePaneProps {
   onConfirmTask?: (id: string) => void;
   onReopenTask?: (id: string) => void;
   onCancelTask?: (id: string) => void;
+  onClearCompletedTasks?: (channelId: ChannelId) => void;
   onSteerTask?: (id: string, text: string) => Promise<void> | void;
   onToggleListening: () => void;
   onToggleMute: () => void;
@@ -161,6 +162,7 @@ export function VoiceWorkspacePane({
   onConfirmTask,
   onReopenTask,
   onCancelTask,
+  onClearCompletedTasks,
   onSteerTask,
   onToggleListening,
   onToggleMute,
@@ -246,22 +248,15 @@ export function VoiceWorkspacePane({
   );
   const threadTasksOpen =
     threadTasksOverrideByChannel[activeChannel] ??
-    (activeChannelTasksPartition.all.length > 0 || activeIsThinking);
+    (isDesktopLg ? activeChannelTasksPartition.all.length > 0 || activeIsThinking : false);
 
   const toggleThreadTasksOpen = () => {
-    const current =
-      threadTasksOverrideByChannel[activeChannel] ??
-      (activeChannelTasksPartition.all.length > 0 || activeIsThinking);
+    const current = threadTasksOpen;
     const nextOpen = !current;
     setThreadTasksOverrideByChannel((prev) => ({
       ...prev,
       [activeChannel]: nextOpen,
     }));
-    if (nextOpen && !isDesktopLg) {
-      isPinnedToBottomRef.current = true;
-      setIsAwayFromBottom(false);
-      requestAnimationFrame(() => snapThreadToBottom('smooth'));
-    }
   };
 
   const hideThreadTasks = () => {
@@ -472,8 +467,8 @@ export function VoiceWorkspacePane({
   );
 
   const timelineBlocks = useMemo(
-    () => groupThreadTimeline(visibleMessages, activeIsThinking),
-    [visibleMessages, activeIsThinking]
+    () => groupThreadTimeline(visibleMessages, activeIsThinking, showThinking),
+    [visibleMessages, activeIsThinking, showThinking]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -842,8 +837,16 @@ export function VoiceWorkspacePane({
                 type="button"
                 onClick={onToggleThinking}
                 aria-pressed={showThinking}
-                aria-label={showThinking ? 'Hide agent thinking trace' : 'Show agent thinking trace'}
-                title={showThinking ? 'Hide thinking trace' : 'Show thinking trace'}
+                aria-label={
+                  showThinking
+                    ? 'Hide inline activity trace in chat'
+                    : 'Show inline activity trace in chat'
+                }
+                title={
+                  showThinking
+                    ? 'Hide inline activity trace in chat'
+                    : 'Show inline activity trace in chat (Tasks sidebar tracks runs)'
+                }
                 className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
                   showThinking
                     ? 'bg-[#34D399]/14 text-[#6EE7B7]'
@@ -1184,43 +1187,73 @@ export function VoiceWorkspacePane({
               )
             )}
 
-            {/* Mobile Slim Thread Control Bar (portrait stays in MobileWorkspaceBar without double-stacking) */}
+            {/* Mobile Slim Thread Control Bar + Docked Tasks Drawer (never clogs chat stream) */}
             {panelView === 'voice' && (
-              <div className="flex lg:hidden items-center justify-between gap-2 mx-3 px-1 py-1.5 border-b border-white/[0.07] shrink-0">
-                <div className="flex items-center gap-1.5 min-w-0 text-[11.5px]">
-                  <StatusPulse state={statusPulseState} size="sm" />
-                  <span className="font-medium text-white shrink-0">{statusText}</span>
-                  <span aria-hidden="true" className="text-emerald-100/25">·</span>
-                  <span className="font-mono text-[11px] text-[#6EE7B7]/85 truncate">
-                    #{activeChannel}
-                  </span>
+              <>
+                <div className="flex lg:hidden items-center justify-between gap-2 mx-3 px-1 py-1.5 border-b border-white/[0.07] shrink-0">
+                  <div className="flex items-center gap-1.5 min-w-0 text-[11.5px]">
+                    <StatusPulse state={statusPulseState} size="sm" />
+                    <span className="font-medium text-white shrink-0">{statusText}</span>
+                    <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                    <span className="font-mono text-[11px] text-[#6EE7B7]/85 truncate">
+                      #{activeChannel}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <ThreadTaskBanner
+                      variant="mobile-trigger"
+                      activeChannel={activeChannel}
+                      activeSessionId={activeHermesSessionId}
+                      tasks={tasks}
+                      activeIsThinking={activeIsThinking}
+                      workingSeconds={workingSeconds}
+                      isOpen={threadTasksOpen}
+                      onToggleOpen={toggleThreadTasksOpen}
+                      onHide={hideThreadTasks}
+                    />
+                    <button
+                      type="button"
+                      onClick={onToggleThinking}
+                      aria-pressed={showThinking}
+                      aria-label={
+                        showThinking
+                          ? 'Hide inline activity trace in chat'
+                          : 'Show inline activity trace in chat'
+                      }
+                      className={`shrink-0 px-2 py-1 rounded-lg text-[10.5px] font-mono transition-colors cursor-pointer ${
+                        showThinking
+                          ? 'bg-[#34D399]/14 text-[#6EE7B7]'
+                          : 'text-emerald-100/55 hover:text-white'
+                      }`}
+                    >
+                      {showThinking ? 'Trace' : 'Clean'}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <ThreadTaskBanner
-                    variant="mobile-trigger"
-                    activeChannel={activeChannel}
-                    activeSessionId={activeHermesSessionId}
-                    tasks={tasks}
-                    activeIsThinking={activeIsThinking}
-                    workingSeconds={workingSeconds}
-                    isOpen={threadTasksOpen}
-                    onToggleOpen={toggleThreadTasksOpen}
-                    onHide={hideThreadTasks}
-                  />
-                  <button
-                    type="button"
-                    onClick={onToggleThinking}
-                    aria-pressed={showThinking}
-                    className={`shrink-0 px-2 py-1 rounded-lg text-[10.5px] font-mono transition-colors cursor-pointer ${
-                      showThinking
-                        ? 'bg-[#34D399]/14 text-[#6EE7B7]'
-                        : 'text-emerald-100/55 hover:text-white'
-                    }`}
-                  >
-                    {showThinking ? 'Trace' : 'Muted'}
-                  </button>
-                </div>
-              </div>
+
+                {!isDesktopLg && threadTasksOpen && (
+                  <div className="lg:hidden max-h-[42dvh] overflow-y-auto cyber-scroll px-3.5 py-2.5 border-b border-white/[0.07] bg-white/[0.015] shrink-0">
+                    <ThreadTaskBanner
+                      variant="thread-inline"
+                      activeChannel={activeChannel}
+                      activeSessionId={activeHermesSessionId}
+                      tasks={tasks}
+                      activeIsThinking={activeIsThinking}
+                      workingSeconds={workingSeconds}
+                      isOpen={threadTasksOpen}
+                      onToggleOpen={toggleThreadTasksOpen}
+                      onHide={hideThreadTasks}
+                      onToggleTaskStatus={onToggleTaskStatus}
+                      onConfirmTask={onConfirmTask}
+                      onReopenTask={onReopenTask}
+                      onCancelTask={onCancelTask}
+                      onClearCompleted={onClearCompletedTasks}
+                      onSteerTask={onSteerTask}
+                      onStopSpeaking={onStopSpeaking}
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             {panelView === 'queue' ? (
@@ -1365,27 +1398,6 @@ export function VoiceWorkspacePane({
                       </div>
                     )}
 
-                    {/* Inline Task Timeline on < lg mobile viewports only; desktop uses Right Tasks Sidebar */}
-                    {!isDesktopLg && (
-                      <ThreadTaskBanner
-                        variant="thread-inline"
-                        activeChannel={activeChannel}
-                        activeSessionId={activeHermesSessionId}
-                        tasks={tasks}
-                        activeIsThinking={activeIsThinking}
-                        workingSeconds={workingSeconds}
-                        isOpen={threadTasksOpen}
-                        onToggleOpen={toggleThreadTasksOpen}
-                        onHide={hideThreadTasks}
-                        onToggleTaskStatus={onToggleTaskStatus}
-                        onConfirmTask={onConfirmTask}
-                        onReopenTask={onReopenTask}
-                        onCancelTask={onCancelTask}
-                        onSteerTask={onSteerTask}
-                        onStopSpeaking={onStopSpeaking}
-                      />
-                    )}
-
                     {/* Inline Pending Approval Prompt */}
                     {channelPendingApprovals.length > 0 && !activeIsThinking && (
                       <div
@@ -1459,6 +1471,7 @@ export function VoiceWorkspacePane({
               onConfirmTask={onConfirmTask}
               onReopenTask={onReopenTask}
               onCancelTask={onCancelTask}
+              onClearCompleted={onClearCompletedTasks}
               onSteerTask={onSteerTask}
               onStopSpeaking={onStopSpeaking}
             />

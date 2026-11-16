@@ -18,6 +18,7 @@ import {
   getTaskStatusDisplay,
   isTaskInitiallyExpanded,
   partitionChannelTasks,
+  resolveTaskDisplayTitle,
   resolveTaskProgress,
   resolveTaskStepBreakdown,
   summarizeThreadTasks,
@@ -37,6 +38,7 @@ interface ThreadTaskWidgetProps {
   onConfirmTask?: (id: string) => void;
   onReopenTask?: (id: string) => void;
   onCancelTask?: (id: string) => void;
+  onClearCompleted?: (channelId: ChannelId) => void;
   onSteerTask?: (id: string, text: string) => Promise<void> | void;
   onStopSpeaking?: () => void;
   variant?: 'thread-trigger' | 'mobile-trigger' | 'thread-inline' | 'thread-sidebar';
@@ -151,6 +153,7 @@ export function ThreadTaskBanner({
   onConfirmTask,
   onReopenTask,
   onCancelTask,
+  onClearCompleted,
   onStopSpeaking,
   variant = 'thread-inline',
   sidebarMode = false,
@@ -414,12 +417,19 @@ export function ThreadTaskBanner({
           {/* Running, Queued, Waiting & Paused Tasks */}
           {activeAndPaused.map((task) => {
             const isRunning = task.status === 'running';
+            const expandKey = `${task.id}:${task.createdAtMs ?? 0}`;
             const isExpanded =
-              expandedMap[task.id] ??
+              expandedMap[expandKey] ??
               isTaskInitiallyExpanded(task, runningLead?.id, isSidebar);
             const breakdown = resolveTaskStepBreakdown(task);
             const progressInfo = resolveTaskProgress(task);
             const statusDisplay = getTaskStatusDisplay(task);
+            const displayTitle = resolveTaskDisplayTitle(task);
+            const isLiveStreamingTurn =
+              task.background === false ||
+              task.id.startsWith('task-turn-') ||
+              task.id.startsWith('live-turn-');
+            const canPause = Boolean(onToggleTaskStatus) && !isLiveStreamingTurn;
             const elapsed = formatElapsedDuration(task.createdAtMs, nowMs);
 
             return (
@@ -441,7 +451,7 @@ export function ThreadTaskBanner({
                     onClick={() =>
                       setExpandedMap((prev) => ({
                         ...prev,
-                        [task.id]: !isExpanded,
+                        [expandKey]: !isExpanded,
                       }))
                     }
                     className="flex-1 min-w-0 text-left group cursor-pointer focus:outline-none"
@@ -472,17 +482,20 @@ export function ThreadTaskBanner({
                       </span>
                     </div>
 
-                    <h3 className="mt-1 text-[13px] font-medium text-white group-hover:text-emerald-50 leading-snug break-words">
-                      {task.title}
+                    <h3
+                      title={displayTitle !== task.title ? `Prompt: ${task.title}` : undefined}
+                      className="mt-1 text-[13px] font-medium text-white group-hover:text-emerald-50 leading-snug break-words"
+                    >
+                      {displayTitle}
                     </h3>
                   </button>
 
                   <div className="flex items-center gap-0.5 shrink-0 -mr-1">
-                    {onToggleTaskStatus && (
+                    {canPause && (
                       <button
                         type="button"
-                        onClick={() => onToggleTaskStatus(task.id)}
-                        aria-label={isRunning ? `Pause ${task.title}` : `Resume ${task.title}`}
+                        onClick={() => onToggleTaskStatus?.(task.id)}
+                        aria-label={isRunning ? `Pause ${displayTitle}` : `Resume ${displayTitle}`}
                         title={isRunning ? 'Pause task' : 'Resume task'}
                         className="ui-tactile w-6 h-6 rounded-md text-emerald-100/60 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                       >
@@ -493,21 +506,25 @@ export function ThreadTaskBanner({
                       <button
                         type="button"
                         onClick={() => onCancelTask(task.id)}
-                        aria-label={`Cancel ${task.title}`}
-                        title="Cancel task"
+                        aria-label={isLiveStreamingTurn ? `Stop ${displayTitle}` : `Cancel ${displayTitle}`}
+                        title={isLiveStreamingTurn ? 'Stop active run' : 'Cancel task'}
                         className="ui-tactile w-6 h-6 rounded-md text-emerald-100/45 hover:text-rose-300 hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                       >
-                        <X className="w-3 h-3" />
+                        {isLiveStreamingTurn ? (
+                          <Square className="w-2.5 h-2.5 fill-current" />
+                        ) : (
+                          <X className="w-3 h-3" />
+                        )}
                       </button>
                     )}
                     <button
                       type="button"
-                      aria-label={isExpanded ? `Collapse ${task.title}` : `Expand ${task.title}`}
+                      aria-label={isExpanded ? `Collapse ${displayTitle}` : `Expand ${displayTitle}`}
                       aria-expanded={isExpanded}
                       onClick={() =>
                         setExpandedMap((prev) => ({
                           ...prev,
-                          [task.id]: !isExpanded,
+                          [expandKey]: !isExpanded,
                         }))
                       }
                       className="ui-tactile w-6 h-6 rounded-md text-emerald-100/50 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
@@ -609,10 +626,25 @@ export function ThreadTaskBanner({
             );
           })}
 
-          {isSidebar && activeAndPaused.length > 0 && partition.completed.length > 0 && (
-            <div className="pt-1.5 pb-0.5 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/35 tabular-nums border-t border-white/[0.06]">
-              <span>Completed</span>
-              <span>{partition.completed.length}</span>
+          {isSidebar && partition.completed.length > 0 && (
+            <div
+              className={`flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/35 tabular-nums ${
+                activeAndPaused.length > 0
+                  ? 'pt-2 pb-0.5 border-t border-white/[0.06]'
+                  : 'pb-0.5'
+              }`}
+            >
+              <span>Completed · {partition.completed.length}</span>
+              {onClearCompleted && summary.confirmedCount > 0 && (
+                <button
+                  type="button"
+                  data-testid="thread-tasks-clear-done"
+                  onClick={() => onClearCompleted(activeChannel)}
+                  className="ui-tactile text-[10px] font-mono uppercase tracking-[0.1em] text-emerald-100/45 hover:text-white transition-colors cursor-pointer"
+                >
+                  Clear confirmed
+                </button>
+              )}
             </div>
           )}
 
@@ -623,11 +655,13 @@ export function ThreadTaskBanner({
             const statusDisplay = getTaskStatusDisplay(task);
             const confirmState = getTaskConfirmationState(task);
             const confirmLabel = getTaskConfirmationLabel(task);
+            const displayTitle = resolveTaskDisplayTitle(task);
+            const expandKey = `${task.id}:${task.createdAtMs ?? 0}`;
             const runtime = formatElapsedDuration(
               task.createdAtMs,
               task.updatedAtMs ?? nowMs
             );
-            const isExpanded = expandedMap[task.id] ?? false;
+            const isExpanded = expandedMap[expandKey] ?? false;
 
             return (
               <div
@@ -646,7 +680,7 @@ export function ThreadTaskBanner({
                     type="button"
                     aria-expanded={isExpanded}
                     onClick={() =>
-                      setExpandedMap((prev) => ({ ...prev, [task.id]: !isExpanded }))
+                      setExpandedMap((prev) => ({ ...prev, [expandKey]: !isExpanded }))
                     }
                     className="flex-1 min-w-0 text-left cursor-pointer focus:outline-none"
                   >
@@ -668,17 +702,20 @@ export function ThreadTaskBanner({
                       <span aria-hidden="true" className="text-emerald-100/25">·</span>
                       <span className="text-emerald-100/45">{runtime}</span>
                     </div>
-                    <h3 className="mt-1 text-[13px] font-medium text-white leading-snug break-words">
-                      {task.title}
+                    <h3
+                      title={displayTitle !== task.title ? `Prompt: ${task.title}` : undefined}
+                      className="mt-1 text-[13px] font-medium text-white leading-snug break-words"
+                    >
+                      {displayTitle}
                     </h3>
                   </button>
 
                   <button
                     type="button"
-                    aria-label={isExpanded ? `Collapse ${task.title}` : `Expand ${task.title}`}
+                    aria-label={isExpanded ? `Collapse ${displayTitle}` : `Expand ${displayTitle}`}
                     aria-expanded={isExpanded}
                     onClick={() =>
-                      setExpandedMap((prev) => ({ ...prev, [task.id]: !isExpanded }))
+                      setExpandedMap((prev) => ({ ...prev, [expandKey]: !isExpanded }))
                     }
                     className="ui-tactile w-6 h-6 -mr-1 rounded-md text-emerald-100/50 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
                   >
@@ -826,58 +863,9 @@ export function ThreadTaskBanner({
     );
   }
 
-  // Inline / mobile (< lg): hide empty placeholder when collapsed; show compact lead strip when tasks exist
+  // Mobile (< lg): slim header `Tasks` pill toggles drawer cleanly without clogging the chat transcript
   if (!isOpen) {
-    if (partition.all.length === 0 && !activeIsThinking) {
-      return null;
-    }
-
-    const leadStatus = leadTask ? getTaskStatusDisplay(leadTask) : null;
-    const leadBreakdown = leadTask ? resolveTaskStepBreakdown(leadTask) : null;
-
-    return (
-      <div
-        id="inline-thread-tasks-panel"
-        data-testid="thread-task-banner"
-        data-channel={activeChannel}
-        className="ui-msg-enter max-w-[66ch] py-0.5"
-      >
-        <button
-          type="button"
-          onClick={onToggleOpen}
-          aria-expanded={false}
-          className="ui-tactile w-full text-left group cursor-pointer rounded-xl border border-white/10 bg-white/[0.025] hover:bg-white/[0.04] hover:border-white/18 px-3.5 py-2.5 space-y-2 transition-colors"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <StatusPulse state={triggerPulseState} size="sm" />
-              <span className="text-[13px] font-medium text-white truncate">
-                {leadTask ? leadTask.title : 'Active turn'}
-              </span>
-              <span className="font-mono text-[11px] tabular-nums text-emerald-100/50 shrink-0 whitespace-nowrap">
-                {leadBreakdown ? leadBreakdown.ratioLabel : triggerLabel}
-                {runningElapsed && hasRunningTask ? ` · ${runningElapsed}` : ''}
-              </span>
-            </div>
-            <ChevronDown
-              className="w-3.5 h-3.5 text-emerald-100/45 group-hover:text-white transition-colors shrink-0"
-              aria-hidden="true"
-            />
-          </div>
-
-          <TaskProgressTrack
-            compact
-            pct={leadProgress ? leadProgress.pct : 0}
-            tone={leadStatus ? leadStatus.tone : 'amber'}
-            isRunning={hasRunningTask || activeIsThinking}
-            isIndeterminate={!leadTask || Boolean(leadProgress?.isIndeterminate)}
-            stepCount={leadBreakdown?.totalCount ?? 1}
-            label={leadTask ? `${leadTask.title} progress` : 'Active turn progress'}
-            testId="thread-task-collapsed-progress"
-          />
-        </button>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -886,8 +874,31 @@ export function ThreadTaskBanner({
       aria-label={`Tasks for #${activeChannel}`}
       data-testid="thread-task-banner"
       data-channel={activeChannel}
-      className="ui-msg-enter max-w-[66ch] space-y-2.5 py-0.5"
+      className="ui-msg-enter w-full space-y-2.5"
     >
+      <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/45 tabular-nums">
+        <span>Tasks {summary.headerBadge ? `· ${summary.headerBadge}` : ''}</span>
+        <div className="flex items-center gap-2">
+          {onClearCompleted && summary.confirmedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => onClearCompleted(activeChannel)}
+              className="text-[10px] text-emerald-100/45 hover:text-white transition-colors cursor-pointer"
+            >
+              Clear confirmed
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid="thread-tasks-hide"
+            aria-label="Hide thread tasks"
+            onClick={onHide}
+            className="text-[10px] text-emerald-100/55 hover:text-white transition-colors cursor-pointer"
+          >
+            Hide
+          </button>
+        </div>
+      </div>
       {renderTaskCards()}
     </section>
   );

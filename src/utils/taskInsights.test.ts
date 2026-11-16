@@ -4,6 +4,7 @@ import type { BackgroundTask, HermesAgentSession, TerminalEntry } from '../types
 import {
   applyStreamingDeltaToSteps,
   applyToolProgressToSteps,
+  dedupeActivityEntries,
   deriveTurnTaskTitle,
   finalizeTurnTaskSteps,
   formatElapsedDuration,
@@ -15,6 +16,7 @@ import {
   isTaskInitiallyExpanded,
   mergeTasksWithSessionActivity,
   partitionChannelTasks,
+  resolveTaskDisplayTitle,
   resolveTaskProgress,
   resolveTaskStepBreakdown,
   summarizeChannelTaskActivity,
@@ -442,5 +444,104 @@ test('summarizeThreadTasks and isTaskInitiallyExpanded compute right sidebar hea
   assert.equal(summarizeThreadTasks(emptyPartition, false).totalCount, 0);
   assert.equal(summarizeThreadTasks(emptyPartition, false).headerBadge, '');
 });
+
+test('dedupeActivityEntries and applyToolProgressToSteps collapse duplicate Running+<tool> placeholders', () => {
+  const duped: TerminalEntry[] = [
+    {
+      id: 'd1',
+      channelId: 'general',
+      role: 'activity',
+      source: 'ui',
+      text: 'Running read_file',
+      activityStatus: 'running',
+      timestamp: '21:09',
+    },
+    {
+      id: 'd2',
+      channelId: 'general',
+      role: 'activity',
+      source: 'ui',
+      text: 'read_file: ci-workflows.test.ts L40-119',
+      activityStatus: 'done',
+      timestamp: '21:09',
+    },
+    {
+      id: 'd3',
+      channelId: 'general',
+      role: 'activity',
+      source: 'ui',
+      text: 'Running terminal',
+      activityStatus: 'running',
+      timestamp: '21:10',
+    },
+    {
+      id: 'd4',
+      channelId: 'general',
+      role: 'activity',
+      source: 'ui',
+      text: 'terminal: gh pr checks 392',
+      activityStatus: 'running',
+      timestamp: '21:10',
+    },
+  ];
+  const deduped = dedupeActivityEntries(duped);
+  assert.equal(deduped.length, 2);
+  assert.equal(deduped[0]?.text, 'read_file: ci-workflows.test.ts L40-119');
+  assert.equal(deduped[1]?.text, 'terminal: gh pr checks 392');
+
+  // applyToolProgressToSteps upgrades Running <tool> in-place when detailed summary arrives
+  const s1 = applyToolProgressToSteps([{ text: 'Working in hermes-general', done: false, active: true }], {
+    toolName: 'terminal',
+    status: 'running',
+    summary: 'Running terminal',
+  });
+  const s2 = applyToolProgressToSteps(s1.steps, {
+    toolName: 'terminal',
+    status: 'running',
+    summary: 'terminal: gh pr checks 392',
+  });
+  assert.equal(s2.steps.length, 2);
+  assert.equal(s2.steps[1]?.text, 'terminal: gh pr checks 392');
+
+  const s3 = applyToolProgressToSteps(s2.steps, {
+    toolName: 'terminal',
+    status: 'finished',
+    summary: 'terminal: gh pr checks 392 (passed)',
+  });
+  assert.equal(s3.steps.length, 2);
+  assert.equal(s3.steps[1]?.done, true);
+  assert.equal(s3.progress, '2/2');
+});
+
+test('resolveTaskDisplayTitle promotes meaningful step context for vague conversational nudges', () => {
+  const vagueTask: BackgroundTask = {
+    id: 'task-turn-1',
+    channelId: 'general',
+    title: 'what do you suggest',
+    status: 'running',
+    progress: 38,
+    lastStep: 'terminal: gh pr checks 392 --repo Maia-VM/hermes',
+    steps: [
+      { text: 'Working in hermes-general', done: true },
+      { text: 'Running read_file', done: true },
+      { text: 'terminal: gh pr checks 392 --repo Maia-VM/hermes', done: false, active: true },
+    ],
+    updatedAt: 'live',
+  };
+  assert.equal(
+    resolveTaskDisplayTitle(vagueTask),
+    'terminal: gh pr checks 392 --repo Maia-VM/hermes'
+  );
+
+  const concreteTask: BackgroundTask = {
+    ...vagueTask,
+    title: 'Audit CI checks on Maia-VM/hermes PR 392',
+  };
+  assert.equal(
+    resolveTaskDisplayTitle(concreteTask),
+    'Audit CI checks on Maia-VM/hermes PR 392'
+  );
+});
+
 
 
