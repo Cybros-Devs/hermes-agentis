@@ -928,7 +928,7 @@ export function VoiceWorkspacePane({
           key="view-home"
           ref={portraitWrapRef}
           data-testid="home-character-overview"
-          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-5 sm:px-10 pb-20 lg:pb-24"
+          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-5 sm:px-10 pb-24 lg:pb-28"
         >
           {uiConfig.portraitVisible && (
             <div
@@ -979,7 +979,7 @@ export function VoiceWorkspacePane({
                   data-testid="home-session-badge"
                   className="font-mono text-[11px] text-[#6EE7B7]/85"
                 >
-                  {isHomeNewDraft ? 'new session' : `#${activeChannel}`}
+                  {isHomeNewDraft || !activeChannel ? 'new session' : `#${activeChannel}`}
                 </span>
               </div>
 
@@ -987,7 +987,7 @@ export function VoiceWorkspacePane({
                 {gatewayStatus && !gatewayStatus.connected && (
                   <div
                     data-testid="gateway-offline-banner"
-                    className="mx-auto inline-flex items-center gap-2.5 text-xs font-mono text-rose-200/90"
+                    className="mx-auto inline-flex items-center gap-2 text-xs font-mono text-rose-200/85"
                   >
                     <StatusPulse state="error" size="sm" />
                     <span>
@@ -997,7 +997,7 @@ export function VoiceWorkspacePane({
                       <button
                         type="button"
                         onClick={() => void onRefreshGateway()}
-                        className="ui-tactile px-2 py-0.5 rounded-md border border-rose-400/30 bg-rose-500/10 hover:bg-rose-500/20 text-[11px] text-rose-100 transition-colors cursor-pointer"
+                        className="ui-tactile text-[11px] text-rose-100/90 hover:text-white underline underline-offset-4 decoration-rose-400/45 transition-colors cursor-pointer"
                       >
                         Retry
                       </button>
@@ -1235,7 +1235,7 @@ export function VoiceWorkspacePane({
                     <span className="font-medium text-white shrink-0">{statusText}</span>
                     <span aria-hidden="true" className="text-emerald-100/25">·</span>
                     <span className="font-mono text-[11px] text-[#6EE7B7]/85 truncate">
-                      #{activeChannel}
+                      {activeChannel ? `#${activeChannel}` : 'new-session'}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">

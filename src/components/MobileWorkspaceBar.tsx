@@ -93,7 +93,8 @@ export function MobileWorkspaceBar({
   const runningCount = canvasSessions.filter((s) =>
     Boolean(activityByChannel[s.channelId]?.hasActiveTask)
   ).length;
-  const isHomeNewDraft = panelView === 'home' && homeSessionDraft;
+  const hasChannel = Boolean(activeChannel);
+  const isHomeNewDraft = (panelView === 'home' && homeSessionDraft) || !hasChannel;
 
   const views: { id: WorkspacePanelView; label: string }[] = [
     { id: 'home', label: 'Home' },
@@ -282,7 +283,7 @@ export function MobileWorkspaceBar({
                   className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/80 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5 text-emerald-100/65" />
-                  <span>Reset #{activeChannel}</span>
+                  <span>{hasChannel ? `Reset #${activeChannel}` : 'Reset session'}</span>
                 </button>
               </div>
             </div>
@@ -290,8 +291,9 @@ export function MobileWorkspaceBar({
         </div>
       </div>
 
-      {/* Row 2: Overlapping Subagent / Parallel Braille Session Avatar Cluster */}
-      <div className="flex items-center justify-between gap-2">
+      {/* Row 2: Overlapping Subagent / Parallel Braille Session Avatar Cluster (shown when dots exist) */}
+      {canvasSessions.length > 0 && (
+        <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-2 rounded-full bg-[#0B1714]/86 border border-white/12 pl-1.5 pr-3 py-1 max-w-full overflow-hidden">
           <div className="flex items-center -space-x-2 shrink-0">
             {visibleSessions.map((session) => {
@@ -362,7 +364,8 @@ export function MobileWorkspaceBar({
           <LayoutGrid className="w-3 h-3" />
           <span>Canvas</span>
         </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
