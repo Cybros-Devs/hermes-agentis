@@ -12,11 +12,13 @@ import {
   getTaskConfirmationState,
   getTaskKindLabel,
   getTaskStatusDisplay,
+  isTaskInitiallyExpanded,
   mergeTasksWithSessionActivity,
   partitionChannelTasks,
   resolveTaskProgress,
   resolveTaskStepBreakdown,
   summarizeChannelTaskActivity,
+  summarizeThreadTasks,
 } from './taskInsights';
 
 const SAMPLE_TASKS: BackgroundTask[] = [
@@ -417,4 +419,28 @@ test('mergeTasksWithSessionActivity surfaces running and tool-trace tasks on dyn
   assert.equal(completedPartition.completed[0]?.id, 'trace-turn-https-github-com');
   assert.ok(completedPartition.completed[0]?.confirmedAtMs);
 });
+
+test('summarizeThreadTasks and isTaskInitiallyExpanded compute right sidebar headers and default expansion', () => {
+  const launchPartition = partitionChannelTasks(SAMPLE_TASKS, 'launch');
+  const launchSummary = summarizeThreadTasks(launchPartition, false);
+  assert.equal(launchSummary.totalCount, 1);
+  assert.equal(launchSummary.runningCount, 1);
+  assert.equal(launchSummary.headerBadge, '1 active');
+
+  assert.equal(isTaskInitiallyExpanded(SAMPLE_TASKS[0], 'task-101', true), true);
+  assert.equal(isTaskInitiallyExpanded(SAMPLE_TASKS[0], 'task-101', false), false);
+  assert.equal(isTaskInitiallyExpanded(SAMPLE_TASKS[1], 'task-101', true), false);
+
+  const researchPartition = partitionChannelTasks(SAMPLE_TASKS, 'research');
+  const researchSummary = summarizeThreadTasks(researchPartition, false);
+  assert.equal(researchSummary.totalCount, 1);
+  assert.equal(researchSummary.needsConfirmCount, 1);
+  assert.equal(researchSummary.headerBadge, '1 to confirm');
+
+  const emptyPartition = partitionChannelTasks(SAMPLE_TASKS, 'general');
+  assert.equal(summarizeThreadTasks(emptyPartition, true).headerBadge, '1 active');
+  assert.equal(summarizeThreadTasks(emptyPartition, false).totalCount, 0);
+  assert.equal(summarizeThreadTasks(emptyPartition, false).headerBadge, '');
+});
+
 

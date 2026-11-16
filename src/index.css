@@ -188,8 +188,8 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
 }
 
 .ui-transcript-fade-active {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 3.5%, black 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, black 3.5%, black 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 2.2%, black 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 2.2%, black 100%);
 }
 
 /* Custom thin smoked-emerald scrollbar */

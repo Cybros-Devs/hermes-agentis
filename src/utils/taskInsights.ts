@@ -257,6 +257,69 @@ export function partitionChannelTasks(
   };
 }
 
+export interface ThreadTasksSummary {
+  totalCount: number;
+  runningCount: number;
+  pausedCount: number;
+  needsConfirmCount: number;
+  confirmedCount: number;
+  headerBadge: string;
+}
+
+/**
+ * Computes concise task summary metrics and single-line badge text for the
+ * Thread right sidebar header and status-bar toggle.
+ */
+export function summarizeThreadTasks(
+  partition: ChannelTaskPartition,
+  activeIsThinking: boolean
+): ThreadTasksSummary {
+  const hasRunning = partition.running.length > 0;
+  const totalCount = partition.all.length + (activeIsThinking && !hasRunning ? 1 : 0);
+  const runningCount = partition.running.length + (activeIsThinking && !hasRunning ? 1 : 0);
+  const pausedCount = partition.paused.length;
+  let needsConfirmCount = 0;
+  let confirmedCount = 0;
+  for (const t of partition.completed) {
+    const cState = getTaskConfirmationState(t);
+    if (cState === 'needs-confirm') needsConfirmCount += 1;
+    else if (cState === 'confirmed') confirmedCount += 1;
+  }
+
+  let headerBadge = '';
+  if (runningCount > 0) {
+    headerBadge = `${runningCount} active`;
+  } else if (pausedCount > 0) {
+    headerBadge = `${pausedCount} paused`;
+  } else if (needsConfirmCount > 0) {
+    headerBadge = `${needsConfirmCount} to confirm`;
+  } else if (totalCount > 0) {
+    headerBadge = `${totalCount} done`;
+  }
+
+  return {
+    totalCount,
+    runningCount,
+    pausedCount,
+    needsConfirmCount,
+    confirmedCount,
+    headerBadge,
+  };
+}
+
+/**
+ * Determines whether a task card should default to expanded when rendered inside
+ * the dedicated Thread right sidebar (lead active running task expands cleanly).
+ */
+export function isTaskInitiallyExpanded(
+  task: BackgroundTask,
+  leadRunningTaskId: string | undefined,
+  inSidebar: boolean
+): boolean {
+  if (!inSidebar) return false;
+  return Boolean(leadRunningTaskId && task.id === leadRunningTaskId && task.status === 'running');
+}
+
 /**
  * Computes lightweight per-channel active-task metadata so the sidebar can
  * highlight which threads currently have active work without rendering task rows.
