@@ -13,6 +13,12 @@ import {
   type UiCustomizationConfig,
   type UiCustomizationPatch,
 } from "./src/utils/uiCustomization.ts";
+import {
+  applyStreamingDeltaToSteps,
+  applyToolProgressToSteps,
+  deriveTurnTaskTitle,
+  finalizeTurnTaskSteps,
+} from "./src/utils/taskInsights.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -79,7 +85,7 @@ interface HermesTask {
   handover_id?: string;
   session_id?: string;
   progress?: string;
-  steps?: { text: string; done?: boolean }[];
+  steps?: { text: string; done?: boolean; active?: boolean }[];
   result?: string;
   channel_id?: string;
   agent_done_at?: number;
@@ -952,16 +958,63 @@ async function createServer() {
     };
     items.push(userItem);
     sessionStatusMap.set(channel.id, "thinking");
-    broadcastEvent({ type: "item", item: userItem });
-    broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
-    res.status(200).json({ item: userItem, session: buildSessionSnapshot(channel) });
 
-    // Abort any prior in-flight run on this lane
+    // Abort any prior in-flight run on this lane and settle any active turn task
     activeRunAborts.get(channel.id)?.abort();
+    for (const prevTask of tasks) {
+      if (
+        prevTask.channel_id === channel.id &&
+        prevTask.id.startsWith("task-turn-") &&
+        (prevTask.status === "running" || prevTask.status === "queued")
+      ) {
+        const finalizedPrev = finalizeTurnTaskSteps(
+          prevTask.steps ?? [],
+          "cancelled",
+          "Superseded by newer turn"
+        );
+        prevTask.steps = finalizedPrev.steps;
+        prevTask.progress = finalizedPrev.progress;
+        prevTask.status = "cancelled";
+        prevTask.updated_at = Date.now();
+        broadcastEvent({ type: "task", task: prevTask });
+      }
+    }
+
     const runController = new AbortController();
     activeRunAborts.set(channel.id, runController);
 
     const runId = `run-${Date.now().toString(36)}`;
+    const turnStartMs = Date.now();
+    const turnTask: HermesTask = {
+      id: `task-turn-${runId}`,
+      title: deriveTurnTaskTitle(text, `#${channel.name}`),
+      status: "running",
+      kind: "In chat",
+      background: false,
+      session_id: channel.session_id,
+      channel_id: channel.id,
+      progress: "0/1",
+      steps: [{ text: `Working in ${channel.session_id}`, done: false, active: true }],
+      created_at: turnStartMs,
+      updated_at: turnStartMs,
+    };
+    tasks.push(turnTask);
+    if (tasks.length > 200) {
+      const evictIdx = tasks.findIndex(
+        (t) => t.id.startsWith("task-turn-") && t.status !== "running" && t.status !== "queued"
+      );
+      if (evictIdx >= 0) tasks.splice(evictIdx, 1);
+    }
+
+    broadcastEvent({ type: "item", item: userItem });
+    broadcastEvent({ type: "task", task: turnTask });
+    broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
+    res.status(200).json({
+      item: userItem,
+      session: buildSessionSnapshot(channel),
+      task: turnTask,
+    });
+
     const assistantId = `hermes-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     let streamedPlaceholderCreated = false;
     let toolSeq = 0;
@@ -1010,8 +1063,30 @@ async function createServer() {
               };
               items.push(activityItem);
               broadcastEvent({ type: "item", item: activityItem });
+
+              const updatedSteps = applyToolProgressToSteps(turnTask.steps ?? [], {
+                toolName,
+                label,
+                status,
+                summary,
+              });
+              turnTask.steps = updatedSteps.steps;
+              turnTask.progress = updatedSteps.progress;
+              turnTask.updated_at = Date.now();
+              if (sessionStatusMap.get(channel.id) !== "running") {
+                sessionStatusMap.set(channel.id, "running");
+                broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
+              }
+              broadcastEvent({ type: "task", task: turnTask });
             },
             onDelta: (accumulated) => {
+              const streamed = applyStreamingDeltaToSteps(turnTask.steps ?? []);
+              if (streamed.changed) {
+                turnTask.steps = streamed.steps;
+                turnTask.progress = streamed.progress;
+                turnTask.updated_at = Date.now();
+                broadcastEvent({ type: "task", task: turnTask });
+              }
               if (!streamedPlaceholderCreated) {
                 streamedPlaceholderCreated = true;
                 const placeholder: HermesItem = {
@@ -1052,6 +1127,21 @@ async function createServer() {
           items.push(finalAssistant);
         }
 
+        const settledAt = Date.now();
+        const finalStepLabel =
+          replyData.sourceMode === "local-ui-patch"
+            ? "Updated workspace UI"
+            : replyData.sourceMode === "gateway-offline"
+            ? "Gateway standby response"
+            : "Completed response";
+        const finalized = finalizeTurnTaskSteps(turnTask.steps ?? [], "done", finalStepLabel);
+        turnTask.steps = finalized.steps;
+        turnTask.progress = finalized.progress;
+        turnTask.status = "done";
+        turnTask.result = replyData.reply.slice(0, 200);
+        turnTask.agent_done_at = settledAt;
+        turnTask.updated_at = settledAt;
+
         sessionStatusMap.set(channel.id, "idle");
         if (replyData.uiPatch) {
           broadcastEvent({
@@ -1060,11 +1150,26 @@ async function createServer() {
             patch: replyData.uiPatch,
           });
         }
+        broadcastEvent({ type: "task", task: turnTask });
         broadcastEvent({ type: "item", item: finalAssistant });
         broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
       } catch (err) {
         sessionStatusMap.set(channel.id, "idle");
         if (runController.signal.aborted) {
+          const stoppedAt = Date.now();
+          if (turnTask.status === "running" || turnTask.status === "queued") {
+            const finalized = finalizeTurnTaskSteps(
+              turnTask.steps ?? [],
+              "cancelled",
+              "Stopped by operator"
+            );
+            turnTask.steps = finalized.steps;
+            turnTask.progress = finalized.progress;
+            turnTask.status = "cancelled";
+            turnTask.updated_at = stoppedAt;
+            broadcastEvent({ type: "task", task: turnTask });
+          }
+
           const existing = items.find((it) => it.id === assistantId);
           if (existing) {
             existing.streaming = false;
@@ -1084,13 +1189,26 @@ async function createServer() {
             broadcastEvent({ type: "item", item: stoppedItem });
           }
         } else {
+          const errAt = Date.now();
+          const errText = err instanceof Error ? err.message : "Run error";
+          const finalized = finalizeTurnTaskSteps(
+            turnTask.steps ?? [],
+            "failed",
+            errText.slice(0, 120)
+          );
+          turnTask.steps = finalized.steps;
+          turnTask.progress = finalized.progress;
+          turnTask.status = "failed";
+          turnTask.updated_at = errAt;
+          broadcastEvent({ type: "task", task: turnTask });
+
           const errItem: HermesItem = {
             id: assistantId,
             kind: "activity",
             created_at: Date.now(),
             channel_id: channel.id,
             run_id: runId,
-            text: err instanceof Error ? err.message : "Run error",
+            text: errText,
             activity: { run_id: runId, status: "error", error: String(err) },
           };
           items.push(errItem);
@@ -1140,6 +1258,28 @@ async function createServer() {
       activeRunAborts.delete(slug);
     }
     sessionStatusMap.set(slug, "idle");
+    for (const task of tasks) {
+      if (
+        task.channel_id === slug &&
+        task.id.startsWith("task-turn-") &&
+        (task.status === "running" || task.status === "queued")
+      ) {
+        const finalized = finalizeTurnTaskSteps(
+          task.steps ?? [],
+          "cancelled",
+          "Stopped by operator"
+        );
+        task.steps = finalized.steps;
+        task.progress = finalized.progress;
+        task.status = "cancelled";
+        task.updated_at = Date.now();
+        broadcastEvent({ type: "task", task });
+      }
+    }
+    const ch = channels.find((c) => c.id === slug);
+    if (ch) {
+      broadcastEvent({ type: "session", session: buildSessionSnapshot(ch) });
+    }
     res.status(200).json({ ok: true, aborted: Boolean(controller), channelId: slug });
   });
 
@@ -1222,6 +1362,11 @@ async function createServer() {
         items.splice(i, 1);
       }
     }
+    for (let i = tasks.length - 1; i >= 0; i--) {
+      if ((tasks[i].channel_id || "general") === ch.id && tasks[i].id.startsWith("task-turn-")) {
+        tasks.splice(i, 1);
+      }
+    }
     sessionStatusMap.set(ch.id, "idle");
     const resetItem: HermesItem = {
       id: `reset-${ch.id}-${Date.now()}`,
@@ -1253,6 +1398,11 @@ async function createServer() {
     for (let i = items.length - 1; i >= 0; i--) {
       if ((items[i].channel_id || "general") === channelId) {
         items.splice(i, 1);
+      }
+    }
+    for (let i = tasks.length - 1; i >= 0; i--) {
+      if ((tasks[i].channel_id || "general") === channelId) {
+        tasks.splice(i, 1);
       }
     }
     sessionStatusMap.delete(channelId);

@@ -149,6 +149,7 @@ export function normalizeChannelId(
     if (exact) return exact;
   }
   const stripped = input
+    .replace(/^#/, '')
     .replace(/^(chan|hermes|duet)-/i, '')
     .trim()
     .toLowerCase();

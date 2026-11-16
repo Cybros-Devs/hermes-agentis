@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   loadBackgroundSettings,
   publishBackgroundSettings,
@@ -39,6 +39,7 @@ import {
   pickNextShapeAndTint,
   shouldStartNewHomeSession,
 } from './utils/homeSession';
+import { mergeTasksWithSessionActivity } from './utils/taskInsights';
 import {
   UI_PATCH_EVENT,
   applyUiPatch,
@@ -160,6 +161,9 @@ export default function App() {
   const [animateSpeechLine, setAnimateSpeechLine] = useState(false);
 
   const [thinkingByChannel, setThinkingByChannel] = useState<Record<string, boolean>>({});
+  const [confirmedSyntheticTaskIds, setConfirmedSyntheticTaskIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [speakingChannel, setSpeakingChannel] = useState<ChannelId | null>(null);
   const [lastSpokenByChannel, setLastSpokenByChannel] = useState<Record<string, string>>({});
   const [lastSpokenLine, setLastSpokenLineState] = useState<string>(
@@ -395,8 +399,15 @@ export default function App() {
     onUiPatch: (patch) => {
       applyAgentUiPatch(patch, 'hermes');
     },
+    onRunActive: (channelId) => {
+      setChannelThinking(channelId, true);
+    },
     onRunSettled: (channelId) => {
       setChannelThinking(channelId, false);
+    },
+    onSessionStatus: (channelId, status) => {
+      const busy = status === 'thinking' || status === 'speaking' || status === 'running';
+      setChannelThinking(channelId, busy);
     },
     onAssistantComplete: (text, channelId) => {
       setChannelThinking(channelId, false);
@@ -502,6 +513,20 @@ export default function App() {
   useEffect(() => setApprovals(hermes.approvals), [hermes.approvals]);
   useEffect(() => setTasks(hermes.tasks), [hermes.tasks]);
   useEffect(() => setBrief(hermes.brief), [hermes.brief]);
+
+  const effectiveTasks = useMemo(
+    () =>
+      mergeTasksWithSessionActivity({
+        tasks,
+        entries,
+        sessions: hermes.sessions,
+        thinkingByChannel,
+        channels,
+        confirmedTaskIds: confirmedSyntheticTaskIds,
+      }),
+    [tasks, entries, hermes.sessions, thinkingByChannel, channels, confirmedSyntheticTaskIds]
+  );
+  stateRef.current.tasks = effectiveTasks;
 
   useEffect(() => {
     if (!hermesConnected) return;
@@ -1154,6 +1179,14 @@ export default function App() {
 
   const handleConfirmTask = useCallback(
     (id: string) => {
+      if (id.startsWith('live-turn-') || id.startsWith('trace-turn-')) {
+        setConfirmedSyntheticTaskIds((prev) => {
+          const next = new Set(prev);
+          next.add(id);
+          return next;
+        });
+        return;
+      }
       const now = Date.now();
       setTasks((prev) =>
         prev.map((t) =>
@@ -1179,6 +1212,14 @@ export default function App() {
 
   const handleReopenTask = useCallback(
     (id: string) => {
+      if (id.startsWith('live-turn-') || id.startsWith('trace-turn-')) {
+        setConfirmedSyntheticTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        return;
+      }
       const now = Date.now();
       setTasks((prev) =>
         prev.map((t) =>
@@ -1203,6 +1244,22 @@ export default function App() {
 
   const handleCancelTask = useCallback(
     (id: string) => {
+      if (id.startsWith('live-turn-')) {
+        const ch = id.slice('live-turn-'.length);
+        const current = chatAbortsRef.current.get(ch);
+        chatAbortsRef.current.delete(ch);
+        current?.abort();
+        void abortRun(ch);
+        setChannelThinking(ch, false);
+        if (ch === stateRef.current.activeChannel) {
+          setSpeakingChannel(null);
+          voiceRef.current?.stopSpeaking();
+        }
+        return;
+      }
+      if (id.startsWith('trace-turn-')) {
+        return;
+      }
       const now = Date.now();
       setTasks((prev) =>
         prev.map((t) =>
@@ -1222,13 +1279,18 @@ export default function App() {
         void hermesCancelTask(id).catch(() => {});
       }
     },
-    [hermesCancelTask, hermesConnected]
+    [abortRun, hermesCancelTask, hermesConnected, setChannelThinking]
   );
 
   const handleSteerTask = useCallback(
     async (id: string, text: string) => {
       const clean = text.trim();
       if (!clean) return;
+      if (id.startsWith('live-turn-') || id.startsWith('trace-turn-')) {
+        const ch = id.replace(/^(?:live-turn-|trace-turn-)/, '');
+        await sendDirectChannelPrompt(ch, clean, 'cli');
+        return;
+      }
       const now = Date.now();
       setTasks((prev) =>
         prev.map((t) => {
@@ -1249,7 +1311,7 @@ export default function App() {
         await hermesSteerTask(id, clean).catch(() => {});
       }
     },
-    [hermesConnected, hermesSteerTask]
+    [hermesConnected, hermesSteerTask, sendDirectChannelPrompt]
   );
 
   const handleRunBriefCommand = useCallback(
@@ -1545,7 +1607,7 @@ export default function App() {
               }}
               approvals={approvals}
               brief={brief}
-              tasks={tasks}
+              tasks={effectiveTasks}
               lastSpokenLine={lastSpokenLine}
               mood={mood}
               frequencyBands={voice.voiceState.frequencyBands}
@@ -1619,7 +1681,7 @@ export default function App() {
             entries={entries}
             approvals={approvals}
             brief={brief}
-            tasks={tasks}
+            tasks={effectiveTasks}
             gatewayStatus={gatewayStatus}
             onRefreshGateway={refreshGateway}
             skills={skills}

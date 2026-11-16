@@ -60,7 +60,7 @@ interface HermesTaskPayload {
   handover_id?: string;
   session_id?: string;
   progress?: string;
-  steps?: { text: string; done?: boolean }[];
+  steps?: { text: string; done?: boolean; active?: boolean }[];
   result?: string;
   channel_id?: string;
   agent_done_at?: number;
@@ -103,7 +103,9 @@ export interface UseHermesAgentOptions {
   upsertEntry: (entry: TerminalEntry) => void;
   patchEntryText: (id: string, text: string) => void;
   onAssistantComplete: (text: string, channelId: string) => void;
+  onRunActive?: (channelId: string) => void;
   onRunSettled?: (channelId: string) => void;
+  onSessionStatus?: (channelId: string, status: HermesAgentSession['status']) => void;
   onSessionReset?: (channelId: string) => void;
   onCardSettled?: (itemId: string, status: 'approved' | 'declined') => void;
   onUiPatch?: (patch: UiCustomizationPatch, channelId?: string) => void;
@@ -137,6 +139,7 @@ export function hermesItemToEntry(
       role: 'activity',
       source: 'ui',
       text: activityText(item),
+      activityStatus: item.activity?.status,
       timestamp: hhmm(item.created_at),
       createdAtMs: item.created_at,
     };
@@ -215,7 +218,7 @@ function mapTask(t: HermesTaskPayload, aliases?: ReadonlyMap<string, string>): B
     (t.steps ?? []).slice(-1)[0]?.text ??
     (t.result ?? '').slice(0, 100) ??
     t.status;
-  const resolvedChannelId = normalizeChannelId(t.channel_id, aliases);
+  const resolvedChannelId = normalizeChannelId(t.channel_id || t.session_id, aliases);
   return {
     id: t.id,
     channelId: resolvedChannelId,
@@ -313,6 +316,11 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
     optsRef.current.upsertEntry(entry);
     if (isTerminalSettledItem(item)) {
       optsRef.current.onRunSettled?.(entry.channelId);
+    } else if (
+      (item.kind === 'activity' && item.activity?.status) ||
+      (item.kind === 'assistant' && item.streaming)
+    ) {
+      optsRef.current.onRunActive?.(entry.channelId);
     }
     if (
       triggerSpeech &&
@@ -346,7 +354,12 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
         if (!active) return;
 
         setChannels((snap.channels ?? []).filter((c) => !c.archived).map(mapChannel));
-        if (Array.isArray(snap.sessions)) setSessions(snap.sessions);
+        if (Array.isArray(snap.sessions)) {
+          setSessions(snap.sessions);
+          for (const s of snap.sessions) {
+            optsRef.current.onSessionStatus?.(normalizeChannelId(s.channelId), s.status);
+          }
+        }
         setApprovals(
           (snap.pending ?? [])
             .map((p) => pendingToApproval(p))
@@ -430,17 +443,28 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
             next.push(data.session);
             return next;
           });
+          optsRef.current.onSessionStatus?.(
+            normalizeChannelId(data.session.channelId),
+            data.session.status
+          );
         } else if (data.type === 'session_reset') {
+          const resetChannelId = normalizeChannelId(data.channelId);
           setSessions((prev) => {
             const next = prev.filter((s) => s.channelId !== data.session.channelId);
             next.push(data.session);
             return next;
           });
-          optsRef.current.onSessionReset?.(data.channelId);
+          setTasks((prev) =>
+            prev.filter((t) => !(t.channelId === resetChannelId && t.id.startsWith('task-turn-')))
+          );
+          optsRef.current.onSessionStatus?.(resetChannelId, data.session.status);
+          optsRef.current.onSessionReset?.(resetChannelId);
           if (data.item) applyItem(data.item, false);
         } else if (data.type === 'session_deleted') {
-          setSessions((prev) => prev.filter((s) => s.channelId !== data.channelId));
-          setChannels((prev) => prev.filter((c) => c.id !== data.channelId));
+          const deletedId = normalizeChannelId(data.channelId);
+          setSessions((prev) => prev.filter((s) => s.channelId !== deletedId));
+          setChannels((prev) => prev.filter((c) => c.id !== deletedId));
+          setTasks((prev) => prev.filter((t) => t.channelId !== deletedId));
         } else if (data.type === 'ui_patch' && data.patch) {
           optsRef.current.onUiPatch?.(data.patch, data.channelId);
         }
@@ -482,7 +506,26 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
         }),
       });
       if (!res.ok) throw new Error(`hermes message failed: HTTP ${res.status}`);
-      return (await res.json()) as { item?: HermesServerItem; session?: HermesAgentSession };
+      const data = (await res.json()) as {
+        item?: HermesServerItem;
+        session?: HermesAgentSession;
+        task?: HermesTaskPayload;
+      };
+      if (data.task) {
+        const mappedTask = mapTask(data.task);
+        setTasks((prev) => {
+          const existing = prev.find((t) => t.id === mappedTask.id);
+          // Do not overwrite a newer SSE-updated task if it already arrived
+          if (
+            existing &&
+            (existing.updatedAtMs ?? 0) > (mappedTask.updatedAtMs ?? 0)
+          ) {
+            return prev;
+          }
+          return [...prev.filter((t) => t.id !== mappedTask.id), mappedTask];
+        });
+      }
+      return data;
     },
     []
   );

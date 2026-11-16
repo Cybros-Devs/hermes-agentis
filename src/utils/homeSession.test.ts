@@ -58,6 +58,8 @@ test('normalizeDuetChannelId resolves chan- prefixes and alias maps accurately',
   ]);
   assert.equal(normalizeDuetChannelId('chan-k9x2p', aliases), 'audit-ci-runners');
   assert.equal(normalizeDuetChannelId('chan-ops'), 'ops');
+  assert.equal(normalizeDuetChannelId('#https-github-com'), 'https-github-com');
+  assert.equal(normalizeDuetChannelId('hermes-https-github-com'), 'https-github-com');
   assert.equal(normalizeDuetChannelId(undefined), 'general');
 });
 

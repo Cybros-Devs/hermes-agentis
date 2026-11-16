@@ -1,4 +1,9 @@
-import type { BackgroundTask } from '../types/hermes';
+import type {
+  BackgroundTask,
+  HermesAgentSession,
+  TaskStepItem,
+  TerminalEntry,
+} from '../types/hermes';
 
 export interface ResolvedTaskStep {
   text: string;
@@ -491,4 +496,264 @@ export function finalizeTurnTaskSteps(
     progress: `${doneCount}/${Math.max(1, nextSteps.length)}`,
   };
 }
+
+const ACTIVE_SESSION_STATUSES = new Set(['thinking', 'speaking', 'running']);
+
+/**
+ * Returns true if an activity TerminalEntry represents an in-flight tool or step
+ * (not yet marked done/error/stopped).
+ */
+export function isActivityEntryRunning(entry: TerminalEntry): boolean {
+  if (entry.role !== 'activity') return false;
+  const status = entry.activityStatus?.trim().toLowerCase();
+  if (status) {
+    if (TERMINAL_TOOL_DONE_STATUSES.has(status) || TERMINAL_TOOL_ERROR_STATUSES.has(status)) {
+      return false;
+    }
+    if (status === 'running' || status === 'queued' || status === 'thinking') {
+      return true;
+    }
+  }
+  return /^running\b/i.test(entry.text.trim());
+}
+
+/**
+ * Inspects a channel's entries to detect whether the latest turn still has
+ * active/unsettled tool trace activity (even if an earlier assistant preamble
+ * was already emitted or the client rehydrated mid-run).
+ */
+export function extractTrailingTurnContext(entries: TerminalEntry[]): {
+  hasActiveActivity: boolean;
+  latestPrompt: string;
+  latestPromptAtMs?: number;
+  trailingActivities: TerminalEntry[];
+  latestActivityBatch: TerminalEntry[];
+} {
+  let latestPrompt = '';
+  let latestPromptAtMs: number | undefined;
+  let lastSettledAssistantIdx = -1;
+  let lastUserIdx = -1;
+
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (e.role === 'user' || e.role === 'command') {
+      lastUserIdx = i;
+      if (!e.text.trim().startsWith('/')) {
+        latestPrompt = e.text.trim();
+        latestPromptAtMs = e.createdAtMs;
+      }
+    } else if (e.role === 'hermes' && !e.streaming) {
+      lastSettledAssistantIdx = i;
+    }
+  }
+
+  const trailingStart = Math.max(lastSettledAssistantIdx + 1, lastUserIdx + 1);
+  const trailingActivities = entries
+    .slice(trailingStart)
+    .filter((e) => e.role === 'activity');
+
+  const hasActiveActivity = trailingActivities.some((e) => isActivityEntryRunning(e));
+
+  // Also capture the most recent contiguous/turn activity batch for channels
+  // that ran tools but have no persisted server task record.
+  let batchStart = lastUserIdx >= 0 ? lastUserIdx + 1 : 0;
+  if (batchStart >= entries.length) batchStart = 0;
+  const latestActivityBatch = entries
+    .slice(batchStart)
+    .filter((e) => e.role === 'activity');
+
+  return {
+    hasActiveActivity,
+    latestPrompt,
+    latestPromptAtMs,
+    trailingActivities,
+    latestActivityBatch,
+  };
+}
+
+function buildStepsFromActivities(
+  activities: TerminalEntry[],
+  sessionId: string,
+  stillRunning: boolean
+): TaskStepItem[] {
+  if (activities.length === 0) {
+    return [
+      {
+        text: `Working in ${sessionId}`,
+        done: !stillRunning,
+        active: stillRunning,
+      },
+    ];
+  }
+
+  const steps: TaskStepItem[] = [];
+  for (let i = 0; i < activities.length; i++) {
+    const entry = activities[i];
+    const isLast = i === activities.length - 1;
+    const running = stillRunning && (isActivityEntryRunning(entry) || isLast);
+    const done = !running;
+    steps.push({
+      text: entry.text.trim() || 'Tool activity',
+      done,
+      active: running,
+    });
+  }
+  return steps;
+}
+
+/**
+ * Ensures every thread/session that is actively thinking, running tools, or
+ * carrying unsettled activity traces surfaces a live task in that thread —
+ * even on dynamically created Home/Canvas sessions or when connected to a
+ * gateway stream that emits activity items without explicit task records.
+ */
+export function mergeTasksWithSessionActivity(params: {
+  tasks: BackgroundTask[];
+  entries: TerminalEntry[];
+  sessions?: HermesAgentSession[];
+  thinkingByChannel?: Record<string, boolean>;
+  channels?: Array<{ id: string; name?: string; sessionId?: string; description?: string }>;
+  confirmedTaskIds?: ReadonlySet<string>;
+}): BackgroundTask[] {
+  const {
+    tasks,
+    entries,
+    sessions = [],
+    thinkingByChannel = {},
+    channels = [],
+    confirmedTaskIds,
+  } = params;
+
+  const runningChannels = new Set<string>();
+  const channelsWithTasks = new Set<string>();
+  for (const t of tasks) {
+    channelsWithTasks.add(t.channelId);
+    if (t.status === 'running') {
+      runningChannels.add(t.channelId);
+    }
+  }
+
+  const entriesByChannel = new Map<string, TerminalEntry[]>();
+  for (const e of entries) {
+    const list = entriesByChannel.get(e.channelId);
+    if (list) list.push(e);
+    else entriesByChannel.set(e.channelId, [e]);
+  }
+
+  const sessionByChannel = new Map<string, HermesAgentSession>();
+  for (const s of sessions) {
+    sessionByChannel.set(s.channelId, s);
+  }
+
+  const channelMetaMap = new Map<
+    string,
+    { id: string; name?: string; sessionId?: string; description?: string }
+  >();
+  for (const c of channels) {
+    channelMetaMap.set(c.id, c);
+  }
+
+  const candidateChannels = new Set<string>([
+    ...Object.keys(thinkingByChannel).filter((k) => Boolean(thinkingByChannel[k])),
+    ...sessions
+      .filter((s) => ACTIVE_SESSION_STATUSES.has(s.status))
+      .map((s) => s.channelId),
+    ...entriesByChannel.keys(),
+  ]);
+
+  const synthetic: BackgroundTask[] = [];
+
+  for (const channelId of candidateChannels) {
+    if (runningChannels.has(channelId)) continue;
+
+    const chEntries = entriesByChannel.get(channelId) ?? [];
+    const session = sessionByChannel.get(channelId);
+    const meta = channelMetaMap.get(channelId);
+    const ctx = extractTrailingTurnContext(chEntries);
+
+    const isSessionBusy = Boolean(
+      thinkingByChannel[channelId] ||
+        (session && ACTIVE_SESSION_STATUSES.has(session.status)) ||
+        ctx.hasActiveActivity
+    );
+
+    const sessionId = session?.sessionId || meta?.sessionId || `hermes-${channelId}`;
+    const title = deriveTurnTaskTitle(
+      ctx.latestPrompt || session?.lastMessage || meta?.description || '',
+      `#${meta?.name || channelId}`
+    );
+
+    if (isSessionBusy) {
+      const sourceActivities =
+        ctx.trailingActivities.length > 0 ? ctx.trailingActivities : ctx.latestActivityBatch;
+      const steps = buildStepsFromActivities(sourceActivities, sessionId, true);
+      const doneCount = steps.filter((s) => s.done).length;
+      const pct = Math.round((doneCount / Math.max(1, steps.length)) * 100);
+      const activeStep = [...steps].reverse().find((s) => s.active) ?? steps[steps.length - 1];
+      const createdAtMs =
+        ctx.latestPromptAtMs ??
+        sourceActivities[0]?.createdAtMs ??
+        session?.updatedAtMs ??
+        Date.now();
+      const updatedAtMs =
+        sourceActivities[sourceActivities.length - 1]?.createdAtMs ??
+        session?.updatedAtMs ??
+        createdAtMs;
+
+      synthetic.push({
+        id: `live-turn-${channelId}`,
+        channelId,
+        sessionId,
+        kind: 'In chat',
+        background: false,
+        title,
+        status: 'running',
+        rawStatus: 'running',
+        progress: pct,
+        progressLabel: `${doneCount}/${steps.length}`,
+        lastStep: activeStep?.text || `Working in ${sessionId}`,
+        steps,
+        createdAtMs,
+        updatedAtMs,
+        updatedAt: formatStartClock(updatedAtMs) || 'live',
+      });
+      continue;
+    }
+
+    // If a thread has tool activity in its transcript but no server task record at all,
+    // surface the completed tool run as a thread task so tool work is never invisible.
+    if (!channelsWithTasks.has(channelId) && ctx.latestActivityBatch.length > 0) {
+      const steps = buildStepsFromActivities(ctx.latestActivityBatch, sessionId, false);
+      const createdAtMs =
+        ctx.latestPromptAtMs ?? ctx.latestActivityBatch[0]?.createdAtMs ?? Date.now();
+      const updatedAtMs =
+        ctx.latestActivityBatch[ctx.latestActivityBatch.length - 1]?.createdAtMs ?? createdAtMs;
+      const taskId = `trace-turn-${channelId}`;
+      const confirmedAtMs = confirmedTaskIds?.has(taskId) ? updatedAtMs : undefined;
+
+      synthetic.push({
+        id: taskId,
+        channelId,
+        sessionId,
+        kind: 'In chat',
+        background: false,
+        title,
+        status: 'completed',
+        rawStatus: 'done',
+        progress: 100,
+        progressLabel: `${steps.length}/${steps.length}`,
+        lastStep: steps[steps.length - 1]?.text || 'Completed tool run',
+        steps,
+        agentDoneAtMs: updatedAtMs,
+        confirmedAtMs,
+        createdAtMs,
+        updatedAtMs,
+        updatedAt: formatStartClock(updatedAtMs) || 'done',
+      });
+    }
+  }
+
+  return synthetic.length > 0 ? [...tasks, ...synthetic] : tasks;
+}
+
 

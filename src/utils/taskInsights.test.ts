@@ -1,13 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { BackgroundTask } from '../types/hermes';
+import type { BackgroundTask, HermesAgentSession, TerminalEntry } from '../types/hermes';
 import {
+  applyStreamingDeltaToSteps,
+  applyToolProgressToSteps,
+  deriveTurnTaskTitle,
+  finalizeTurnTaskSteps,
   formatElapsedDuration,
   formatStartClock,
   getTaskConfirmationLabel,
   getTaskConfirmationState,
   getTaskKindLabel,
   getTaskStatusDisplay,
+  mergeTasksWithSessionActivity,
   partitionChannelTasks,
   resolveTaskProgress,
   resolveTaskStepBreakdown,
@@ -241,3 +246,175 @@ test('resolveTaskProgress computes step percentages, 100% completion, and indete
   };
   assert.equal(resolveTaskProgress(failedPartial).pct, 67);
 });
+
+test('turn task lifecycle helpers derive clean titles and transition tool/streaming/final steps', () => {
+  assert.equal(
+    deriveTurnTaskTitle('https://github.com/Dev/hermes-agentis check git log'),
+    'github.com/Dev/hermes-agentis check git log'
+  );
+  assert.equal(deriveTurnTaskTitle('   ', '#https-github-com'), '#https-github-com');
+
+  const initial = [{ text: 'Working in hermes-https-github-com', done: false, active: true }];
+  const afterRead = applyToolProgressToSteps(initial, {
+    toolName: 'read_file',
+    status: 'running',
+    summary: 'Running read_file',
+  });
+  assert.equal(afterRead.progress, '1/2');
+  assert.equal(afterRead.steps[0]?.done, true);
+  assert.equal(afterRead.steps[1]?.text, 'Running read_file');
+  assert.equal(afterRead.steps[1]?.active, true);
+
+  const afterTermRunning = applyToolProgressToSteps(afterRead.steps, {
+    toolName: 'terminal',
+    status: 'running',
+    summary: 'Running terminal',
+  });
+  assert.equal(afterTermRunning.steps.length, 3);
+  assert.equal(afterTermRunning.steps[1]?.done, true);
+  assert.equal(afterTermRunning.steps[2]?.active, true);
+
+  const afterTerm = applyToolProgressToSteps(afterTermRunning.steps, {
+    toolName: 'terminal',
+    status: 'done',
+    summary: 'terminal: git log --oneline -3 main',
+  });
+  assert.equal(afterTerm.steps.length, 3);
+  assert.equal(afterTerm.steps[2]?.done, true);
+  assert.equal(afterTerm.steps[2]?.text, 'terminal: git log --oneline -3 main');
+
+  const streaming = applyStreamingDeltaToSteps(afterTerm.steps);
+  assert.equal(streaming.changed, true);
+  assert.equal(streaming.steps[streaming.steps.length - 1]?.text, 'Composing response');
+
+  const settled = finalizeTurnTaskSteps(streaming.steps, 'done', 'Completed response');
+  assert.equal(settled.progress, `${settled.steps.length}/${settled.steps.length}`);
+  assert.ok(settled.steps.every((s) => s.done && !s.active));
+
+  const cancelled = finalizeTurnTaskSteps(afterRead.steps, 'cancelled', 'Stopped by operator');
+  assert.equal(cancelled.steps[cancelled.steps.length - 1]?.text, 'Stopped by operator');
+});
+
+test('mergeTasksWithSessionActivity surfaces running and tool-trace tasks on dynamic threads', () => {
+  const entries: TerminalEntry[] = [
+    {
+      id: 'u-1',
+      channelId: 'https-github-com',
+      role: 'user',
+      source: 'voice',
+      text: 'https://github.com/Dev/demo scrub repo and make public',
+      timestamp: '19:17',
+      createdAtMs: 1_700_000_000_000,
+    },
+    {
+      id: 'h-1',
+      channelId: 'https-github-com',
+      role: 'hermes',
+      source: 'ui',
+      text: 'On it — surveying the repo first.',
+      streaming: false,
+      timestamp: '19:17',
+      createdAtMs: 1_700_000_005_000,
+    },
+    {
+      id: 'a-1',
+      channelId: 'https-github-com',
+      role: 'activity',
+      source: 'ui',
+      text: 'Running read_file',
+      activityStatus: 'running',
+      timestamp: '19:19',
+      createdAtMs: 1_700_000_120_000,
+    },
+    {
+      id: 'a-2',
+      channelId: 'https-github-com',
+      role: 'activity',
+      source: 'ui',
+      text: 'terminal: git log --oneline -3 main',
+      activityStatus: 'done',
+      timestamp: '19:19',
+      createdAtMs: 1_700_000_125_000,
+    },
+    {
+      id: 'a-3',
+      channelId: 'https-github-com',
+      role: 'activity',
+      source: 'ui',
+      text: 'Running terminal',
+      activityStatus: 'running',
+      timestamp: '19:19',
+      createdAtMs: 1_700_000_130_000,
+    },
+  ];
+
+  const merged = mergeTasksWithSessionActivity({
+    tasks: SAMPLE_TASKS,
+    entries,
+    sessions: [
+      {
+        sessionId: 'hermes-https-github-com',
+        channelId: 'https-github-com',
+        name: 'https-github-com',
+        persona: 'Dynamic thread',
+        topic: 'github.com/Dev/demo',
+        status: 'idle',
+        turnCount: 1,
+        updatedAtMs: 1_700_000_130_000,
+      },
+    ],
+    thinkingByChannel: {},
+  });
+
+  const dynamicPartition = partitionChannelTasks(merged, 'https-github-com');
+  assert.equal(dynamicPartition.running.length, 1);
+  assert.equal(dynamicPartition.running[0]?.id, 'live-turn-https-github-com');
+  assert.equal(dynamicPartition.running[0]?.steps?.length, 3);
+  assert.equal(dynamicPartition.running[0]?.steps?.[2]?.text, 'Running terminal');
+  assert.equal(dynamicPartition.running[0]?.steps?.[2]?.active, true);
+
+  // Never duplicates when an explicit running task already exists for the channel
+  const launchSessions: HermesAgentSession[] = [
+    {
+      sessionId: 'hermes-launch',
+      channelId: 'launch',
+      name: 'launch',
+      persona: 'Launch',
+      topic: 'Launch lane',
+      status: 'running',
+      turnCount: 1,
+      updatedAtMs: 1_700_000_240_000,
+    },
+  ];
+  const noDuplicate = mergeTasksWithSessionActivity({
+    tasks: SAMPLE_TASKS,
+    entries: [],
+    sessions: launchSessions,
+    thinkingByChannel: { launch: true },
+  });
+  assert.equal(partitionChannelTasks(noDuplicate, 'launch').running.length, 1);
+
+  // Completed tool trace on a thread with no server task surfaces as a completed task
+  const completedEntries: TerminalEntry[] = [
+    entries[0],
+    {
+      ...entries[2],
+      text: 'terminal: git status',
+      activityStatus: 'done',
+    },
+    {
+      ...entries[1],
+      createdAtMs: 1_700_000_140_000,
+    },
+  ];
+  const withTraceTask = mergeTasksWithSessionActivity({
+    tasks: SAMPLE_TASKS,
+    entries: completedEntries,
+    confirmedTaskIds: new Set(['trace-turn-https-github-com']),
+  });
+  const completedPartition = partitionChannelTasks(withTraceTask, 'https-github-com');
+  assert.equal(completedPartition.completed.length, 1);
+  assert.equal(completedPartition.completed[0]?.id, 'trace-turn-https-github-com');
+  assert.ok(completedPartition.completed[0]?.confirmedAtMs);
+});
+

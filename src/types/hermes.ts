@@ -146,6 +146,7 @@ export interface TerminalEntry {
   mood?: ExpressionMood;
   commandUsed?: string;
   streaming?: boolean;
+  activityStatus?: string;
   /** Epoch ms from the Hermes server; used to keep items chronologically ordered. */
   createdAtMs?: number;
 }

@@ -235,11 +235,13 @@ export function VoiceWorkspacePane({
     [tasks, activeChannel]
   );
   const threadTasksOpen =
-    threadTasksOverrideByChannel[activeChannel] ?? activeChannelTasksPartition.all.length > 0;
+    threadTasksOverrideByChannel[activeChannel] ??
+    (activeChannelTasksPartition.all.length > 0 || activeIsThinking);
 
   const toggleThreadTasksOpen = () => {
     const current =
-      threadTasksOverrideByChannel[activeChannel] ?? activeChannelTasksPartition.all.length > 0;
+      threadTasksOverrideByChannel[activeChannel] ??
+      (activeChannelTasksPartition.all.length > 0 || activeIsThinking);
     const nextOpen = !current;
     setThreadTasksOverrideByChannel((prev) => ({
       ...prev,
@@ -525,7 +527,12 @@ export function VoiceWorkspacePane({
     ? 'listening'
     : 'idle';
 
-  const activeChannelRunningTaskCount = activeChannelTasksPartition.running.length;
+  const activeChannelRunningTaskCount =
+    activeChannelTasksPartition.running.length > 0
+      ? activeChannelTasksPartition.running.length
+      : activeIsThinking
+      ? 1
+      : 0;
 
   const navTabItems: MorphTabItem<WorkspacePanelView>[] = useMemo(
     () => [
