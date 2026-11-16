@@ -253,6 +253,61 @@ test('RunsEventStreamParser parses approval.request, reasoning, subagent events,
   assert.equal(reasoningChunks.length, 1);
 });
 
+test('RunsEventStreamParser reads the gateway wire shape (event name in payload, no SSE event: line)', () => {
+  // Exact shape emitted by /v1/runs/{id}/events: `_sse_frame(payload, id=seq)`
+  // writes `id:` + `data:` only; the event name lives in the JSON `event` field.
+  const gatewayFrames = (output: string) =>
+    [
+      ': open',
+      '',
+      'id: 0',
+      'data: {"event":"message.delta","run_id":"run_1","delta":"S","seq":0}',
+      '',
+      'id: 1',
+      'data: {"event":"message.delta","run_id":"run_1","delta":"SE wire check","seq":1}',
+      '',
+      `id: 2`,
+      `data: {"event":"run.completed","run_id":"run_1","output":"${output}","completed":true,"partial":false,"interrupted":false,"seq":2}`,
+      '',
+      ': stream closed',
+      '',
+    ].join('\n');
+
+  const withOutput = new RunsEventStreamParser();
+  const deltas: string[] = [];
+  withOutput.push(gatewayFrames('SSE wire check'), {
+    onDelta: (_acc, chunk) => deltas.push(chunk),
+  });
+  const first = withOutput.finish();
+  assert.equal(first.output, 'SSE wire check');
+  assert.equal(first.outcome, 'completed');
+  assert.deepEqual(deltas, ['S', 'SE wire check']);
+
+  // A run.completed with an empty `output` must not erase streamed text.
+  const emptyOutput = new RunsEventStreamParser();
+  emptyOutput.push(gatewayFrames(''));
+  const second = emptyOutput.finish();
+  assert.equal(second.output, 'SSE wire check');
+  assert.equal(second.outcome, 'completed');
+});
+
+test('SessionChatStreamParser reads event names from payload.event too', () => {
+  const parser = new SessionChatStreamParser();
+  parser.push(
+    [
+      'data: {"event":"assistant.delta","delta":"Hello ","seq":0}',
+      '',
+      'data: {"event":"assistant.delta","delta":"world","seq":1}',
+      '',
+      'data: {"event":"run.completed","output":"","completed":true,"seq":2}',
+      '',
+    ].join('\n')
+  );
+  const res = parser.finish();
+  assert.equal(res.content, 'Hello world');
+  assert.equal(res.outcome, 'completed');
+});
+
 test('fetchWithConcurrentRetry retries HTTP 429 with backoff and preserves Idempotency-Key', async () => {
   let calls = 0;
   const delays: number[] = [];

@@ -891,7 +891,13 @@ export class SessionChatStreamParser {
       return;
     }
 
-    const evType = (typeof payload.type === 'string' && payload.type) || frame.event;
+    // The gateway's /v1/runs and session event streams carry the event name in the
+    // payload's `event` field, not in an SSE `event:` line; `frame.event` is the
+    // fallback for endpoints that do emit one.
+    const evType =
+      (typeof payload.type === 'string' && payload.type) ||
+      (typeof payload.event === 'string' && payload.event) ||
+      frame.event;
 
     switch (evType) {
       case 'assistant.delta': {
@@ -1031,7 +1037,9 @@ export class RunsEventStreamParser {
       this.handleFrame(frame, cb);
     }
     return {
-      output: this.finalOutput ?? this.content,
+      // A terminal event with an empty `output` must not erase text streamed via
+      // message.delta frames — only a non-empty authoritative answer wins.
+      output: this.finalOutput || this.content,
       reasoning: this.reasoning,
       outcome: this.outcome ?? (this.error ? 'failed' : 'completed'),
       error: this.error,
@@ -1051,7 +1059,12 @@ export class RunsEventStreamParser {
       return;
     }
 
-    const evType = (typeof payload.type === 'string' && payload.type) || frame.event;
+    // The /v1/runs/{id}/events endpoint puts the event name in the JSON payload
+    // (there is no SSE `event:` line on that wire), so check payload.event first.
+    const evType =
+      (typeof payload.type === 'string' && payload.type) ||
+      (typeof payload.event === 'string' && payload.event) ||
+      frame.event;
 
     switch (evType) {
       case 'message.reasoning':
