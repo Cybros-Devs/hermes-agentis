@@ -30,8 +30,11 @@ export type HermesSessionRuntimeStatus = 'idle' | 'thinking' | 'speaking' | 'run
 
 export type HermesTransportMode = 'auto' | 'runs' | 'chat_completions' | 'session_stream';
 
+export type HermesSessionOrigin = 'workspace' | 'external';
+
 export interface HermesAgentSession {
   sessionId: string;
+  sessionKey?: string;
   channelId: ChannelId;
   name: string;
   persona: string;
@@ -42,6 +45,7 @@ export interface HermesAgentSession {
   updatedAtMs: number;
   source?: string;
   model?: string;
+  origin?: HermesSessionOrigin;
   ownedByApiServer?: boolean;
 }
 
@@ -49,8 +53,10 @@ export interface Channel {
   id: ChannelId;
   name: string;
   sessionId: string;
+  sessionKey?: string;
   description: string;
   persona?: string;
+  origin?: HermesSessionOrigin;
   unreadCount: number;
 }
 

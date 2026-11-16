@@ -131,7 +131,7 @@ export function BrailleSessionsCanvas({
   const [pinTitle, setPinTitle] = useState('');
   const [pinDetail, setPinDetail] = useState('');
   const [pinKind, setPinKind] = useState<CanvasPinKind>('note');
-  const [filterMode, setFilterMode] = useState<CanvasSessionFilter>('chats');
+  const [filterMode, setFilterMode] = useState<CanvasSessionFilter>('all');
   const [activeFormation, setActiveFormation] = useState<CanvasFormationPreset>('constellation');
   const [viewport, setViewport] = useState<CanvasViewport>(DEFAULT_CANVAS_VIEWPORT);
   const [isPanning, setIsPanning] = useState(false);
@@ -663,82 +663,87 @@ export function BrailleSessionsCanvas({
         <div className="flex items-center gap-2 shrink-0">
           {sessions.length > 0 && (
             <>
-              {/* Status Filter Segment (Chats | All | Auto | Live) */}
-              <div className="hidden sm:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
-                {(
-                  [
-                    { id: 'chats', label: `Chats ${chatSessions.length}` },
-                    { id: 'all', label: `All ${sessions.length}` },
-                    { id: 'autonomous', label: 'Auto' },
-                    { id: 'live', label: 'Live' },
-                  ] as const
-                ).map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    data-testid={`canvas-filter-${opt.id}`}
-                    onClick={() => {
-                      setMovedFilterPos({});
-                      setFilterMode(opt.id);
-                    }}
-                    className={`px-2 py-1 rounded-md text-[11px] font-medium tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                      effectiveFilterMode === opt.id
-                        ? 'bg-[#34D399]/18 text-[#6EE7B7]'
-                        : 'text-emerald-100/60 hover:text-white'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Formation Switcher (Constellation | Orbit | Grid) */}
-              <div className="hidden md:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
-                {(
-                  [
-                    { id: 'constellation', label: 'Constellation', icon: Sparkles },
-                    { id: 'orbit', label: 'Orbit', icon: Orbit },
-                    { id: 'grid', label: 'Grid', icon: LayoutGrid },
-                  ] as const
-                ).map((fmt) => {
-                  const Icon = fmt.icon;
-                  const active = activeFormation === fmt.id;
-                  return (
+              {/* Status Filter Segment (only shown when autonomous or live Dots exist) */}
+              {(autonomousCount > 0 || runningCount > 0) && (
+                <div className="hidden sm:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                  {(
+                    [
+                      { id: 'all', label: `All ${sessions.length}` },
+                      { id: 'autonomous', label: `Auto ${autonomousCount}` },
+                      { id: 'live', label: `Live ${runningCount}` },
+                    ] as const
+                  ).map((opt) => (
                     <button
-                      key={fmt.id}
+                      key={opt.id}
                       type="button"
-                      data-testid={`canvas-arrange-${fmt.id}`}
+                      data-testid={`canvas-filter-${opt.id}`}
                       onClick={() => {
                         setMovedFilterPos({});
-                        setActiveFormation(fmt.id);
-                        onArrangeFormation(fmt.id);
+                        setFilterMode(opt.id);
                       }}
-                      aria-label={`Arrange dots in ${fmt.label} formation`}
-                      className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                        active
-                          ? 'bg-white/12 text-white'
+                      className={`px-2 py-1 rounded-md text-[11px] font-medium tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                        effectiveFilterMode === opt.id
+                          ? 'bg-[#34D399]/18 text-[#6EE7B7]'
                           : 'text-emerald-100/60 hover:text-white'
                       }`}
                     >
-                      <Icon className="w-3 h-3" />
-                      <span>{fmt.label}</span>
+                      {opt.label}
                     </button>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
 
-              {/* Mobile/Compact Arrange Button */}
-              <button
-                type="button"
-                onClick={() => {
-                  setMovedFilterPos({});
-                  onArrangeFormation(activeFormation);
-                }}
-                aria-label="Auto arrange sessions on canvas"
-                className="md:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-              </button>
+              {/* Formation Switcher (Constellation | Orbit | Grid) when 2+ Dots */}
+              {sessions.length >= 2 && (
+                <>
+                  <div className="hidden md:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                    {(
+                      [
+                        { id: 'constellation', label: 'Constellation', icon: Sparkles },
+                        { id: 'orbit', label: 'Orbit', icon: Orbit },
+                        { id: 'grid', label: 'Grid', icon: LayoutGrid },
+                      ] as const
+                    ).map((fmt) => {
+                      const Icon = fmt.icon;
+                      const active = activeFormation === fmt.id;
+                      return (
+                        <button
+                          key={fmt.id}
+                          type="button"
+                          data-testid={`canvas-arrange-${fmt.id}`}
+                          onClick={() => {
+                            setMovedFilterPos({});
+                            setActiveFormation(fmt.id);
+                            onArrangeFormation(fmt.id);
+                          }}
+                          aria-label={`Arrange dots in ${fmt.label} formation`}
+                          className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                            active
+                              ? 'bg-white/12 text-white'
+                              : 'text-emerald-100/60 hover:text-white'
+                          }`}
+                        >
+                          <Icon className="w-3 h-3" />
+                          <span>{fmt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Mobile/Compact Arrange Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMovedFilterPos({});
+                      onArrangeFormation(activeFormation);
+                    }}
+                    aria-label="Auto arrange sessions on canvas"
+                    className="md:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
 
               {/* Pan & Zoom Controls (sm+) */}
               <div className="hidden sm:flex items-center rounded-lg border border-white/10 bg-white/[0.03] px-1 py-0.5 gap-0.5 shrink-0">
@@ -1022,13 +1027,13 @@ export function BrailleSessionsCanvas({
               icon={<LayoutGrid className="w-4 h-4" />}
               title={
                 sessions.length === 0
-                  ? 'No isolated hermes-agent Dots on this canvas yet'
+                  ? 'No Dots on canvas yet'
                   : 'No Dots match this filter'
               }
               description={
                 sessions.length === 0
-                  ? 'Spawn an animated Dot character to orchestrate parallel always-on agents.'
-                  : 'Switch filter back to All or spawn a new autonomous Dot.'
+                  ? 'Start a chat from Home, pin a Gateway session, or spawn a Dot here.'
+                  : 'Switch filter back to All or spawn a new Dot.'
               }
               action={
                 sessions.length === 0 ? (
@@ -1090,7 +1095,7 @@ export function BrailleSessionsCanvas({
                   energy={activeSpeechEnergy}
                   entries={bucket?.entries ?? []}
                   turnCount={turnCount}
-                  canRemove={sessions.length > 1}
+                  canRemove
                   compact={compactNodes}
                   dotProfile={dotProfile}
                   bloom={bloom}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Plus, Search, X } from 'lucide-react';
+import { ArrowLeft, Pin, Plus, Search, X } from 'lucide-react';
 import type {
   ApprovalCard,
   BackgroundTask,
@@ -13,10 +13,8 @@ import type {
 import type { CanvasSession } from '../utils/canvasSessions';
 import {
   buildSidebarSessionEntries,
-  computeFooterLanes,
   filterSidebarSessionEntries,
-  resolveEffectiveSidebarTab,
-  type SidebarFilterTab,
+  type SidebarScopeTab,
 } from '../utils/sidebarSessions';
 import { summarizeChannelTaskActivity } from '../utils/taskInsights';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
@@ -30,6 +28,7 @@ interface SidebarWorkspaceProps {
   hermesSessions?: HermesAgentSession[];
   thinkingByChannel?: Record<string, boolean>;
   onSelectSession?: (session: CanvasSession) => void;
+  onPinToCanvas?: (session: CanvasSession) => void;
   approvals: ApprovalCard[];
   brief: BriefDecision[];
   tasks: BackgroundTask[];
@@ -60,6 +59,7 @@ export function SidebarWorkspace({
   hermesSessions = [],
   thinkingByChannel = {},
   onSelectSession,
+  onPinToCanvas,
   approvals,
   brief,
   tasks,
@@ -84,7 +84,7 @@ export function SidebarWorkspace({
   const openBrief = brief.filter((b) => !b.resolved).slice(0, 2);
   const activeChannelBtnRef = useRef<HTMLButtonElement | null>(null);
 
-  const [filterTab, setFilterTab] = useState<SidebarFilterTab>('chats');
+  const [scopeTab, setScopeTab] = useState<SidebarScopeTab>('workspace');
   const [searchQuery, setSearchQuery] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -109,29 +109,31 @@ export function SidebarWorkspace({
     [canvasSessions, hermesSessions, activityByChannel, nowMs]
   );
 
-  const effectiveTab = useMemo(
-    () => resolveEffectiveSidebarTab(filterTab, sidebarEntries),
-    [filterTab, sidebarEntries]
+  const allCounts = useMemo(
+    () =>
+      filterSidebarSessionEntries(sidebarEntries, {
+        tab: 'all',
+        query: '',
+      }),
+    [sidebarEntries]
   );
+
+  const effectiveScopeTab: SidebarScopeTab =
+    scopeTab === 'external' && allCounts.externalCount === 0 ? 'workspace' : scopeTab;
 
   const {
     visible: visibleSessions,
-    chatsCount,
-    runsCount,
-    totalCount,
-    crossBucketMatches,
+    workspaceCount,
+    externalCount,
+    totalCount: scopedCount,
   } = useMemo(
     () =>
       filterSidebarSessionEntries(sidebarEntries, {
-        tab: effectiveTab,
+        tab: 'all',
         query: searchQuery,
+        originFilter: effectiveScopeTab,
       }),
-    [sidebarEntries, effectiveTab, searchQuery]
-  );
-
-  const footerLanes = useMemo(
-    () => computeFooterLanes(channels, sidebarEntries),
-    [channels, sidebarEntries]
+    [sidebarEntries, effectiveScopeTab, searchQuery]
   );
 
   const activeChannelActivity = activityByChannel[activeChannel];
@@ -146,12 +148,12 @@ export function SidebarWorkspace({
     activeChannelBtnRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [activeChannel, channels.length]);
 
-  const showFilterTabs = totalCount > 0 && (runsCount > 0 || totalCount >= 6);
-  const showSearchBar = totalCount >= 6;
+  const showScopeTabs = externalCount > 0;
+  const showSearchBar = scopedCount >= 5 || searchQuery.trim().length > 0;
 
   return (
     <aside
-      aria-label="Hermes Tasks and Lanes"
+      aria-label="Hermes Sessions and Status"
       data-testid="sidebar-workspace"
       className="ui-sidebar-shell flex flex-col h-full rounded-2xl border overflow-hidden select-none"
     >
@@ -227,7 +229,7 @@ export function SidebarWorkspace({
                     <span>{isGatewayConnected ? 'online' : 'offline'}</span>
                   </>
                 ) : (
-                  <span>{homeSessionDraft ? 'new session' : `#${activeChannel}`}</span>
+                  <span>{homeSessionDraft || !activeChannel ? 'new session' : `#${activeChannel}`}</span>
                 )}
               </span>
             </div>
@@ -294,24 +296,23 @@ export function SidebarWorkspace({
         </div>
       )}
 
-      {/* Sessions Browser Header: View Tabs + Inline Search */}
-      {queueVisible && totalCount > 0 && (
+      {/* Sessions Header: Workspace Sessions vs optional Gateway History */}
+      {queueVisible && (workspaceCount > 0 || externalCount > 0) && (
         <div className="px-3 pt-2.5 pb-1 space-y-2 shrink-0">
-          {showFilterTabs ? (
+          {showScopeTabs ? (
             <div
               role="tablist"
-              aria-label="Filter Hermes Agent sessions"
+              aria-label="Session scope"
               className="flex items-center justify-between gap-2 px-1 border-b border-white/[0.07]"
             >
               <div className="flex items-center gap-3">
                 {(
                   [
-                    { id: 'chats', label: 'Chats', count: chatsCount },
-                    { id: 'runs', label: 'Runs', count: runsCount },
-                    { id: 'all', label: 'All', count: totalCount },
+                    { id: 'workspace', label: 'Sessions', count: workspaceCount },
+                    { id: 'external', label: 'Gateway', count: externalCount },
                   ] as const
                 ).map((tab) => {
-                  const selected = effectiveTab === tab.id;
+                  const selected = effectiveScopeTab === tab.id;
                   return (
                     <button
                       key={tab.id}
@@ -319,7 +320,10 @@ export function SidebarWorkspace({
                       role="tab"
                       aria-selected={selected}
                       data-testid={`sidebar-tab-${tab.id}`}
-                      onClick={() => setFilterTab(tab.id)}
+                      onClick={() => {
+                        setScopeTab(tab.id);
+                        setSearchQuery('');
+                      }}
                       className={`pb-1.5 text-[11px] font-medium transition-colors cursor-pointer inline-flex items-baseline gap-1 border-b-2 -mb-px ${
                         selected
                           ? 'text-white border-[#34D399]'
@@ -342,7 +346,7 @@ export function SidebarWorkspace({
           ) : (
             <div className="px-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/45 tabular-nums">
               <span>Sessions</span>
-              <span>{totalCount}</span>
+              <span>{workspaceCount}</span>
             </div>
           )}
 
@@ -357,7 +361,11 @@ export function SidebarWorkspace({
                 role="searchbox"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter sessions…"
+                placeholder={
+                  effectiveScopeTab === 'external'
+                    ? 'Search gateway history…'
+                    : 'Filter sessions…'
+                }
                 aria-label="Filter sessions"
                 data-testid="sidebar-session-search"
                 className="w-full rounded-lg bg-white/[0.03] border border-white/[0.08] focus:border-[#34D399]/45 focus:outline-none pl-8 pr-7 py-1.5 text-[11.5px] text-white/90 placeholder:text-emerald-100/45 transition-colors"
@@ -383,31 +391,32 @@ export function SidebarWorkspace({
           <div className="px-2.5 py-6 text-center text-[11px] text-emerald-100/40">
             Queue hidden in UI layout
           </div>
-        ) : totalCount === 0 && pendingApprovals.length === 0 && openBrief.length === 0 ? (
-          <div className="px-2.5 py-5 text-left space-y-1">
-            <p className="text-[12px] font-medium text-emerald-100/60">No active sessions yet</p>
-            <p className="text-[11px] text-emerald-100/38 leading-relaxed">
-              Chats, automated gateway runs, and approvals appear here.
+        ) : effectiveScopeTab === 'workspace' && workspaceCount === 0 && pendingApprovals.length === 0 && openBrief.length === 0 ? (
+          <div className="px-2.5 py-5 text-left space-y-1.5">
+            <p className="text-[12px] font-medium text-emerald-100/65">No sessions created yet</p>
+            <p className="text-[11px] text-emerald-100/40 leading-relaxed">
+              {externalCount > 0
+                ? 'Start a fresh prompt on Home, or inspect external CLI & API runs in Gateway.'
+                : 'Start a prompt on Home or add a Dot on Canvas to begin.'}
             </p>
+            {externalCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setScopeTab('external')}
+                className="text-[11px] font-mono text-[#6EE7B7] hover:text-white underline underline-offset-4 cursor-pointer"
+              >
+                Browse {externalCount} gateway {externalCount === 1 ? 'session' : 'sessions'}
+              </button>
+            )}
           </div>
         ) : visibleSessions.length === 0 ? (
           <div className="px-2.5 py-5 text-left space-y-2">
             <p className="text-[12px] font-medium text-emerald-100/60">
               {searchQuery.trim()
-                ? `No matching sessions in ${effectiveTab}`
-                : effectiveTab === 'chats'
-                ? 'No interactive chats yet'
-                : 'No background runs recorded'}
+                ? 'No matching sessions'
+                : 'No external gateway sessions'}
             </p>
-            {crossBucketMatches > 0 ? (
-              <button
-                type="button"
-                onClick={() => setFilterTab('all')}
-                className="text-[11px] font-mono text-[#6EE7B7] hover:text-white underline underline-offset-4 cursor-pointer"
-              >
-                Show {crossBucketMatches} {crossBucketMatches === 1 ? 'match' : 'matches'} in All
-              </button>
-            ) : searchQuery.trim() ? (
+            {searchQuery.trim() && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
@@ -415,178 +424,139 @@ export function SidebarWorkspace({
               >
                 Clear filter
               </button>
-            ) : null}
+            )}
           </div>
         ) : (
-          visibleSessions.map((entry, idx) => {
-            const { session } = entry;
-            const active =
-              !homeSessionDraft &&
-              (selectedItemId === session.id || activeChannel === session.channelId);
+          <>
+            {effectiveScopeTab === 'external' && (
+              <div className="px-2 pb-1 text-[10.5px] text-emerald-100/40">
+                External CLI &amp; API history · click to read or pin to Canvas
+              </div>
+            )}
+            {visibleSessions.map((entry, idx) => {
+              const { session } = entry;
+              const active =
+                !homeSessionDraft &&
+                (selectedItemId === session.id || activeChannel === session.channelId);
 
-            const rowButton = (
-              <button
-                type="button"
-                data-testid={`sidebar-session-${session.channelId}`}
-                data-has-task={String(entry.hasActiveWork)}
-                data-bucket={entry.bucket}
-                title={entry.tooltipTitle}
-                onClick={() =>
-                  onSelectSession
-                    ? onSelectSession(session)
-                    : onSelectChannel(session.channelId)
-                }
-                className={`ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
-                  active
-                    ? 'bg-[#34D399]/[0.09] border-[#34D399]/35'
-                    : 'border-transparent hover:bg-white/[0.04]'
-                }`}
-              >
-                <StatusPulse
-                  state={entry.hasActiveWork ? 'thinking' : active ? 'live' : 'idle'}
-                  size="sm"
-                  className="mt-1.5"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2 min-w-0">
-                    <span
-                      className={`text-[12.5px] font-medium truncate min-w-0 flex-1 ${
-                        active
-                          ? 'text-white'
-                          : entry.isOpaqueId
-                          ? 'text-emerald-50/75'
-                          : 'text-emerald-50/90'
-                      }`}
-                    >
-                      {entry.displayTitle}
-                    </span>
-                    {(entry.hasActiveWork || entry.relativeTime) && (
-                      <span
-                        className={`font-mono text-[10px] tabular-nums shrink-0 ${
+              const rowContent = (
+                <div
+                  className={`group/row flex items-center gap-1 rounded-xl border transition-colors duration-150 ${
+                    active
+                      ? 'bg-[#34D399]/[0.09] border-[#34D399]/35'
+                      : 'border-transparent hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    ref={active ? activeChannelBtnRef : undefined}
+                    data-testid={`sidebar-session-${session.channelId}`}
+                    data-has-task={String(entry.hasActiveWork)}
+                    data-origin={entry.origin}
+                    title={entry.tooltipTitle}
+                    onClick={() =>
+                      onSelectSession
+                        ? onSelectSession(session)
+                        : onSelectChannel(session.channelId)
+                    }
+                    className="ui-tactile flex-1 min-w-0 text-left flex items-start gap-2.5 px-2.5 py-2 cursor-pointer"
+                  >
+                    <StatusPulse
+                      state={entry.hasActiveWork ? 'thinking' : active ? 'live' : 'idle'}
+                      size="sm"
+                      className="mt-1.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <span
+                          className={`text-[12.5px] font-medium truncate min-w-0 flex-1 ${
+                            active
+                              ? 'text-white'
+                              : entry.isOpaqueId
+                              ? 'text-emerald-50/75'
+                              : 'text-emerald-50/90'
+                          }`}
+                        >
+                          {entry.displayTitle}
+                        </span>
+                        {(entry.hasActiveWork || entry.relativeTime) && (
+                          <span
+                            className={`font-mono text-[10px] tabular-nums shrink-0 ${
+                              entry.hasActiveWork
+                                ? 'text-amber-300/90 font-medium'
+                                : active
+                                ? 'text-[#6EE7B7]/90'
+                                : 'text-emerald-100/52'
+                            }`}
+                          >
+                            {entry.hasActiveWork
+                              ? entry.runningCount > 1
+                                ? `${entry.runningCount} active`
+                                : 'working'
+                              : entry.relativeTime}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className={`font-mono text-[10.5px] truncate mt-0.5 ${
                           entry.hasActiveWork
-                            ? 'text-amber-300/90 font-medium'
+                            ? 'text-amber-200/75'
                             : active
-                            ? 'text-[#6EE7B7]/90'
+                            ? 'text-emerald-100/68'
                             : 'text-emerald-100/52'
                         }`}
                       >
-                        {entry.hasActiveWork
-                          ? entry.runningCount > 1
-                            ? `${entry.runningCount} active`
-                            : 'working'
-                          : entry.relativeTime}
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    className={`font-mono text-[10.5px] truncate mt-0.5 ${
-                      entry.hasActiveWork
-                        ? 'text-amber-200/75'
-                        : active
-                        ? 'text-emerald-100/68'
-                        : 'text-emerald-100/52'
-                    }`}
-                  >
-                    {entry.metadataLine}
-                  </div>
-                </div>
-              </button>
-            );
+                        {entry.metadataLine}
+                      </div>
+                    </div>
+                  </button>
 
-            if (idx < 10) {
-              return (
-                <StaggerItem key={session.id} index={idx}>
-                  {rowButton}
-                </StaggerItem>
+                  {effectiveScopeTab === 'external' && !entry.onCanvas && onPinToCanvas && (
+                    <button
+                      type="button"
+                      data-testid={`sidebar-pin-${session.channelId}`}
+                      onClick={() => onPinToCanvas(session)}
+                      aria-label={`Pin ${entry.displayTitle} to Canvas`}
+                      title="Pin to Canvas"
+                      className="mr-1.5 p-1.5 rounded-lg text-emerald-100/45 hover:text-[#6EE7B7] hover:bg-white/[0.08] opacity-70 sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100 transition-opacity cursor-pointer shrink-0"
+                    >
+                      <Pin className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               );
-            }
-            return <div key={session.id}>{rowButton}</div>;
-          })
+
+              if (idx < 10) {
+                return (
+                  <StaggerItem key={session.id} index={idx}>
+                    {rowContent}
+                  </StaggerItem>
+                );
+              }
+              return <div key={session.id}>{rowContent}</div>;
+            })}
+          </>
         )}
       </div>
 
-      {/* Footer: Core Lanes or Quiet Gateway Breakdown + Live Voice Bands */}
-      {channelsVisible && (footerLanes.length > 0 || totalCount > 0 || isSpeaking || isListening) && (
+      {/* Minimal Live Voice Band Footer (only when audio active) */}
+      {channelsVisible && (isSpeaking || isListening) && (
         <div className="py-2.5 px-3.5 border-t border-white/[0.07] flex items-center justify-between gap-2 font-mono text-[10.5px]">
-          {footerLanes.length > 0 ? (
-            <div className="flex flex-nowrap items-center gap-x-2.5 min-w-0 overflow-x-auto cyber-scroll">
-              <span className="text-[10px] uppercase tracking-[0.12em] text-emerald-100/35 shrink-0">
-                Lanes
-              </span>
-              {footerLanes.map((ch) => {
-                const active = !homeSessionDraft && ch.id === activeChannel;
-                const channelActivity = activityByChannel[ch.id];
-                const hasActiveWork = Boolean(channelActivity?.hasActiveTask);
-                const runningCount = channelActivity?.runningCount ?? 0;
-                return (
-                  <button
-                    key={ch.id}
-                    ref={active ? activeChannelBtnRef : undefined}
-                    type="button"
-                    data-testid={`sidebar-channel-${ch.id}`}
-                    data-has-task={String(hasActiveWork)}
-                    aria-label={
-                      hasActiveWork
-                        ? `${ch.shortLabel} (${runningCount || 1} task running)`
-                        : ch.shortLabel
-                    }
-                    title={
-                      hasActiveWork
-                        ? `Task running in ${ch.shortLabel}${
-                            channelActivity?.primaryTitle
-                              ? `: ${channelActivity.primaryTitle}`
-                              : ''
-                          }`
-                        : ch.description || ch.shortLabel
-                    }
-                    onClick={() => onSelectChannel(ch.id)}
-                    className={`ui-tactile transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 py-0.5 ${
-                      active
-                        ? 'text-[#6EE7B7] font-semibold'
-                        : hasActiveWork
-                        ? 'text-amber-200/90 hover:text-amber-100 font-medium'
-                        : 'text-emerald-100/60 hover:text-white'
-                    }`}
-                  >
-                    {hasActiveWork ? (
-                      <StatusPulse state="thinking" size="sm" />
-                    ) : (
-                      active && (
-                        <span aria-hidden="true" className="w-1 h-1 rounded-full bg-[#4ADE80]" />
-                      )
-                    )}
-                    <span>{ch.shortLabel}</span>
-                    {hasActiveWork && runningCount > 1 && (
-                      <span className="text-[9.5px] text-amber-300/90 tabular-nums">
-                        ·{runningCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 min-w-0 text-emerald-100/52 truncate">
-              <span className="truncate tabular-nums">
-                {chatsCount} {chatsCount === 1 ? 'chat' : 'chats'} · {runsCount}{' '}
-                {runsCount === 1 ? 'run' : 'runs'}
-              </span>
-            </div>
-          )}
-
-          {(isSpeaking || isListening) && (
-            <div className="flex items-end gap-0.5 h-3 shrink-0" aria-hidden="true">
-              {frequencyBands.slice(0, 5).map((band, idx) => (
-                <span
-                  key={idx}
-                  className="w-0.5 h-full origin-bottom rounded-[1px] bg-[#4ADE80] transition-transform duration-75"
-                  style={{ transform: `scaleY(${Math.max(0.25, Math.min(1, band))})` }}
-                />
-              ))}
-            </div>
-          )}
+          <span className="text-[#6EE7B7] truncate">
+            {isListening ? 'Listening…' : 'Voice active'}
+          </span>
+          <div className="flex items-end gap-0.5 h-3 shrink-0" aria-hidden="true">
+            {frequencyBands.slice(0, 5).map((band, idx) => (
+              <span
+                key={idx}
+                className="w-0.5 h-full origin-bottom rounded-[1px] bg-[#4ADE80] transition-transform duration-75"
+                style={{ transform: `scaleY(${Math.max(0.25, Math.min(1, band))})` }}
+              />
+            ))}
+          </div>
         </div>
       )}
     </aside>
   );
 }
+

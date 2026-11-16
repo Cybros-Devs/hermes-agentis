@@ -335,3 +335,86 @@ test('formatDisplaySessionTitle and classifySessionBucket handle missing or unde
   );
 });
 
+test('separates workspace-created sessions from external gateway history and marks onCanvas status', () => {
+  const canvasSessions: CanvasSession[] = [
+    makeCanvasSession({
+      channelId: 'design-review',
+      hermesSessionId: 'hermes-design-review',
+      name: 'design-review',
+      topic: 'Review design tokens',
+      origin: 'workspace',
+    }),
+    makeCanvasSession({
+      channelId: 'tg-pinned-1',
+      hermesSessionId: 'tg-pinned-1',
+      name: 'Telegram Deploy',
+      topic: 'Telegram Deploy',
+      origin: 'imported',
+    }),
+  ];
+
+  const hermesSessions: HermesAgentSession[] = [
+    makeHermesSession({
+      channelId: 'design-review',
+      sessionId: 'hermes-design-review',
+      sessionKey: 'voxcell-design-review',
+      source: 'web',
+      origin: 'workspace',
+      turnCount: 2,
+      updatedAtMs: 2_000_000,
+    }),
+    makeHermesSession({
+      channelId: 'local-5e52c0948b0bfd7907bf92990a4140f94',
+      sessionId: 'local:5e52c0948b0bfd7907bf92990a4140f94',
+      source: 'api',
+      origin: 'external',
+      topic: 'Explain local Forgejo CI',
+      turnCount: 4,
+      updatedAtMs: 3_000_000,
+    }),
+    makeHermesSession({
+      channelId: 'cli-20260412',
+      sessionId: '20260412_1100_abcd12',
+      source: 'cli',
+      origin: 'external',
+      topic: 'Rename nubcat-engine repo',
+      turnCount: 6,
+      updatedAtMs: 1_500_000,
+    }),
+  ];
+
+  const entries = buildSidebarSessionEntries({
+    canvasSessions,
+    hermesSessions,
+    activityByChannel: {},
+    nowMs: 3_100_000,
+  });
+
+  assert.equal(entries.length, 4);
+
+  const workspaceScope = filterSidebarSessionEntries(entries, {
+    tab: 'all',
+    query: '',
+    originFilter: 'workspace',
+  });
+  assert.equal(workspaceScope.workspaceCount, 2);
+  assert.equal(workspaceScope.externalCount, 2);
+  assert.deepEqual(
+    workspaceScope.visible.map((e) => e.session.channelId),
+    ['design-review', 'tg-pinned-1']
+  );
+  assert.equal(workspaceScope.visible.every((e) => e.onCanvas), true);
+
+  const externalScope = filterSidebarSessionEntries(entries, {
+    tab: 'all',
+    query: '',
+    originFilter: 'external',
+  });
+  assert.deepEqual(
+    externalScope.visible.map((e) => e.session.channelId),
+    ['local-5e52c0948b0bfd7907bf92990a4140f94', 'cli-20260412']
+  );
+  assert.equal(externalScope.visible.every((e) => !e.onCanvas), true);
+});
+
+

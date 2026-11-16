@@ -385,6 +385,7 @@ export function mapGatewayJobs(raw: unknown): HermesCronJob[] {
 
 export interface GatewaySessionRecord {
   id: string;
+  sessionKey?: string;
   title?: string;
   source?: string;
   model?: string;
@@ -393,6 +394,73 @@ export interface GatewaySessionRecord {
   lastMessage?: string;
   createdAtMs?: number;
   updatedAtMs?: number;
+}
+
+const OPAQUE_LOCAL_HASH_RE = /^(?:#?hermes-)?local[-_:]([0-9a-f]{6,})$/i;
+const OPAQUE_RUN_HASH_RE = /^#?(?:hermes-)?run[-_:]([0-9a-f]{6,})$/i;
+const OPAQUE_CRON_ID_RE = /^#?(?:hermes-)?cron[-_:](.+)$/i;
+const OPAQUE_UUID_RE = /^#?(?:hermes-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OPAQUE_RAW_HEX_RE = /^#?(?:hermes-)?([0-9a-f]{20,})$/i;
+
+export function isOpaqueSessionIdentifier(raw?: string | null): boolean {
+  const s = String(raw ?? '').trim().replace(/^#/, '');
+  if (!s) return false;
+  return (
+    OPAQUE_LOCAL_HASH_RE.test(s) ||
+    OPAQUE_RUN_HASH_RE.test(s) ||
+    OPAQUE_CRON_ID_RE.test(s) ||
+    OPAQUE_UUID_RE.test(s) ||
+    OPAQUE_RAW_HEX_RE.test(s)
+  );
+}
+
+/**
+ * Distinguishes sessions created by this Web UI workspace (`voxcell-*` session keys,
+ * `hermes-<slug>` web session IDs, `web`/`voxcell`/`ui` sources, or explicitly tracked
+ * workspace IDs) from external `hermes-agent` sessions (`cli`, `local:*` API callers,
+ * external `/v1/chat/completions` clients, `cron`, `telegram`, `discord`, etc.).
+ */
+export function classifyGatewaySessionOrigin(params: {
+  sessionId?: string | null;
+  sessionKey?: string | null;
+  channelId?: string | null;
+  source?: string | null;
+  createdInWorkspace?: boolean;
+}): 'workspace' | 'external' {
+  if (params.createdInWorkspace) return 'workspace';
+
+  const key = String(params.sessionKey ?? '').trim().toLowerCase();
+  if (key.startsWith('voxcell-')) return 'workspace';
+
+  const rawSource = String(params.source ?? '').trim().toLowerCase();
+  if (rawSource === 'web' || rawSource === 'voxcell' || rawSource === 'ui') {
+    return 'workspace';
+  }
+  if (
+    rawSource === 'cli' ||
+    rawSource === 'cron' ||
+    rawSource === 'scheduler' ||
+    rawSource === 'daemon' ||
+    rawSource === 'telegram' ||
+    rawSource === 'discord' ||
+    rawSource === 'slack' ||
+    rawSource === 'whatsapp' ||
+    rawSource === 'signal'
+  ) {
+    return 'external';
+  }
+
+  const sid = String(params.sessionId ?? '').trim();
+  const cid = String(params.channelId ?? '').trim();
+  if (
+    sid.toLowerCase().startsWith('hermes-') &&
+    !isOpaqueSessionIdentifier(sid) &&
+    !isOpaqueSessionIdentifier(cid)
+  ) {
+    return 'workspace';
+  }
+
+  return 'external';
 }
 
 function toEpochMs(val: unknown): number | undefined {
@@ -429,6 +497,10 @@ export function mapGatewaySessions(raw: unknown): GatewaySessionRecord[] {
       (typeof obj.id === 'string' && obj.id) ||
       '';
     if (!id.trim()) continue;
+    const sessionKey =
+      (typeof obj.session_key === 'string' && obj.session_key.trim()) ||
+      (typeof obj.sessionKey === 'string' && obj.sessionKey.trim()) ||
+      undefined;
     const preview =
       (typeof obj.last_message === 'string' && obj.last_message.trim()) ||
       (typeof obj.preview === 'string' && obj.preview.trim()) ||
@@ -436,6 +508,7 @@ export function mapGatewaySessions(raw: unknown): GatewaySessionRecord[] {
       undefined;
     result.push({
       id: id.trim(),
+      sessionKey,
       title: typeof obj.title === 'string' ? obj.title : undefined,
       source: typeof obj.source === 'string' ? obj.source : undefined,
       model: typeof obj.model === 'string' ? obj.model : undefined,

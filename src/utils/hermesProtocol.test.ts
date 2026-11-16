@@ -6,6 +6,7 @@ import {
   SessionChatStreamParser,
   buildGatewayUrl,
   chooseGatewayTransport,
+  classifyGatewaySessionOrigin,
   createIdempotencyKey,
   extractModelOptions,
   fetchWithConcurrentRetry,
@@ -391,4 +392,85 @@ test('Gateway payload mappers normalize skills, toolsets, jobs, sessions, messag
   assert.equal(modelOpts.activeModel, 'hermes-4');
   assert.equal(modelOpts.activeProvider, 'nous');
   assert.deepEqual(modelOpts.models, ['hermes-4', 'hermes-4-mini']);
+});
+
+test('classifyGatewaySessionOrigin separates workspace sessions from external CLI/API/Local API/Cron sessions', () => {
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'hermes-github-com-mattt-plong',
+      sessionKey: 'voxcell-github-com-mattt-plong',
+      channelId: 'github-com-mattt-plong',
+      source: 'api',
+    }),
+    'workspace'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'hermes-fill-me-in',
+      channelId: 'fill-me-in',
+      source: 'api_server',
+    }),
+    'workspace'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'custom-gw-id',
+      source: 'web',
+    }),
+    'workspace'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'local:07ee2d7b545bd3db563f9fcd83fb72482',
+      channelId: 'local-07ee2d7b545bd3db563f9fcd83fb72482',
+      source: 'api',
+    }),
+    'external'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: '20260501_142311_abcd1234',
+      channelId: '20260501_142311_abcd1234',
+      source: 'api',
+    }),
+    'external'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'hermes-cli-thread',
+      source: 'cli',
+    }),
+    'external'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'cron_watch_1',
+      source: 'cron',
+    }),
+    'external'
+  );
+
+  const gwMapped = mapGatewaySessions({
+    sessions: [
+      {
+        session_id: 'hermes-my-task',
+        session_key: 'voxcell-my-task',
+        title: 'My Task',
+        source: 'api',
+      },
+      {
+        session_id: 'local:5e52c0948b0bfd7907bf92990a4140f94',
+        title: 'Explain local Forgejo CI',
+        source: 'api',
+      },
+    ],
+  });
+  assert.equal(gwMapped[0].sessionKey, 'voxcell-my-task');
+  assert.equal(gwMapped[1].sessionKey, undefined);
 });

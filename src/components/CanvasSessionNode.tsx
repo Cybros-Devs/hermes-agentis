@@ -429,12 +429,16 @@ export function CanvasSessionNode({
               >
                 <Maximize2 className="w-3 h-3" />
               </button>
-              {canRemove && !session.isCore && (
+              {canRemove && (
                 <button
                   type="button"
                   onClick={onRemoveSession}
-                  aria-label={`Remove session #${session.name}`}
-                  title="Remove session"
+                  aria-label={`Remove session ${dotLabel.primaryLabel}`}
+                  title={
+                    session.origin === 'imported'
+                      ? 'Unpin from Canvas'
+                      : 'Remove session'
+                  }
                   className="p-1 rounded text-emerald-100/45 hover:text-rose-300 hover:bg-rose-500/12 transition-colors cursor-pointer"
                 >
                   <Trash2 className="w-3 h-3" />

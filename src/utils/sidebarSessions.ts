@@ -1,13 +1,17 @@
-import type { Channel, HermesAgentSession } from '../types/hermes';
-import type { CanvasSession } from './canvasSessions';
+import type { Channel, HermesAgentSession, HermesSessionOrigin } from '../types/hermes';
+import { createHermesSessionId, type CanvasSession } from './canvasSessions';
+import { classifyGatewaySessionOrigin } from './hermesProtocol';
 import type { ChannelTaskSummary } from './taskInsights';
 
 export type SidebarSessionBucket = 'chats' | 'runs';
 export type SidebarFilterTab = 'chats' | 'runs' | 'all';
+export type SidebarScopeTab = 'workspace' | 'external';
 
 export interface SidebarSessionEntry {
   session: CanvasSession;
   hermesSession?: HermesAgentSession;
+  origin: HermesSessionOrigin;
+  onCanvas: boolean;
   bucket: SidebarSessionBucket;
   displayTitle: string;
   tooltipTitle: string;
@@ -27,6 +31,8 @@ export interface SidebarSessionFilterResult {
   visible: SidebarSessionEntry[];
   chatsCount: number;
   runsCount: number;
+  workspaceCount: number;
+  externalCount: number;
   totalCount: number;
   crossBucketMatches: number;
 }
@@ -247,6 +253,31 @@ export function formatCompactRelativeTime(
   return `${Math.floor(months / 12)}y`;
 }
 
+function synthesizeSessionFromGateway(hs: HermesAgentSession): CanvasSession {
+  const channelId = hs.channelId || hs.sessionId;
+  return {
+    id: `gw-${channelId}`,
+    channelId,
+    hermesSessionId: hs.sessionId || createHermesSessionId(channelId),
+    agentPersona: hs.persona || 'Hermes Agent session synced from gateway.',
+    name: (hs.name || hs.topic || channelId).replace(/^#/, ''),
+    topic: hs.topic || hs.name || channelId,
+    shape: 'clover',
+    tint: 'lime',
+    xPct: 50,
+    yPct: 46,
+    mood: 'happy',
+    eyeStyle: 'open',
+    isCore: false,
+    origin: hs.origin === 'workspace' ? 'workspace' : undefined,
+    autonomyMode: 'manual',
+    scheduleLabel: 'On-demand',
+    sandboxEnv: 'cloud-sandbox',
+    workspaceDir: `~/hermes/dots/${channelId}`,
+    skills: [],
+  };
+}
+
 export function buildSidebarSessionEntries(params: {
   canvasSessions: CanvasSession[];
   hermesSessions: HermesAgentSession[];
@@ -260,10 +291,25 @@ export function buildSidebarSessionEntries(params: {
     if (hs.sessionId) hermesByKey.set(hs.sessionId, hs);
   }
 
-  // Include non-core sessions (and include daemon under Runs so background cron isn't orphaned into footer LANES)
-  const candidates = params.canvasSessions.filter((s) => s.isCore === false || s.channelId === 'daemon');
+  const candidates: Array<{ session: CanvasSession; onCanvas: boolean }> = [];
+  const seenChannelIds = new Set<string>();
+  const seenSessionIds = new Set<string>();
 
-  const indexed = candidates.map((session, originalIndex) => {
+  for (const s of params.canvasSessions) {
+    if (s.isCore !== false && s.channelId !== 'daemon') continue;
+    seenChannelIds.add(s.channelId);
+    if (s.hermesSessionId) seenSessionIds.add(s.hermesSessionId);
+    candidates.push({ session: s, onCanvas: true });
+  }
+
+  for (const hs of params.hermesSessions) {
+    if (seenChannelIds.has(hs.channelId) || seenSessionIds.has(hs.sessionId)) continue;
+    seenChannelIds.add(hs.channelId);
+    seenSessionIds.add(hs.sessionId);
+    candidates.push({ session: synthesizeSessionFromGateway(hs), onCanvas: false });
+  }
+
+  const indexed = candidates.map(({ session, onCanvas }, originalIndex) => {
     const hs = hermesByKey.get(session.channelId) ?? hermesByKey.get(session.hermesSessionId);
     const activity = params.activityByChannel[session.channelId];
     const hasActiveWork =
@@ -272,6 +318,17 @@ export function buildSidebarSessionEntries(params: {
       hs?.status === 'running' ||
       hs?.status === 'speaking';
     const runningCount = activity?.runningCount ?? 0;
+
+    const origin: HermesSessionOrigin =
+      session.origin === 'workspace' || session.origin === 'imported'
+        ? 'workspace'
+        : hs?.origin ??
+          classifyGatewaySessionOrigin({
+            sessionId: hs?.sessionId ?? session.hermesSessionId,
+            sessionKey: hs?.sessionKey,
+            channelId: session.channelId,
+            source: hs?.source,
+          });
 
     const sourceLabel = formatSourceLabel(hs?.source, session.hermesSessionId, session.channelId);
     const titleInfo = formatDisplaySessionTitle({
@@ -349,6 +406,8 @@ export function buildSidebarSessionEntries(params: {
       entry: {
         session,
         hermesSession: hs,
+        origin,
+        onCanvas,
         bucket,
         displayTitle: titleInfo.title,
         tooltipTitle: tooltipParts.join(' · '),
@@ -400,17 +459,25 @@ export function filterSidebarSessionEntries(
   opts: {
     tab: SidebarFilterTab;
     query: string;
+    originFilter?: SidebarScopeTab | 'all';
   }
 ): SidebarSessionFilterResult {
-  const chatsCount = entries.filter((e) => e.bucket === 'chats').length;
-  const runsCount = entries.length - chatsCount;
-  const effectiveTab = resolveEffectiveSidebarTab(opts.tab, entries);
+  const workspaceCount = entries.filter((e) => e.origin === 'workspace').length;
+  const externalCount = entries.length - workspaceCount;
+  const scopedEntries =
+    opts.originFilter && opts.originFilter !== 'all'
+      ? entries.filter((e) => e.origin === opts.originFilter)
+      : entries;
+
+  const chatsCount = scopedEntries.filter((e) => e.bucket === 'chats').length;
+  const runsCount = scopedEntries.length - chatsCount;
+  const effectiveTab = resolveEffectiveSidebarTab(opts.tab, scopedEntries);
   const q = opts.query.trim().toLowerCase();
 
   const matchesQuery = (entry: SidebarSessionEntry) =>
     !q || entry.searchText.includes(q);
 
-  const visible = entries.filter((entry) => {
+  const visible = scopedEntries.filter((entry) => {
     if (effectiveTab === 'chats' && entry.bucket !== 'chats') return false;
     if (effectiveTab === 'runs' && entry.bucket !== 'runs') return false;
     return matchesQuery(entry);
@@ -418,14 +485,16 @@ export function filterSidebarSessionEntries(
 
   const crossBucketMatches =
     q && effectiveTab !== 'all'
-      ? entries.filter((entry) => entry.bucket !== effectiveTab && matchesQuery(entry)).length
+      ? scopedEntries.filter((entry) => entry.bucket !== effectiveTab && matchesQuery(entry)).length
       : 0;
 
   return {
     visible,
     chatsCount,
     runsCount,
-    totalCount: entries.length,
+    workspaceCount,
+    externalCount,
+    totalCount: scopedEntries.length,
     crossBucketMatches,
   };
 }

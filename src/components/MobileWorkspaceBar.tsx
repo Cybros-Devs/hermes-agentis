@@ -15,7 +15,8 @@ import type {
   ExpressionMood,
   MouthViseme,
 } from '../types/hermes';
-import type { CanvasSession } from '../utils/canvasSessions';
+import { formatCanvasDotLabel, type CanvasSession } from '../utils/canvasSessions';
+import { formatDisplaySessionTitle } from '../utils/sidebarSessions';
 import { summarizeChannelTaskActivity } from '../utils/taskInsights';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleShapeCanvas } from './BrailleShapeCanvas';
@@ -95,6 +96,17 @@ export function MobileWorkspaceBar({
   ).length;
   const hasChannel = Boolean(activeChannel);
   const isHomeNewDraft = (panelView === 'home' && homeSessionDraft) || !hasChannel;
+  const activeCanvasSession = hasChannel
+    ? canvasSessions.find((s) => s.channelId === activeChannel)
+    : undefined;
+  const activeTitle = !hasChannel
+    ? 'new session'
+    : activeCanvasSession
+    ? formatCanvasDotLabel(activeCanvasSession, undefined, turnCount).primaryLabel
+    : formatDisplaySessionTitle({
+        channelId: activeChannel,
+        sessionId: activeSessionId,
+      }).title;
 
   const views: { id: WorkspacePanelView; label: string }[] = [
     { id: 'home', label: 'Home' },
@@ -137,7 +149,7 @@ export function MobileWorkspaceBar({
             className="flex-1 min-w-0 overflow-hidden text-left cursor-pointer"
           >
             <div className="text-[12px] font-semibold text-white leading-tight truncate">
-              {isHomeNewDraft ? 'new session' : `#${activeChannel}`}
+              {isHomeNewDraft ? 'new session' : activeTitle}
             </div>
             <div className="font-mono text-[10px] tracking-tight text-emerald-100/60 tabular-nums leading-tight mt-0.5 flex items-center gap-1 whitespace-nowrap overflow-hidden">
               {isHomeNewDraft ? (

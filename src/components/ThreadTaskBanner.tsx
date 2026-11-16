@@ -422,7 +422,7 @@ export function ThreadTaskBanner({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[12.5px] font-medium text-white/88">
-                No tasks yet in #{activeChannel}
+                {activeChannel ? `No tasks yet in #${activeChannel}` : 'No tasks yet'}
               </p>
               <p className="text-[11.5px] text-emerald-100/50 leading-relaxed mt-0.5">
                 Tool calls, live turns, and background dispatches inside{' '}

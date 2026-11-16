@@ -24,9 +24,11 @@ import {
   isDotAutonomous,
   normalizeCanvasPins,
   normalizeCanvasSessions,
+  pruneAndMigrateCanvasSessions,
   slugifySessionName,
   zoomViewportAroundPoint,
 } from './canvasSessions';
+import type { HermesAgentSession } from '../types/hermes';
 
 const TEST_CHANNELS: Channel[] = [
   {
@@ -254,3 +256,104 @@ test('canvas chats filter excludes idle opaque gateway runs and formatCanvasDotL
     }
   }
 });
+
+test('pruneAndMigrateCanvasSessions strips legacy seeds and unpinned external gateway sessions', () => {
+  const legacySeed = createSeedCanvasSessions(TEST_CHANNELS);
+  const opaqueLocal = normalizeCanvasSessions([
+    {
+      id: 'session-local-abc123def456',
+      channelId: 'local-abc123def456',
+      hermesSessionId: 'local:abc123def456',
+      name: 'local-abc123def456',
+      topic: 'Explain Forgejo CI',
+    },
+  ])[0];
+  const externalGatewayCached = normalizeCanvasSessions([
+    {
+      id: 'session-cli-run',
+      channelId: 'cli-run',
+      hermesSessionId: 'hermes-cli-run',
+      name: 'cli-run',
+      topic: 'Rename repo',
+    },
+  ])[0];
+  const pinnedExternal = normalizeCanvasSessions([
+    {
+      id: 'session-pinned-tg',
+      channelId: 'tg-deploy',
+      hermesSessionId: 'tg-deploy',
+      name: 'Telegram Deploy',
+      topic: 'Telegram Deploy',
+      origin: 'imported',
+    },
+  ])[0];
+  const userWorkspaceDot = normalizeCanvasSessions([
+    {
+      id: 'session-my-workspace',
+      channelId: 'my-workspace',
+      hermesSessionId: 'hermes-my-workspace',
+      name: 'my-workspace',
+      topic: 'Build voice onboarding',
+    },
+  ])[0];
+
+  const gatewaySessions: HermesAgentSession[] = [
+    {
+      sessionId: 'hermes-cli-run',
+      channelId: 'cli-run',
+      name: 'cli-run',
+      persona: '',
+      topic: 'Rename repo',
+      status: 'idle',
+      source: 'cli',
+      origin: 'external',
+      turnCount: 3,
+      updatedAtMs: 1_700_000_000_000,
+    },
+    {
+      sessionId: 'hermes-my-workspace',
+      channelId: 'my-workspace',
+      sessionKey: 'voxcell-my-workspace',
+      name: 'my-workspace',
+      persona: '',
+      topic: 'Build voice onboarding',
+      status: 'idle',
+      source: 'web',
+      origin: 'workspace',
+      turnCount: 2,
+      updatedAtMs: 1_700_000_010_000,
+    },
+  ];
+
+  const pruned = pruneAndMigrateCanvasSessions(
+    [...legacySeed, opaqueLocal, externalGatewayCached, pinnedExternal, userWorkspaceDot],
+    gatewaySessions,
+    { migrateLegacySeeds: true }
+  );
+
+  assert.equal(pruned.changed, true);
+  assert.deepEqual(
+    pruned.sessions.map((s) => s.channelId),
+    ['tg-deploy', 'my-workspace']
+  );
+  assert.equal(pruned.sessions[0].origin, 'imported');
+  assert.equal(pruned.sessions[1].origin, 'workspace');
+
+  const urlLabel = formatCanvasDotLabel(
+    {
+      channelId: 'repo-check',
+      hermesSessionId: 'hermes-repo-check',
+      name: 'repo-check',
+      topic: 'https://github.com/NousResearch/hermes-agent',
+    },
+    undefined,
+    2
+  );
+  assert.equal(urlLabel.primaryLabel.startsWith('#'), false);
+  assert.equal(urlLabel.primaryLabel, 'github.com/NousResearc…');
+
+  const slugLabel = formatCanvasDotLabel(userWorkspaceDot, gatewaySessions[1], 2);
+  assert.equal(slugLabel.primaryLabel, 'Build voice onboarding');
+  assert.equal(slugLabel.promptTarget.startsWith('#'), false);
+});
+

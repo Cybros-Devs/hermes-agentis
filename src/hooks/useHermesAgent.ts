@@ -82,9 +82,11 @@ interface HermesChannelPayload {
   name: string;
   slug?: string;
   session_id: string;
+  session_key?: string;
   topic?: string | null;
   instructions?: string | null;
   persona?: string | null;
+  origin?: 'workspace' | 'external';
   archived?: boolean;
   last_at?: number | null;
 }
@@ -273,8 +275,10 @@ function mapChannel(ch: HermesChannelPayload & { sessionId?: string }): Channel 
     id,
     name: ch.name || id,
     sessionId: ch.session_id || ch.sessionId || `hermes-${id}`,
+    sessionKey: ch.session_key,
     description: ch.topic ?? '',
     persona: ch.persona ?? ch.instructions ?? undefined,
+    origin: ch.origin,
     unreadCount: 0,
   };
 }
@@ -626,6 +630,13 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
         setChannels((prev) => {
           const next = prev.filter((c) => c.id !== mapped.id);
           next.push(mapped);
+          return next;
+        });
+      }
+      if (data.session) {
+        setSessions((prev) => {
+          const next = prev.filter((s) => s.channelId !== data.session!.channelId);
+          next.push(data.session!);
           return next;
         });
       }
