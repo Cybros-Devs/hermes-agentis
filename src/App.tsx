@@ -1758,6 +1758,17 @@ export default function App() {
               frequencyBands={voice.voiceState.frequencyBands}
               isSpeaking={voice.voiceState.isSpeaking}
               isListening={voice.voiceState.isListening}
+              inputLevel={voice.voiceState.inputLevel}
+              outputLevel={voice.voiceState.outputLevel}
+              onCycleMood={handleCycleMood}
+              portraitDotProfile={uiConfig.brailleDotProfile}
+              portraitBloom={uiConfig.brailleBloom}
+              animationSpeed={uiConfig.animationSpeed}
+              reducedMotion={uiConfig.reducedMotion}
+              portraitTintHex={
+                uiConfig.portraitTintHex ??
+                (uiConfig.accentPreset === 'emerald' ? null : uiConfig.accentSoftHex)
+              }
               selectedItemId={selectedItemId}
               onSelectApproval={(card) => {
                 setSelectedItemId(card.id);

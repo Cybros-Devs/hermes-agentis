@@ -11,12 +11,21 @@ import type {
   HermesGatewayStatus,
 } from '../types/hermes';
 import type { CanvasSession } from '../utils/canvasSessions';
+import type { LookTarget } from '../utils/asciiPortraitEngine';
+import type { BrailleDotProfile } from '../utils/brailleCanvasRaster';
+import {
+  computeSidebarPointerLookTarget,
+  deriveSidebarCharacterState,
+} from '../utils/sidebarCharacterState';
 import {
   buildSidebarSessionEntries,
   filterSidebarSessionEntries,
   type SidebarScopeTab,
 } from '../utils/sidebarSessions';
-import { summarizeChannelTaskActivity } from '../utils/taskInsights';
+import {
+  formatElapsedDuration,
+  summarizeChannelTaskActivity,
+} from '../utils/taskInsights';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { StaggerItem, StatusPulse, getStaggerVars } from './ui';
 
@@ -37,6 +46,14 @@ interface SidebarWorkspaceProps {
   frequencyBands: number[];
   isSpeaking: boolean;
   isListening: boolean;
+  inputLevel?: number;
+  outputLevel?: number;
+  onCycleMood?: () => void;
+  portraitDotProfile?: BrailleDotProfile;
+  portraitBloom?: number;
+  animationSpeed?: number;
+  reducedMotion?: boolean;
+  portraitTintHex?: string | null;
   selectedItemId: string | null;
   onSelectApproval: (card: ApprovalCard) => void;
   onSelectBrief: (item: BriefDecision) => void;
@@ -68,6 +85,14 @@ export function SidebarWorkspace({
   frequencyBands,
   isSpeaking,
   isListening,
+  inputLevel = 0,
+  outputLevel = 0,
+  onCycleMood,
+  portraitDotProfile = 'balanced',
+  portraitBloom = 0.75,
+  animationSpeed = 1,
+  reducedMotion = false,
+  portraitTintHex = null,
   selectedItemId,
   onSelectApproval,
   onSelectBrief,
@@ -78,20 +103,73 @@ export function SidebarWorkspace({
   gatewayStatus,
   homeSessionDraft = false,
   queueVisible = true,
-  channelsVisible = true,
 }: SidebarWorkspaceProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const openBrief = brief.filter((b) => !b.resolved).slice(0, 2);
   const activeChannelBtnRef = useRef<HTMLButtonElement | null>(null);
+  const characterCardRef = useRef<HTMLDivElement | null>(null);
+  const lookTargetRef = useRef<LookTarget | null>(null);
 
   const [scopeTab, setScopeTab] = useState<SidebarScopeTab>('workspace');
   const [searchQuery, setSearchQuery] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [speakTick, setSpeakTick] = useState(0);
 
   useEffect(() => {
-    const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    if (!isSpeaking) return;
+    const id = window.setInterval(() => {
+      setSpeakTick((t) => (t + 1) % 10000);
+    }, 42);
     return () => window.clearInterval(id);
-  }, []);
+  }, [isSpeaking]);
+
+  const charState = useMemo(
+    () =>
+      deriveSidebarCharacterState({
+        tasks,
+        approvals,
+        thinkingByChannel,
+        hermesSessions,
+        activeChannel,
+        homeSessionDraft,
+        baseMood: mood,
+        isSpeaking,
+        isListening,
+        inputLevel,
+        outputLevel,
+        frequencyBands,
+        tick: speakTick,
+        gatewayStatus,
+        lastSpokenLine,
+      }),
+    [
+      tasks,
+      approvals,
+      thinkingByChannel,
+      hermesSessions,
+      activeChannel,
+      homeSessionDraft,
+      mood,
+      isSpeaking,
+      isListening,
+      inputLevel,
+      outputLevel,
+      frequencyBands,
+      speakTick,
+      gatewayStatus,
+      lastSpokenLine,
+    ]
+  );
+
+  const hasActiveClock = Boolean(charState.activeTask?.createdAtMs);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const id = window.setInterval(
+      () => setNowMs(Date.now()),
+      hasActiveClock ? 1000 : 60_000
+    );
+    return () => window.clearInterval(id);
+  }, [hasActiveClock]);
 
   const activityByChannel = useMemo(
     () => summarizeChannelTaskActivity(tasks, channels, thinkingByChannel),
@@ -136,20 +214,62 @@ export function SidebarWorkspace({
     [sidebarEntries, effectiveScopeTab, searchQuery]
   );
 
-  const activeChannelActivity = activityByChannel[activeChannel];
-  const isGatewayConnected = Boolean(gatewayStatus?.connected);
-  const gatewaySubline = gatewayStatus
-    ? isGatewayConnected
-      ? `${gatewayStatus.activeModel || 'hermes-agent'} · ${gatewayStatus.profile || 'default'}`
-      : 'Gateway offline · Open Ops'
-    : lastSpokenLine;
-
   useEffect(() => {
     activeChannelBtnRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [activeChannel, channels.length]);
 
   const showScopeTabs = externalCount > 0;
   const showSearchBar = scopedCount >= 5 || searchQuery.trim().length > 0;
+
+  const handleCardPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = characterCardRef.current ?? e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    lookTargetRef.current = computeSidebarPointerLookTarget(
+      rect,
+      e.clientX,
+      e.clientY,
+      46
+    );
+  };
+
+  const handleCardPointerLeave = () => {
+    lookTargetRef.current = null;
+  };
+
+  const cardSurfaceClass =
+    charState.mode === 'speaking' || charState.mode === 'listening'
+      ? 'border-[#34D399]/40 bg-[#34D399]/[0.055]'
+      : charState.mode === 'working'
+      ? 'border-amber-400/35 bg-amber-500/[0.05]'
+      : charState.mode === 'attention'
+      ? 'border-amber-300/40 bg-amber-400/[0.05]'
+      : charState.mode === 'offline'
+      ? 'border-rose-400/30 bg-rose-500/[0.035]'
+      : 'border-white/10 bg-white/[0.03] hover:border-[#34D399]/30';
+
+  const statusToneClass =
+    charState.tone === 'amber'
+      ? 'text-amber-300'
+      : charState.tone === 'rose'
+      ? 'text-rose-300/90'
+      : 'text-[#6EE7B7]';
+
+  const avatarHaloClass =
+    charState.mode === 'speaking' || charState.mode === 'listening' || charState.mode === 'working'
+      ? 'ui-halo-pulse opacity-100'
+      : charState.mode === 'offline'
+      ? 'opacity-45'
+      : 'ui-halo-idle opacity-85';
+
+  const avatarHaloGradient =
+    charState.tone === 'amber'
+      ? 'radial-gradient(circle at 50% 48%, rgba(245, 158, 11, 0.28) 0%, rgba(245, 158, 11, 0.08) 54%, transparent 78%)'
+      : charState.tone === 'rose'
+      ? 'radial-gradient(circle at 50% 48%, rgba(244, 63, 94, 0.20) 0%, rgba(244, 63, 94, 0.05) 54%, transparent 78%)'
+      : 'radial-gradient(circle at 50% 48%, rgba(var(--ui-accent-rgb), 0.24) 0%, rgba(var(--ui-accent-rgb), 0.06) 54%, transparent 78%)';
+
+  const effectivePortraitTint =
+    portraitTintHex ?? (charState.mode === 'offline' ? '#94A3B8' : null);
 
   return (
     <aside
@@ -188,54 +308,161 @@ export function SidebarWorkspace({
         </button>
       </div>
 
-      {/* Agent & Gateway Status Card (opens Operations / Queue) */}
+      {/* Reactive Agent Companion & Task Status Card */}
       <div className="px-3">
-        <button
-          type="button"
-          onClick={onOpenQueue}
-          title="Open Hermes Agent Operations"
-          className="ui-tactile w-full text-left rounded-xl border border-white/10 bg-white/[0.03] hover:border-[#34D399]/40 hover:bg-white/[0.045] p-2.5 flex items-center gap-3 transition-colors cursor-pointer"
+        <div
+          ref={characterCardRef}
+          data-testid="sidebar-character-card"
+          data-character-mode={charState.mode}
+          data-running-tasks={String(charState.runningTaskCount)}
+          onPointerMove={handleCardPointerMove}
+          onPointerLeave={handleCardPointerLeave}
+          className={`rounded-xl border p-2.5 transition-colors duration-200 overflow-hidden ${cardSurfaceClass}`}
         >
-          <AsciiPortraitCanvas
-            variant="thumb"
-            mood={mood}
-            viseme="closed"
-            eyeState="open"
-            energy={0.1}
-            isSpeaking={false}
-            isListening={false}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[13px] font-semibold text-white shrink-0">Hermes Agent</span>
-              <span
-                data-testid="sidebar-active-lane"
-                className={`inline-flex items-center gap-1.5 font-mono text-[10.5px] tabular-nums truncate min-w-0 text-right ${
-                  !homeSessionDraft && activeChannelActivity?.hasActiveTask
-                    ? 'text-amber-300'
-                    : gatewayStatus && !isGatewayConnected
-                    ? 'text-rose-300/90'
-                    : 'text-[#6EE7B7]'
-                }`}
-              >
-                {!homeSessionDraft && activeChannelActivity?.hasActiveTask ? (
-                  <>
-                    <StatusPulse state="thinking" size="sm" />
-                    <span className="truncate">working</span>
-                  </>
-                ) : gatewayStatus ? (
-                  <>
-                    <StatusPulse state={isGatewayConnected ? 'live' : 'error'} size="sm" />
-                    <span>{isGatewayConnected ? 'online' : 'offline'}</span>
-                  </>
-                ) : (
-                  <span>{homeSessionDraft || !activeChannel ? 'new session' : `#${activeChannel}`}</span>
-                )}
-              </span>
+          <div className="flex items-center gap-2">
+            <div className="relative rounded-lg shrink-0">
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none absolute -inset-2.5 rounded-full ${avatarHaloClass}`}
+                style={{ background: avatarHaloGradient }}
+              />
+              <div className={`relative z-10 transition-opacity duration-200 ${charState.mode === 'offline' ? 'opacity-75' : 'opacity-100'}`}>
+                <AsciiPortraitCanvas
+                  variant="sidebar"
+                  mood={charState.mood}
+                  viseme={charState.viseme}
+                  eyeState={charState.eyeState}
+                  energy={charState.energy}
+                  isSpeaking={isSpeaking}
+                  isListening={isListening}
+                  lookTargetRef={lookTargetRef}
+                  tintHex={effectivePortraitTint}
+                  dotProfile={portraitDotProfile}
+                  bloom={portraitBloom}
+                  speedScale={animationSpeed}
+                  reducedMotionOverride={reducedMotion}
+                  onClick={onCycleMood}
+                />
+              </div>
             </div>
-            <p className="text-[11.5px] text-emerald-100/55 truncate mt-0.5">{gatewaySubline}</p>
+
+            <button
+              type="button"
+              onClick={onOpenQueue}
+              title="Open Hermes Agent Operations"
+              className="ui-tactile min-w-0 flex-1 text-left rounded-lg pl-0.5 pr-1 py-1 hover:bg-white/[0.04] transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between gap-1.5 min-w-0">
+                <span className="text-[12.5px] font-semibold text-white truncate min-w-0">
+                  Hermes Agent
+                </span>
+                <span
+                  data-testid="sidebar-active-lane"
+                  className={`inline-flex items-center gap-1 font-mono text-[10px] tabular-nums whitespace-nowrap shrink-0 ${statusToneClass}`}
+                >
+                  <StatusPulse state={charState.pulseState} size="sm" />
+                  <span>{charState.statusLabel}</span>
+                </span>
+              </div>
+
+              <p className="text-[11px] text-emerald-100/72 truncate mt-0.5">
+                {charState.gatewayLine}
+              </p>
+
+              <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
+                {isSpeaking || isListening ? (
+                  <>
+                    <span className="font-mono text-[10px] text-[#6EE7B7]/90 truncate">
+                      {isListening ? 'mic active' : 'voice live'}
+                      {charState.runningTaskCount > 0 ? ` · ${charState.runningTaskCount} active` : ''}
+                    </span>
+                    <span className="flex items-end gap-0.5 h-2.5 shrink-0" aria-hidden="true">
+                      {frequencyBands.slice(0, 6).map((band, idx) => (
+                        <span
+                          key={idx}
+                          className="w-0.5 h-full origin-bottom rounded-[1px] bg-[#4ADE80] transition-transform duration-75"
+                          style={{ transform: `scaleY(${Math.max(0.24, Math.min(1, band))})` }}
+                        />
+                      ))}
+                    </span>
+                  </>
+                ) : charState.mode === 'working' && charState.activeTask ? (
+                  <span className="font-mono text-[10px] text-amber-200/85 tabular-nums truncate">
+                    {charState.activeTask.createdAtMs
+                      ? `${formatElapsedDuration(charState.activeTask.createdAtMs, nowMs)} elapsed`
+                      : 'active execution'}
+                    {charState.runningTaskCount > 1
+                      ? ` · ${charState.runningTaskCount} active`
+                      : ''}
+                  </span>
+                ) : (
+                  <span className="font-mono text-[10px] text-emerald-100/62 truncate">
+                    {`mood · ${charState.mood}`}
+                  </span>
+                )}
+              </div>
+            </button>
           </div>
-        </button>
+
+          {charState.activeTask ? (
+            <button
+              type="button"
+              data-testid="sidebar-active-task-strip"
+              onClick={() => onSelectChannel(charState.activeTask!.channelId)}
+              title={`Open ${charState.activeTask.title}`}
+              className="ui-tactile w-full text-left mt-2 rounded-lg border border-amber-400/18 bg-amber-500/[0.06] px-2.5 py-2 hover:border-amber-400/32 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11.5px] font-medium text-white/95 truncate">
+                  {charState.activeTask.title}
+                </span>
+                <span className="font-mono text-[10px] text-amber-300 tabular-nums shrink-0">
+                  {charState.activeTask.ratioLabel}
+                </span>
+              </div>
+              <p className="font-mono text-[10px] text-amber-200/82 truncate mt-0.5">
+                {charState.activeTask.stepText}
+              </p>
+              <div
+                aria-hidden="true"
+                className="mt-1.5 h-[2.5px] w-full rounded-full bg-white/[0.08] overflow-hidden"
+              >
+                {charState.activeTask.isIndeterminate ? (
+                  <span className="block h-full w-full rounded-full bg-amber-400/90 ui-progress-indeterminate" />
+                ) : (
+                  <span
+                    className="block h-full w-full origin-left rounded-full bg-amber-400/90 ui-progress-fill"
+                    style={{
+                      transform: `scaleX(${Math.max(
+                        0.06,
+                        Math.min(1, charState.activeTask.progressPct / 100)
+                      )})`,
+                    }}
+                  />
+                )}
+              </div>
+            </button>
+          ) : (
+            charState.topApproval && (
+              <button
+                type="button"
+                data-testid="sidebar-approval-strip"
+                onClick={onOpenQueue}
+                title={`Review ${charState.topApproval.title}`}
+                className="ui-tactile w-full text-left mt-2 rounded-lg border border-amber-400/22 bg-amber-400/[0.06] px-2.5 py-1.5 hover:border-amber-400/38 transition-colors cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-2 font-mono text-[10px] text-amber-200/90 tabular-nums">
+                  <span className="truncate">
+                    {queueVisible
+                      ? `Review in Queue · #${charState.topApproval.channelId}`
+                      : charState.topApproval.title}
+                  </span>
+                  <span className="text-amber-300 shrink-0">Open →</span>
+                </div>
+              </button>
+            )
+          )}
+        </div>
       </div>
 
       {/* Needs Attention (Pinned above sessions so approval gates are never buried) */}
@@ -538,24 +765,6 @@ export function SidebarWorkspace({
           </>
         )}
       </div>
-
-      {/* Minimal Live Voice Band Footer (only when audio active) */}
-      {channelsVisible && (isSpeaking || isListening) && (
-        <div className="py-2.5 px-3.5 border-t border-white/[0.07] flex items-center justify-between gap-2 font-mono text-[10.5px]">
-          <span className="text-[#6EE7B7] truncate">
-            {isListening ? 'Listening…' : 'Voice active'}
-          </span>
-          <div className="flex items-end gap-0.5 h-3 shrink-0" aria-hidden="true">
-            {frequencyBands.slice(0, 5).map((band, idx) => (
-              <span
-                key={idx}
-                className="w-0.5 h-full origin-bottom rounded-[1px] bg-[#4ADE80] transition-transform duration-75"
-                style={{ transform: `scaleY(${Math.max(0.25, Math.min(1, band))})` }}
-              />
-            ))}
-          </div>
-        </div>
-      )}
     </aside>
   );
 }

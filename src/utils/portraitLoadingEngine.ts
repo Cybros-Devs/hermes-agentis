@@ -6,7 +6,7 @@ export interface PortraitLoadingParams {
   cols: number;
   rows: number;
   time: number;
-  variant?: 'hero' | 'thumb' | 'stage';
+  variant?: 'hero' | 'thumb' | 'sidebar' | 'stage';
   status?: 'loading' | 'error';
   reducedMotion?: boolean;
 }
@@ -72,7 +72,7 @@ export function renderPortraitLoadingFrame(params: PortraitLoadingParams): Portr
   const subH = rows * 4;
   const aspect = (cols * 0.53) / Math.max(1, rows);
   const t = reducedMotion ? 0.35 : time;
-  const isThumb = variant === 'thumb';
+  const isThumb = variant === 'thumb' || variant === 'sidebar';
   const isError = status === 'error';
 
   const scanY = -0.84 + ((t * 0.68) % 1.68);
