@@ -266,7 +266,7 @@ export function UiCustomizerStudio({
       maxWidthClass="w-[min(780px,96vw)]"
     >
       {/* Modal Header */}
-      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 shrink-0">
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/10 shrink-0">
         <div>
           <h2 className="text-[15px] font-semibold text-white tracking-tight flex items-center gap-2">
             <Settings className="w-4 h-4 text-[#6EE7B7]" />
@@ -288,7 +288,7 @@ export function UiCustomizerStudio({
       </div>
 
       {/* Natural-Language UI Update Prompt inside Settings */}
-      <div className="px-5 py-3 border-b border-white/8 bg-white/[0.02] space-y-2 shrink-0">
+      <div className="px-5 py-2.5 border-b border-white/8 bg-white/[0.02] space-y-1.5 shrink-0">
         <form onSubmit={submitAgentPrompt} className="flex items-center gap-2">
           <label htmlFor="ui-studio-agent-prompt" className="sr-only">
             Ask Hermes to update the interface
@@ -340,7 +340,7 @@ export function UiCustomizerStudio({
         </div>
 
         {/* Scrollable Settings Controls */}
-        <div key={activeTab} className="ui-card-enter flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 sm:px-5 sm:py-4 pb-6 space-y-4">
+        <div key={activeTab} className="ui-card-enter flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 sm:px-5 sm:py-3.5 pb-5 space-y-3.5">
             {activeTab === 'theme' && (
               <>
                 <div className="space-y-2">
@@ -423,12 +423,12 @@ export function UiCustomizerStudio({
                       aria-label="Custom accent hex color"
                       value={config.accentHex}
                       onChange={(e) => onApplyPatch({ accentHex: e.target.value }, 'studio')}
-                      className="w-3.5 h-3.5 rounded border-0 bg-transparent cursor-pointer p-0"
+                      className="w-3.5 h-3.5 appearance-none rounded border border-white/25 bg-transparent cursor-pointer p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-[3px]"
                     />
                   </label>
                 </div>
 
-                <label className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.025] px-3 py-1.5 text-xs cursor-pointer">
+                <label className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.025] px-3 py-1.5 text-xs cursor-pointer hover:border-white/20 transition-colors">
                   <span>Panel surface tint</span>
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[11px] text-emerald-100/60">
@@ -439,13 +439,13 @@ export function UiCustomizerStudio({
                       aria-label="Panel surface tint hex color"
                       value={config.surfaceHex}
                       onChange={(e) => onApplyPatch({ surfaceHex: e.target.value }, 'studio')}
-                      className="w-5 h-5 rounded border-0 bg-transparent cursor-pointer p-0"
+                      className="w-4 h-4 appearance-none rounded border border-white/25 bg-transparent cursor-pointer p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-[3px]"
                     />
                   </div>
                 </label>
               </div>
 
-              <div className="space-y-2.5 pt-2.5 border-t border-white/8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 pt-2.5 border-t border-white/8">
                 <SliderRow
                   label="Panel glass opacity"
                   valueLabel={`${Math.round(config.panelAlpha * 100)}%`}
@@ -465,15 +465,17 @@ export function UiCustomizerStudio({
                   value={config.borderOpacity}
                   onChange={(val) => onApplyPatch({ borderOpacity: val }, 'studio')}
                 />
-                <SliderRow
-                  label="Stage glow intensity"
-                  valueLabel={`${Math.round(config.glowIntensity * 100)}%`}
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={config.glowIntensity}
-                  onChange={(val) => onApplyPatch({ glowIntensity: val }, 'studio')}
-                />
+                <div className="sm:col-span-2">
+                  <SliderRow
+                    label="Stage glow intensity"
+                    valueLabel={`${Math.round(config.glowIntensity * 100)}%`}
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={config.glowIntensity}
+                    onChange={(val) => onApplyPatch({ glowIntensity: val }, 'studio')}
+                  />
+                </div>
               </div>
             </>
           )}

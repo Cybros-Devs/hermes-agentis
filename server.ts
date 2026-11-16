@@ -126,6 +126,8 @@ interface HermesChannel {
   persona?: string | null;
   source?: string | null;
   model?: string | null;
+  message_count?: number | null;
+  last_message?: string | null;
   archived?: boolean;
   last_at?: number | null;
 }
@@ -166,6 +168,8 @@ function upsertLocalChannel(opts: {
   persona?: string | null;
   source?: string | null;
   model?: string | null;
+  messageCount?: number | null;
+  lastMessage?: string | null;
   lastAt?: number | null;
 }): HermesChannel {
   const existingBySid = channels.find((c) => c.session_id === opts.sessionId);
@@ -186,6 +190,8 @@ function upsertLocalChannel(opts: {
       persona: opts.persona ?? null,
       source: opts.source ?? null,
       model: opts.model ?? null,
+      message_count: opts.messageCount ?? null,
+      last_message: opts.lastMessage ?? null,
       last_at: opts.lastAt ?? Date.now(),
     };
     channels.push(existing);
@@ -200,6 +206,12 @@ function upsertLocalChannel(opts: {
     if (opts.persona !== undefined && opts.persona !== null) existing.persona = opts.persona;
     if (opts.source !== undefined) existing.source = opts.source;
     if (opts.model !== undefined) existing.model = opts.model;
+    if (opts.messageCount !== undefined && opts.messageCount !== null) {
+      existing.message_count = opts.messageCount;
+    }
+    if (opts.lastMessage !== undefined && opts.lastMessage !== null) {
+      existing.last_message = opts.lastMessage;
+    }
     if (opts.lastAt) existing.last_at = Math.max(existing.last_at ?? 0, opts.lastAt);
   }
   return existing;
@@ -207,7 +219,13 @@ function upsertLocalChannel(opts: {
 
 function buildSessionSnapshot(ch: HermesChannel) {
   const chItems = items.filter((it) => (it.channel_id || ch.id) === ch.id);
-  const turnCount = chItems.filter((it) => it.kind === "user").length;
+  const localTurns = chItems.filter((it) => it.kind === "user").length;
+  const turnCount =
+    localTurns > 0
+      ? localTurns
+      : typeof ch.message_count === "number" && ch.message_count > 0
+      ? Math.max(1, Math.ceil(ch.message_count / 2))
+      : 0;
   const lastMsg = [...chItems]
     .reverse()
     .find((it) => (it.kind === "assistant" || it.kind === "user") && it.text?.trim());
@@ -229,7 +247,7 @@ function buildSessionSnapshot(ch: HermesChannel) {
     topic: ch.topic || ch.name,
     status,
     turnCount,
-    lastMessage: lastMsg?.text?.trim() || ch.topic || "",
+    lastMessage: lastMsg?.text?.trim() || ch.last_message || ch.topic || "",
     updatedAtMs: latestTimestamp,
     source: ch.source ?? undefined,
     model: ch.model ?? undefined,
@@ -442,7 +460,7 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
 async function syncSessionsFromGateway(): Promise<void> {
   try {
     const res = await fetchHermesGateway(
-      "/api/sessions?limit=50&include_children=false",
+      "/api/sessions?limit=100&include_children=false",
       { method: "GET" },
       2200
     );
@@ -458,6 +476,8 @@ async function syncSessionsFromGateway(): Promise<void> {
         topic: s.title || s.id,
         source: s.source ?? null,
         model: s.model ?? null,
+        messageCount: s.messageCount ?? null,
+        lastMessage: s.lastMessage ?? null,
         lastAt: s.updatedAtMs ?? s.createdAtMs ?? null,
       });
     }

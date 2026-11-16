@@ -436,13 +436,27 @@ export default function App() {
   useEffect(() => {
     if (hermes.channels.length === 0) return;
     setCanvasSessions((prev) => {
-      const existingIds = new Set(prev.map((s) => s.channelId));
+      const chById = new Map(hermes.channels.map((c) => [c.id, c]));
+      let changed = false;
+      const updated = prev.map((cs) => {
+        const ch = chById.get(cs.channelId);
+        if (!ch) return cs;
+        const nextName = ch.name || cs.name;
+        const nextTopic = ch.description || cs.topic;
+        const nextSid = ch.sessionId || cs.hermesSessionId;
+        if (nextName !== cs.name || nextTopic !== cs.topic || nextSid !== cs.hermesSessionId) {
+          changed = true;
+          return { ...cs, name: nextName, topic: nextTopic, hermesSessionId: nextSid };
+        }
+        return cs;
+      });
+      const existingIds = new Set(updated.map((s) => s.channelId));
       const additions: CanvasSession[] = [];
       for (const ch of hermes.channels) {
         if (existingIds.has(ch.id)) continue;
         existingIds.add(ch.id);
-        const visual = pickNextShapeAndTint([...prev, ...additions]);
-        const spot = findOpenCanvasSpot([...prev, ...additions]);
+        const visual = pickNextShapeAndTint([...updated, ...additions]);
+        const spot = findOpenCanvasSpot([...updated, ...additions]);
         additions.push({
           id: `session-${ch.id}`,
           channelId: ch.id,
@@ -464,7 +478,8 @@ export default function App() {
           skills: [],
         });
       }
-      return additions.length > 0 ? [...prev, ...additions] : prev;
+      if (additions.length > 0) return [...updated, ...additions];
+      return changed ? updated : prev;
     });
   }, [hermes.channels]);
 
@@ -1596,6 +1611,7 @@ export default function App() {
                 setMobileSidebarOpen(false);
               }}
               canvasSessions={canvasSessions}
+              hermesSessions={hermes.sessions}
               thinkingByChannel={thinkingByChannel}
               onSelectSession={(session) => {
                 setSelectedItemId(session.id);

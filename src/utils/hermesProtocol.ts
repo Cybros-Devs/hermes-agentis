@@ -390,6 +390,7 @@ export interface GatewaySessionRecord {
   model?: string;
   parentSessionId?: string;
   messageCount?: number;
+  lastMessage?: string;
   createdAtMs?: number;
   updatedAtMs?: number;
 }
@@ -428,6 +429,11 @@ export function mapGatewaySessions(raw: unknown): GatewaySessionRecord[] {
       (typeof obj.id === 'string' && obj.id) ||
       '';
     if (!id.trim()) continue;
+    const preview =
+      (typeof obj.last_message === 'string' && obj.last_message.trim()) ||
+      (typeof obj.preview === 'string' && obj.preview.trim()) ||
+      (typeof obj.first_prompt === 'string' && obj.first_prompt.trim()) ||
+      undefined;
     result.push({
       id: id.trim(),
       title: typeof obj.title === 'string' ? obj.title : undefined,
@@ -437,6 +443,7 @@ export function mapGatewaySessions(raw: unknown): GatewaySessionRecord[] {
         typeof obj.parent_session_id === 'string' ? obj.parent_session_id : undefined,
       messageCount:
         typeof obj.message_count === 'number' ? obj.message_count : undefined,
+      lastMessage: preview,
       createdAtMs: toEpochMs(obj.created_at ?? obj.started_at),
       updatedAtMs: toEpochMs(obj.updated_at ?? obj.last_active_at ?? obj.created_at),
     });

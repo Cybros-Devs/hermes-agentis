@@ -591,109 +591,113 @@ export function BrailleSessionsCanvas({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* Status Filter Segment (md+) */}
-          <div className="hidden lg:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
-            {(
-              [
-                { id: 'all', label: 'All' },
-                { id: 'autonomous', label: 'Auto' },
-                { id: 'live', label: 'Live' },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setFilterMode(opt.id)}
-                className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                  filterMode === opt.id
-                    ? 'bg-[#34D399]/18 text-[#6EE7B7]'
-                    : 'text-emerald-100/60 hover:text-white'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          {sessions.length > 0 && (
+            <>
+              {/* Status Filter Segment (md+) */}
+              <div className="hidden lg:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                {(
+                  [
+                    { id: 'all', label: 'All' },
+                    { id: 'autonomous', label: 'Auto' },
+                    { id: 'live', label: 'Live' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setFilterMode(opt.id)}
+                    className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                      filterMode === opt.id
+                        ? 'bg-[#34D399]/18 text-[#6EE7B7]'
+                        : 'text-emerald-100/60 hover:text-white'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
 
-          {/* Formation Switcher (Constellation | Orbit | Grid) */}
-          <div className="hidden md:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
-            {(
-              [
-                { id: 'constellation', label: 'Constellation', icon: Sparkles },
-                { id: 'orbit', label: 'Orbit', icon: Orbit },
-                { id: 'grid', label: 'Grid', icon: LayoutGrid },
-              ] as const
-            ).map((fmt) => {
-              const Icon = fmt.icon;
-              const active = activeFormation === fmt.id;
-              return (
+              {/* Formation Switcher (Constellation | Orbit | Grid) */}
+              <div className="hidden md:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                {(
+                  [
+                    { id: 'constellation', label: 'Constellation', icon: Sparkles },
+                    { id: 'orbit', label: 'Orbit', icon: Orbit },
+                    { id: 'grid', label: 'Grid', icon: LayoutGrid },
+                  ] as const
+                ).map((fmt) => {
+                  const Icon = fmt.icon;
+                  const active = activeFormation === fmt.id;
+                  return (
+                    <button
+                      key={fmt.id}
+                      type="button"
+                      data-testid={`canvas-arrange-${fmt.id}`}
+                      onClick={() => {
+                        setActiveFormation(fmt.id);
+                        onArrangeFormation(fmt.id);
+                      }}
+                      aria-label={`Arrange dots in ${fmt.label} formation`}
+                      className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                        active
+                          ? 'bg-white/12 text-white'
+                          : 'text-emerald-100/60 hover:text-white'
+                      }`}
+                    >
+                      <Icon className="w-3 h-3" />
+                      <span>{fmt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Mobile/Compact Arrange Button */}
+              <button
+                type="button"
+                onClick={() => onArrangeFormation(activeFormation)}
+                aria-label="Auto arrange sessions on canvas"
+                className="md:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Pan & Zoom Controls (sm+) */}
+              <div className="hidden sm:flex items-center rounded-lg border border-white/10 bg-white/[0.03] px-1 py-0.5 gap-0.5 shrink-0">
                 <button
-                  key={fmt.id}
                   type="button"
-                  data-testid={`canvas-arrange-${fmt.id}`}
-                  onClick={() => {
-                    setActiveFormation(fmt.id);
-                    onArrangeFormation(fmt.id);
-                  }}
-                  aria-label={`Arrange dots in ${fmt.label} formation`}
-                  className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                    active
-                      ? 'bg-white/12 text-white'
-                      : 'text-emerald-100/60 hover:text-white'
+                  onClick={() => handleStepZoom(-CANVAS_ZOOM_BOUNDS.step)}
+                  aria-label="Zoom out canvas"
+                  title="Zoom out"
+                  className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="canvas-zoom-reset"
+                  onClick={() => setViewport(DEFAULT_CANVAS_VIEWPORT)}
+                  aria-label="Reset canvas pan and zoom"
+                  title="Reset view to 100%"
+                  className={`px-1.5 py-0.5 rounded font-mono text-[10.5px] tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    isViewportModified
+                      ? 'text-[#6EE7B7] hover:bg-white/8'
+                      : 'text-emerald-100/65 hover:text-white'
                   }`}
                 >
-                  <Icon className="w-3 h-3" />
-                  <span>{fmt.label}</span>
+                  {Math.round(viewport.zoom * 100)}%
                 </button>
-              );
-            })}
-          </div>
-
-          {/* Mobile/Compact Arrange Button */}
-          <button
-            type="button"
-            onClick={() => onArrangeFormation(activeFormation)}
-            aria-label="Auto arrange sessions on canvas"
-            className="md:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Pan & Zoom Controls (sm+) */}
-          <div className="hidden sm:flex items-center rounded-lg border border-white/10 bg-white/[0.03] px-1 py-0.5 gap-0.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => handleStepZoom(-CANVAS_ZOOM_BOUNDS.step)}
-              aria-label="Zoom out canvas"
-              title="Zoom out"
-              className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              data-testid="canvas-zoom-reset"
-              onClick={() => setViewport(DEFAULT_CANVAS_VIEWPORT)}
-              aria-label="Reset canvas pan and zoom"
-              title="Reset view to 100%"
-              className={`px-1.5 py-0.5 rounded font-mono text-[10.5px] tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                isViewportModified
-                  ? 'text-[#6EE7B7] hover:bg-white/8'
-                  : 'text-emerald-100/65 hover:text-white'
-              }`}
-            >
-              {Math.round(viewport.zoom * 100)}%
-            </button>
-            <button
-              type="button"
-              onClick={() => handleStepZoom(CANVAS_ZOOM_BOUNDS.step)}
-              aria-label="Zoom in canvas"
-              title="Zoom in"
-              className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => handleStepZoom(CANVAS_ZOOM_BOUNDS.step)}
+                  aria-label="Zoom in canvas"
+                  title="Zoom in"
+                  className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </>
+          )}
 
           {/* Drop Workspace Pin (sm+) */}
           <button

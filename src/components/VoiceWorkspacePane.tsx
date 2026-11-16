@@ -1071,39 +1071,50 @@ export function VoiceWorkspacePane({
 
           {uiConfig.statusReadoutVisible && (
             <>
-              <div className="relative z-10 flex items-center gap-2 mt-2.5 text-xs text-emerald-100/70">
-                <StatusPulse state={statusPulseState} />
-                <span>{statusText}</span>
-                <span aria-hidden="true" className="text-emerald-100/30">·</span>
-                <span
-                  data-testid="home-session-badge"
-                  className="font-mono text-[11px] text-[#6EE7B7]/85"
+              {gatewayStatus && !gatewayStatus.connected ? (
+                <div
+                  data-testid="gateway-offline-banner"
+                  className="relative z-10 flex flex-wrap items-center justify-center gap-2 mt-2.5 text-xs"
                 >
-                  {isHomeNewDraft || !activeChannel ? 'new session' : `#${activeChannel}`}
-                </span>
-              </div>
-
-              <div className="relative z-10 mt-3 max-w-[50ch] text-center space-y-3">
-                {gatewayStatus && !gatewayStatus.connected && (
-                  <div
-                    data-testid="gateway-offline-banner"
-                    className="mx-auto inline-flex items-center gap-2 text-xs font-mono text-rose-200/85"
+                  <StatusPulse state="error" size="sm" />
+                  <span className="font-mono text-rose-200/90">
+                    Gateway offline · {gatewayStatus.gatewayUrl.replace(/^https?:\/\//, '')}
+                  </span>
+                  <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                  <span
+                    data-testid="home-session-badge"
+                    className="font-mono text-[11px] text-[#6EE7B7]/85"
                   >
-                    <StatusPulse state="error" size="sm" />
-                    <span>
-                      Gateway offline · {gatewayStatus.gatewayUrl.replace(/^https?:\/\//, '')}
-                    </span>
-                    {onRefreshGateway && (
+                    {isHomeNewDraft || !activeChannel ? 'new session' : `#${activeChannel}`}
+                  </span>
+                  {onRefreshGateway && (
+                    <>
+                      <span aria-hidden="true" className="text-emerald-100/25">·</span>
                       <button
                         type="button"
                         onClick={() => void onRefreshGateway()}
-                        className="ui-tactile text-[11px] text-rose-100/90 hover:text-white underline underline-offset-4 decoration-rose-400/45 transition-colors cursor-pointer"
+                        className="ui-tactile font-mono text-[11px] text-rose-100/90 hover:text-white underline underline-offset-4 decoration-rose-400/45 transition-colors cursor-pointer"
                       >
                         Retry
                       </button>
-                    )}
-                  </div>
-                )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="relative z-10 flex items-center gap-2 mt-2.5 text-xs text-emerald-100/70">
+                  <StatusPulse state={statusPulseState} />
+                  <span>{statusText}</span>
+                  <span aria-hidden="true" className="text-emerald-100/30">·</span>
+                  <span
+                    data-testid="home-session-badge"
+                    className="font-mono text-[11px] text-[#6EE7B7]/85"
+                  >
+                    {isHomeNewDraft || !activeChannel ? 'new session' : `#${activeChannel}`}
+                  </span>
+                </div>
+              )}
+
+              <div className="relative z-10 mt-3 max-w-[50ch] text-center space-y-3">
 
                 <p
                   data-testid="home-decoded-line"
