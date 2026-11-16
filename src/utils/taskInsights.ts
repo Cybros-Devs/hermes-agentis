@@ -46,7 +46,7 @@ export interface TaskStatusDisplay {
     | 'Budget limit'
     | 'Failed'
     | 'Cancelled';
-  pulseState: 'thinking' | 'live' | 'idle';
+  pulseState: 'thinking' | 'live' | 'waiting' | 'done' | 'error' | 'idle';
   tone: 'amber' | 'emerald' | 'slate' | 'rose';
 }
 
@@ -110,7 +110,7 @@ export function getTaskConfirmationLabel(task: BackgroundTask): string {
 
 export function getTaskStatusDisplay(task: BackgroundTask): TaskStatusDisplay {
   if (task.rawStatus === 'failed') {
-    return { label: 'Failed', pulseState: 'idle', tone: 'rose' };
+    return { label: 'Failed', pulseState: 'error', tone: 'rose' };
   }
   if (task.rawStatus === 'cancelled' || task.rawStatus === 'interrupted') {
     return { label: 'Cancelled', pulseState: 'idle', tone: 'slate' };
@@ -119,7 +119,7 @@ export function getTaskStatusDisplay(task: BackgroundTask): TaskStatusDisplay {
     task.rawStatus === 'iteration_budget_exhausted' ||
     task.errorCode === 'iteration_budget_exhausted'
   ) {
-    return { label: 'Budget limit', pulseState: 'live', tone: 'amber' };
+    return { label: 'Budget limit', pulseState: 'waiting', tone: 'amber' };
   }
   if (task.status === 'running') {
     if (task.rawStatus === 'queued') {
@@ -129,11 +129,11 @@ export function getTaskStatusDisplay(task: BackgroundTask): TaskStatusDisplay {
   }
   if (task.status === 'paused') {
     if (task.rawStatus === 'waiting' || task.rawStatus === 'waiting_for_approval') {
-      return { label: 'Waiting', pulseState: 'idle', tone: 'amber' };
+      return { label: 'Waiting', pulseState: 'waiting', tone: 'amber' };
     }
     return { label: 'Paused', pulseState: 'idle', tone: 'slate' };
   }
-  return { label: 'Done', pulseState: 'live', tone: 'emerald' };
+  return { label: 'Done', pulseState: 'done', tone: 'emerald' };
 }
 
 /**
@@ -163,7 +163,11 @@ export function resolveTaskStepBreakdown(task: BackgroundTask): TaskStepBreakdow
 
     const steps: ResolvedTaskStep[] = rawSteps.map((s, idx) => {
       if (s.done) return { text: s.text, state: 'done' };
-      if (idx === activeIdx && task.rawStatus !== 'cancelled') {
+      if (
+        idx === activeIdx &&
+        task.rawStatus !== 'cancelled' &&
+        task.rawStatus !== 'failed'
+      ) {
         return { text: s.text, state: 'active' };
       }
       return { text: s.text, state: 'pending' };
@@ -187,8 +191,10 @@ export function resolveTaskStepBreakdown(task: BackgroundTask): TaskStepBreakdow
 
   const fracMatch = task.progressLabel?.match(/^(\d+)\s*\/\s*(\d+)$/);
   const fallbackText = task.lastStep || task.title;
+  const isTerminalFailure =
+    task.rawStatus === 'failed' || task.rawStatus === 'cancelled';
   const fallbackState: ResolvedTaskStep['state'] =
-    task.status === 'completed'
+    task.status === 'completed' && !isTerminalFailure
       ? 'done'
       : task.status === 'running'
       ? 'active'
@@ -196,7 +202,11 @@ export function resolveTaskStepBreakdown(task: BackgroundTask): TaskStepBreakdow
 
   return {
     steps: [{ text: fallbackText, state: fallbackState }],
-    completedCount: fracMatch ? Number(fracMatch[1]) : task.status === 'completed' ? 1 : 0,
+    completedCount: fracMatch
+      ? Number(fracMatch[1])
+      : task.status === 'completed' && !isTerminalFailure
+      ? 1
+      : 0,
     totalCount: fracMatch ? Math.max(1, Number(fracMatch[2])) : 1,
     activeStepText: fallbackText,
     ratioLabel: fracMatch ? `${fracMatch[1]}/${fracMatch[2]}` : `${Math.round(task.progress)}%`,
@@ -319,6 +329,76 @@ export function summarizeThreadTasks(
     confirmedCount,
     headerBadge,
   };
+}
+
+export interface ThreadTaskAggregateOverview {
+  totalTasks: number;
+  activeCount: number;
+  pausedCount: number;
+  completedCount: number;
+  failedCount: number;
+  aggregatePct: number;
+}
+
+/**
+ * Summarizes overall completion across all tasks scoped to a Thread so the
+ * task panel header can render a calm aggregate progress strip and filter tabs.
+ */
+export function summarizeThreadTaskAggregate(
+  partition: ChannelTaskPartition,
+  activeIsThinking: boolean
+): ThreadTaskAggregateOverview {
+  const syntheticActive = activeIsThinking && partition.running.length === 0 ? 1 : 0;
+  const activeCount = partition.running.length + syntheticActive;
+  const pausedCount = partition.paused.length;
+  const completedCount = partition.completed.length;
+  const failedCount = partition.completed.filter(
+    (t) => t.rawStatus === 'failed' || t.rawStatus === 'cancelled'
+  ).length;
+  const totalTasks = partition.all.length + syntheticActive;
+
+  if (totalTasks === 0) {
+    return {
+      totalTasks: 0,
+      activeCount: 0,
+      pausedCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+      aggregatePct: 0,
+    };
+  }
+
+  let pctSum = 0;
+  for (const task of partition.all) {
+    pctSum += resolveTaskProgress(task).pct;
+  }
+  const aggregatePct = Math.max(0, Math.min(100, Math.round(pctSum / totalTasks)));
+
+  return {
+    totalTasks,
+    activeCount,
+    pausedCount,
+    completedCount,
+    failedCount,
+    aggregatePct,
+  };
+}
+
+/**
+ * Extracts a concise, non-redundant task outcome note from `task.result`.
+ */
+export function formatTaskOutcomeSnippet(
+  task: BackgroundTask,
+  maxChars = 160
+): string | null {
+  const raw = task.result?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!raw) return null;
+  if (raw === task.lastStep?.trim() || raw === task.title.trim()) return null;
+  if (raw.length <= maxChars) return raw;
+  const slice = raw.slice(0, maxChars);
+  const lastSpace = slice.lastIndexOf(' ');
+  const cutoff = lastSpace >= Math.floor(maxChars * 0.6) ? lastSpace : maxChars;
+  return `${slice.slice(0, cutoff).trimEnd()}…`;
 }
 
 /**

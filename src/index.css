@@ -430,6 +430,19 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
   animation: uiHaloPulse calc(3.8s / var(--ui-anim-speed, 1)) ease-in-out infinite;
 }
 
+@keyframes uiTurnJumpPulse {
+  0% {
+    box-shadow: 0 0 0 1px rgba(var(--ui-accent-rgb), 0.7), 0 0 22px rgba(var(--ui-accent-rgb), 0.22);
+  }
+  100% {
+    box-shadow: 0 0 0 1px rgba(var(--ui-accent-rgb), 0), 0 0 0 rgba(var(--ui-accent-rgb), 0);
+  }
+}
+
+.ui-turn-jump {
+  animation: uiTurnJumpPulse calc(950ms / var(--ui-anim-speed, 1)) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 .ui-tab-glide {
   transition:
     transform calc(240ms / var(--ui-anim-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
@@ -535,6 +548,7 @@ html[data-ui-motion="reduced"] .ui-canvas-node-glide,
 html[data-ui-motion="reduced"] .ui-progress-fill,
 html[data-ui-motion="reduced"] .ui-progress-flow,
 html[data-ui-motion="reduced"] .ui-progress-indeterminate,
+html[data-ui-motion="reduced"] .ui-turn-jump,
 html[data-ui-motion="reduced"] .motion-safe-only {
   animation: none !important;
   transition: none !important;
@@ -563,6 +577,7 @@ html[data-ui-motion="reduced"] .motion-safe-only {
   .ui-progress-fill,
   .ui-progress-flow,
   .ui-progress-indeterminate,
+  .ui-turn-jump,
   .motion-safe-only {
     animation: none !important;
     transition: none !important;

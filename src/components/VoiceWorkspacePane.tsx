@@ -46,6 +46,10 @@ import {
 } from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
 import { groupThreadTimeline, isTerminalDiagnosticActivity } from '../utils/threadTrace';
+import {
+  determineActiveMinimapTurn,
+  extractThreadMinimapTurns,
+} from '../utils/threadMinimap';
 import { computeThreadScrollPin } from '../utils/threadScroll';
 import { shouldShowScrollTopFade } from '../utils/motionChoreography';
 import { partitionChannelTasks } from '../utils/taskInsights';
@@ -60,6 +64,7 @@ import { CommandTerminal } from './CommandTerminal';
 import { MobileWorkspaceBar } from './MobileWorkspaceBar';
 import { ThreadTaskBanner } from './ThreadTaskBanner';
 import { ThreadTraceTree } from './ThreadTraceTree';
+import { ThreadTurnMinimap } from './ThreadTurnMinimap';
 import {
   MorphTabs,
   ScrollToBottomButton,
@@ -225,9 +230,13 @@ export function VoiceWorkspacePane({
   const [isDesktopLg, setIsDesktopLg] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
   );
+  const [activeMinimapTurnId, setActiveMinimapTurnId] = useState<string | null>(null);
+  const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const threadListRef = useRef<HTMLDivElement | null>(null);
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
+  const turnAnchorRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const jumpHighlightTimerRef = useRef<number | null>(null);
   const isPinnedToBottomRef = useRef(true);
   const programmaticTargetTopRef = useRef<number | null>(null);
   const lastUserScrollAtRef = useRef(0);
@@ -489,6 +498,97 @@ export function VoiceWorkspacePane({
     () => groupThreadTimeline(visibleMessages, activeIsThinking, showThinking),
     [visibleMessages, activeIsThinking, showThinking]
   );
+
+  const minimapTurns = useMemo(
+    () => extractThreadMinimapTurns(timelineBlocks),
+    [timelineBlocks]
+  );
+
+  const minimapAnchorSet = useMemo(
+    () => new Set(minimapTurns.map((t) => t.anchorId)),
+    [minimapTurns]
+  );
+
+  const syncActiveMinimapTurn = () => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || minimapTurns.length === 0) {
+      setActiveMinimapTurnId(null);
+      return;
+    }
+    const containerRect = scrollEl.getBoundingClientRect();
+    const scrollTop = scrollEl.scrollTop;
+    const anchors = minimapTurns
+      .map((turn) => {
+        const el = turnAnchorRefs.current.get(turn.anchorId);
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return {
+          id: turn.anchorId,
+          top: rect.top - containerRect.top + scrollTop,
+          height: rect.height,
+        };
+      })
+      .filter((a): a is { id: string; top: number; height: number } => a !== null);
+
+    const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+    const nextId = determineActiveMinimapTurn(
+      anchors,
+      scrollTop,
+      scrollEl.clientHeight,
+      maxScrollTop
+    );
+    setActiveMinimapTurnId((prev) => (prev === nextId ? prev : nextId));
+  };
+
+  useEffect(() => {
+    if (panelView !== 'voice' || minimapTurns.length === 0) {
+      setActiveMinimapTurnId(null);
+      return;
+    }
+    const rafId = requestAnimationFrame(() => syncActiveMinimapTurn());
+    return () => cancelAnimationFrame(rafId);
+  }, [panelView, activeChannel, minimapTurns]);
+
+  useEffect(() => {
+    return () => {
+      if (jumpHighlightTimerRef.current !== null) {
+        window.clearTimeout(jumpHighlightTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleJumpToMinimapTurn = (anchorId: string) => {
+    const scrollEl = scrollRef.current;
+    const targetEl = turnAnchorRefs.current.get(anchorId);
+    if (!scrollEl || !targetEl) return;
+
+    const containerRect = scrollEl.getBoundingClientRect();
+    const targetRect = targetEl.getBoundingClientRect();
+    const rawTarget = targetRect.top - containerRect.top + scrollEl.scrollTop - 16;
+    const maxTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+    const targetTop = Math.max(0, Math.min(maxTop, rawTarget));
+
+    isPinnedToBottomRef.current = maxTop - targetTop <= 28;
+    lastUserScrollAtRef.current = performance.now();
+    programmaticTargetTopRef.current = targetTop;
+    setIsAwayFromBottom(maxTop - targetTop > 96);
+    setActiveMinimapTurnId(anchorId);
+    setShowTopFade(shouldShowScrollTopFade(targetTop));
+
+    scrollEl.scrollTo({
+      top: targetTop,
+      behavior: uiConfig.reducedMotion ? 'auto' : 'smooth',
+    });
+
+    if (jumpHighlightTimerRef.current !== null) {
+      window.clearTimeout(jumpHighlightTimerRef.current);
+    }
+    setHighlightedTurnId(anchorId);
+    jumpHighlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedTurnId(null);
+      jumpHighlightTimerRef.current = null;
+    }, 950);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1271,7 +1371,7 @@ export function VoiceWorkspacePane({
                 </div>
 
                 {!isDesktopLg && threadTasksOpen && (
-                  <div className="lg:hidden max-h-[42dvh] overflow-y-auto cyber-scroll px-3.5 py-2.5 border-b border-white/[0.07] bg-white/[0.015] shrink-0">
+                  <div className="lg:hidden max-h-[46dvh] overflow-y-auto cyber-scroll px-3.5 py-2.5 pb-3 border-b border-white/[0.07] bg-white/[0.015] shrink-0">
                     <ThreadTaskBanner
                       variant="thread-inline"
                       activeChannel={activeChannel}
@@ -1339,6 +1439,12 @@ export function VoiceWorkspacePane({
             ) : (
               <div className="relative flex-1 min-h-0 flex flex-col">
 
+                <ThreadTurnMinimap
+                  turns={minimapTurns}
+                  activeTurnId={activeMinimapTurnId}
+                  onJumpToTurn={handleJumpToMinimapTurn}
+                />
+
                 <div
                   key={`view-voice-${activeChannel}`}
                   ref={scrollRef}
@@ -1381,13 +1487,18 @@ export function VoiceWorkspacePane({
                     isPinnedToBottomRef.current = result.pinned;
                     setIsAwayFromBottom(result.away);
                     setShowTopFade(shouldShowScrollTopFade(nextTop));
+                    syncActiveMinimapTurn();
                   }}
                   data-testid="voice-transcript-stream"
                   data-pinned={String(!isAwayFromBottom)}
                   style={{ overflowAnchor: 'none' }}
                   className={`ui-view-enter transcript-fade-mask ${
                     showTopFade ? 'ui-transcript-fade-active' : ''
-                  } flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-8 pt-2.5 pb-6`}
+                  } flex-1 min-h-0 overflow-y-auto cyber-scroll pt-2.5 pb-6 ${
+                    minimapTurns.length > 0
+                      ? 'pl-3.5 sm:pl-12 lg:pl-14 pr-3.5 sm:pr-8'
+                      : 'px-3.5 sm:px-8'
+                  }`}
                 >
                   <div
                     ref={threadListRef}
@@ -1401,24 +1512,51 @@ export function VoiceWorkspacePane({
                         if (block.isLive && block.items.length === 0 && hasVisibleTaskBlock) {
                           return null;
                         }
+                        const isMinimapAnchor = minimapAnchorSet.has(block.id);
                         return (
-                          <ThreadTraceTree
+                          <div
                             key={block.id}
-                            sessionId={activeHermesSessionId}
-                            items={block.items}
-                            isLive={block.isLive}
-                            hideLiveFooter={hasVisibleTaskBlock}
-                          />
+                            ref={
+                              isMinimapAnchor
+                                ? (el) => {
+                                    if (el) turnAnchorRefs.current.set(block.id, el);
+                                    else turnAnchorRefs.current.delete(block.id);
+                                  }
+                                : undefined
+                            }
+                            data-turn-anchor={isMinimapAnchor ? block.id : undefined}
+                            className={highlightedTurnId === block.id ? 'ui-turn-jump rounded-xl' : undefined}
+                          >
+                            <ThreadTraceTree
+                              sessionId={activeHermesSessionId}
+                              items={block.items}
+                              isLive={block.isLive}
+                              hideLiveFooter={hasVisibleTaskBlock}
+                            />
+                          </div>
                         );
                       }
 
                       const entry = block.entry;
                       const isUser = entry.role === 'user' || entry.role === 'command';
+                      const isMinimapAnchor = minimapAnchorSet.has(entry.id);
+                      const isJumpHighlighted = highlightedTurnId === entry.id;
+                      const setAnchorRef = isMinimapAnchor
+                        ? (el: HTMLDivElement | null) => {
+                            if (el) turnAnchorRefs.current.set(entry.id, el);
+                            else turnAnchorRefs.current.delete(entry.id);
+                          }
+                        : undefined;
+
                       if (isUser) {
                         return (
                           <div
                             key={entry.id}
-                            className="ui-msg-enter ml-auto max-w-[85%] sm:max-w-[72%] rounded-2xl bg-[#34D399]/[0.085] border border-[#34D399]/20 px-3.5 sm:px-4 py-2 sm:py-2.5 text-[13.5px] leading-relaxed text-white"
+                            ref={setAnchorRef}
+                            data-turn-anchor={isMinimapAnchor ? entry.id : undefined}
+                            className={`ui-msg-enter ml-auto max-w-[85%] sm:max-w-[72%] rounded-2xl bg-[#34D399]/[0.085] border border-[#34D399]/20 px-3.5 sm:px-4 py-2 sm:py-2.5 text-[13.5px] leading-relaxed text-white ${
+                              isJumpHighlighted ? 'ui-turn-jump' : ''
+                            }`}
                           >
                             <p className="whitespace-pre-wrap break-words">{entry.text}</p>
                           </div>
@@ -1445,11 +1583,13 @@ export function VoiceWorkspacePane({
                       return (
                         <div
                           key={entry.id}
+                          ref={setAnchorRef}
+                          data-turn-anchor={isMinimapAnchor ? entry.id : undefined}
                           className={`ui-msg-enter max-w-[66ch] ${
                             isErrorDiagnostic
                               ? 'rounded-xl bg-rose-500/[0.05] border border-rose-400/20 px-3.5 py-2.5 space-y-1.5'
                               : 'space-y-1'
-                          }`}
+                          } ${isJumpHighlighted ? 'ui-turn-jump rounded-xl' : ''}`}
                         >
                           <p
                             className={`text-[14.5px] sm:text-[15px] leading-[1.68] font-normal whitespace-pre-wrap break-words ${

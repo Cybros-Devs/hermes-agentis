@@ -4,6 +4,8 @@ export type StatusPulseState =
   | 'thinking'
   | 'speaking'
   | 'listening'
+  | 'waiting'
+  | 'done'
   | 'error'
   | 'muted';
 
@@ -19,6 +21,8 @@ const DOT_COLOR_MAP: Record<StatusPulseState, string> = {
   speaking: 'bg-[#4ADE80]',
   listening: 'bg-[#34D399]',
   thinking: 'bg-amber-400',
+  waiting: 'bg-amber-300/85',
+  done: 'bg-[#34D399]/85',
   error: 'bg-rose-400',
   muted: 'bg-rose-400/80',
 };
@@ -29,6 +33,8 @@ const RING_COLOR_MAP: Record<StatusPulseState, string> = {
   speaking: 'bg-[#4ADE80]/55',
   listening: 'bg-[#34D399]/55',
   thinking: 'bg-amber-400/55',
+  waiting: '',
+  done: '',
   error: 'bg-rose-400/50',
   muted: '',
 };
