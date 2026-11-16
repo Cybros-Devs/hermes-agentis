@@ -249,7 +249,7 @@ function extractRefMouthPatch(
 function renderPanel(
   spec: TalkPanelSpec,
   sourceField: PortraitSourceField,
-  closedGridRef: Uint8Array | null,
+  _closedGridRef: Uint8Array | null,
   refPatch: Float32Array,
   cols = 92,
   rows = 42,

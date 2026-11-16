@@ -130,12 +130,6 @@ export interface HermesToolset {
   tools: string[];
 }
 
-export interface HermesMemoryItem {
-  key: string;
-  scope: 'host' | 'session' | 'preference';
-  value: string;
-}
-
 export interface HermesCronJob {
   id: string;
   name?: string;

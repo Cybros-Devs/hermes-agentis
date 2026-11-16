@@ -194,11 +194,6 @@ export function ThreadTaskBanner({
   const runningLead = partition.running[0];
   const leadTask = runningLead ?? partition.paused[0] ?? partition.completed[0];
   const leadProgress = useMemo(() => (leadTask ? resolveTaskProgress(leadTask) : null), [leadTask]);
-  const runningElapsed = runningLead
-    ? formatElapsedDuration(runningLead.createdAtMs, nowMs, false)
-    : activeIsThinking
-    ? `${workingSeconds}s`
-    : '';
 
   const triggerPulseState: 'thinking' | 'live' | 'idle' =
     hasRunningTask || activeIsThinking

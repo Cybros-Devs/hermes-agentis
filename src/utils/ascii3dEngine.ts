@@ -76,7 +76,7 @@ const BAYER_4X4 = [
 ];
 
 const MAT_BG = 0;
-const MAT_GRID = 1;
+// index 1 in MAT_NAMES is reserved for 'grid'
 const MAT_RING = 2;
 const MAT_BODY = 3;
 const MAT_HAIR = 4;
@@ -731,7 +731,7 @@ function shadeHitCell(
   shaderMode: AsciiShaderMode,
   hitMat: number,
   matName: AsciiMaterial,
-  t: number,
+  _t: number,
   hx: number,
   hy: number,
   hz: number,
