@@ -109,9 +109,11 @@ function TaskProgressTrack({
           />
         ) : (
           <div
-            className={`ui-progress-fill relative h-full w-full origin-left rounded-full overflow-hidden ${fillGradient}`}
+            className={`ui-progress-fill relative h-full w-full origin-left rounded-full overflow-hidden ${fillGradient} ${
+              clampedPct === 0 ? 'opacity-0' : ''
+            }`}
             style={{
-              transform: `scaleX(${clampedPct === 0 ? 0.015 : clampedPct / 100})`,
+              transform: `scaleX(${clampedPct / 100})`,
             }}
           >
             {isRunning && clampedPct > 0 && clampedPct < 100 && (
@@ -736,6 +738,18 @@ export function ThreadTaskBanner({
                   label={`${task.title} progress`}
                   testId={`thread-task-progress-${task.id}`}
                 />
+
+                {!isExpanded && breakdown.steps.length > 0 && (
+                  <p
+                    className={`text-[11px] truncate ${
+                      statusDisplay.tone === 'rose'
+                        ? 'text-rose-200/75'
+                        : 'text-emerald-100/50'
+                    }`}
+                  >
+                    {breakdown.steps[breakdown.steps.length - 1]?.text}
+                  </p>
+                )}
 
                 <AnimatedCollapsible open={isExpanded}>
                   <ul className="relative space-y-1.5 pl-0.5 pt-1" aria-label="Completed task steps">

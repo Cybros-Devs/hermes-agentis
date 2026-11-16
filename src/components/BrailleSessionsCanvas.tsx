@@ -577,20 +577,20 @@ export function BrailleSessionsCanvas({
       {/* Block Berd × OpenAI Dots Spatial Toolbar */}
       <div
         onPointerDown={(e) => e.stopPropagation()}
-        className="relative z-20 flex items-center justify-between gap-2 px-4 sm:px-6 pt-3 pb-2 shrink-0"
+        className="relative z-20 flex items-center justify-between gap-3 px-4 sm:px-6 pt-3 pb-2 shrink-0"
       >
         <div className="flex items-baseline gap-2.5 min-w-0">
           <h1 className="text-sm sm:text-base font-semibold text-white tracking-tight truncate">
             Hermes Dots
           </h1>
           <span className="font-mono text-[11px] text-emerald-100/55 tabular-nums whitespace-nowrap">
-            {sessions.length} dots
+            {sessions.length} {sessions.length === 1 ? 'dot' : 'dots'}
             {autonomousCount > 0 ? ` · ${autonomousCount} auto` : ''}
             {runningCount > 0 ? ` · ${runningCount} running` : ''}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Status Filter Segment (md+) */}
           <div className="hidden lg:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
             {(
@@ -715,7 +715,7 @@ export function BrailleSessionsCanvas({
             type="button"
             onClick={() => setIsAddOpen(true)}
             data-testid="canvas-add-button"
-            className="ui-tactile px-3.5 py-1.5 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+            className="ui-tactile px-3 py-1.5 rounded-lg border border-[#34D399]/45 bg-[#34D399]/14 hover:bg-[#34D399] hover:text-[#05140E] text-[#6EE7B7] text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <span>+ Add</span>
           </button>

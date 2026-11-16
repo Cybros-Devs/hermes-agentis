@@ -667,8 +667,8 @@ export function CanvasSessionNode({
         onPointerDown={(e) => e.stopPropagation()}
         data-testid={`session-input-form-${session.channelId}`}
         className={`mt-1.5 ${
-          isChatOpen ? 'w-[min(320px,calc(100vw-2.25rem))] sm:w-[252px]' : 'w-full max-w-[172px] sm:w-[244px] sm:max-w-none'
-        } flex items-center gap-1 rounded-xl border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow] ${
+          isChatOpen ? 'w-[min(308px,calc(100vw-2rem))] sm:w-[308px]' : 'w-full max-w-[196px] sm:w-[260px] sm:max-w-none'
+        } flex items-center gap-1 rounded-xl border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow,width] duration-150 ${
           isChatOpen || isSelected
             ? 'border-[#34D399]/65 shadow-[0_0_20px_rgba(52,211,153,0.16)]'
             : 'border-white/18 hover:border-[#34D399]/45 focus-within:border-[#4ADE80]'
@@ -712,9 +712,9 @@ export function CanvasSessionNode({
           placeholder={
             isThinking
               ? 'Thinking…'
-              : `Message #${session.name}…`
+              : `Ask #${session.name}…`
           }
-          className="flex-1 min-w-0 bg-transparent text-xs text-white placeholder:text-emerald-100/45 focus:outline-none px-1 py-1"
+          className="flex-1 min-w-0 bg-transparent text-xs text-white placeholder:text-emerald-100/45 text-ellipsis focus:outline-none px-1.5 py-1"
         />
 
         {draft.trim() ? (

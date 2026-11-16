@@ -928,7 +928,7 @@ export function VoiceWorkspacePane({
           key="view-home"
           ref={portraitWrapRef}
           data-testid="home-character-overview"
-          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-5 sm:px-10 pb-10 lg:pb-14"
+          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-5 sm:px-10 pb-20 lg:pb-24"
         >
           {uiConfig.portraitVisible && (
             <div
@@ -987,16 +987,17 @@ export function VoiceWorkspacePane({
                 {gatewayStatus && !gatewayStatus.connected && (
                   <div
                     data-testid="gateway-offline-banner"
-                    className="mx-auto inline-flex items-center gap-2 rounded-lg bg-rose-500/12 border border-rose-400/30 px-3 py-1.5 font-mono text-[11px] text-rose-200"
+                    className="mx-auto inline-flex items-center gap-2.5 text-xs font-mono text-rose-200/90"
                   >
+                    <StatusPulse state="error" size="sm" />
                     <span>
-                      Gateway offline ({gatewayStatus.gatewayUrl})
+                      Gateway offline · {gatewayStatus.gatewayUrl.replace(/^https?:\/\//, '')}
                     </span>
                     {onRefreshGateway && (
                       <button
                         type="button"
                         onClick={() => void onRefreshGateway()}
-                        className="underline hover:text-white cursor-pointer"
+                        className="ui-tactile px-2 py-0.5 rounded-md border border-rose-400/30 bg-rose-500/10 hover:bg-rose-500/20 text-[11px] text-rose-100 transition-colors cursor-pointer"
                       >
                         Retry
                       </button>
@@ -1296,32 +1297,34 @@ export function VoiceWorkspacePane({
 
             {panelView === 'queue' ? (
               <div key="view-queue" className="ui-view-enter flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-y-auto cyber-scroll">
-                <HermesOperationsPanel
-                  channels={channels}
-                  activeChannel={activeChannel}
-                  onSelectChannel={onSelectChannel}
-                  approvals={approvals}
-                  onApproveCard={onApproveCard}
-                  onRejectCard={onRejectCard}
-                  onClarifyCard={onClarifyCard}
-                  brief={brief}
-                  onRunBriefCommand={(cmd, id) => {
-                    onRunBriefCommand(cmd, id);
-                    onChangePanelView('voice');
-                  }}
-                  gatewayStatus={gatewayStatus}
-                  onRefreshGateway={onRefreshGateway}
-                  skills={skills}
-                  toolsets={toolsets}
-                  cronJobs={cronJobs}
-                  transportMode={transportMode}
-                  onChangeTransportMode={onChangeTransportMode}
-                  onCreateJob={onCreateJob}
-                  onPauseJob={onPauseJob}
-                  onResumeJob={onResumeJob}
-                  onRunJob={onRunJob}
-                  onDeleteJob={onDeleteJob}
-                />
+                <div className="max-w-[780px] mx-auto w-full pb-2">
+                  <HermesOperationsPanel
+                    channels={channels}
+                    activeChannel={activeChannel}
+                    onSelectChannel={onSelectChannel}
+                    approvals={approvals}
+                    onApproveCard={onApproveCard}
+                    onRejectCard={onRejectCard}
+                    onClarifyCard={onClarifyCard}
+                    brief={brief}
+                    onRunBriefCommand={(cmd, id) => {
+                      onRunBriefCommand(cmd, id);
+                      onChangePanelView('voice');
+                    }}
+                    gatewayStatus={gatewayStatus}
+                    onRefreshGateway={onRefreshGateway}
+                    skills={skills}
+                    toolsets={toolsets}
+                    cronJobs={cronJobs}
+                    transportMode={transportMode}
+                    onChangeTransportMode={onChangeTransportMode}
+                    onCreateJob={onCreateJob}
+                    onPauseJob={onPauseJob}
+                    onResumeJob={onResumeJob}
+                    onRunJob={onRunJob}
+                    onDeleteJob={onDeleteJob}
+                  />
+                </div>
               </div>
             ) : panelView === 'cli' ? (
               <div key="view-cli" className="ui-view-enter flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-hidden">
@@ -1435,16 +1438,31 @@ export function VoiceWorkspacePane({
                           : entry.terminalOutcome === 'failed'
                           ? 'Failed'
                           : null;
+                      const isErrorDiagnostic =
+                        entry.errorCode === 'gateway_offline' ||
+                        entry.terminalOutcome === 'failed' ||
+                        entry.terminalOutcome === 'admission_conflict';
                       return (
-                        <div key={entry.id} className="ui-msg-enter max-w-[66ch] space-y-1">
-                          <p className="text-[14.5px] sm:text-[15px] leading-[1.68] font-normal text-[#ECF3F0] whitespace-pre-wrap break-words">
+                        <div
+                          key={entry.id}
+                          className={`ui-msg-enter max-w-[66ch] ${
+                            isErrorDiagnostic
+                              ? 'rounded-xl bg-rose-500/[0.05] border border-rose-400/20 px-3.5 py-2.5 space-y-1.5'
+                              : 'space-y-1'
+                          }`}
+                        >
+                          <p
+                            className={`text-[14.5px] sm:text-[15px] leading-[1.68] font-normal whitespace-pre-wrap break-words ${
+                              isErrorDiagnostic ? 'text-rose-100/95' : 'text-[#ECF3F0]'
+                            }`}
+                          >
                             <DecodedText
                               text={entry.text}
                               animate={!entry.id.startsWith('init-') && !entry.streaming}
                             />
                           </p>
                           {(idx > 0 || outcomeLabel) && (
-                            <div className="flex items-center gap-2 font-mono text-[10.5px] text-emerald-100/40 tabular-nums">
+                            <div className="flex items-center gap-2 font-mono text-[10.5px] text-emerald-100/45 tabular-nums">
                               {idx > 0 && <span>{entry.timestamp}</span>}
                               {outcomeLabel && (
                                 <span

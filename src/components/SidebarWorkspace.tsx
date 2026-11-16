@@ -7,6 +7,7 @@ import type {
   Channel,
   ChannelId,
   ExpressionMood,
+  HermesGatewayStatus,
 } from '../types/hermes';
 import type { CanvasSession } from '../utils/canvasSessions';
 import { summarizeChannelTaskActivity } from '../utils/taskInsights';
@@ -35,6 +36,7 @@ interface SidebarWorkspaceProps {
   onOpenQueue: () => void;
   onCloseMobile?: () => void;
   workspaceTitle?: string;
+  gatewayStatus?: HermesGatewayStatus | null;
   homeSessionDraft?: boolean;
   queueVisible?: boolean;
   channelsVisible?: boolean;
@@ -63,6 +65,7 @@ export function SidebarWorkspace({
   onOpenQueue,
   onCloseMobile,
   workspaceTitle = '> hermes',
+  gatewayStatus,
   homeSessionDraft = false,
   queueVisible = true,
   channelsVisible = true,
@@ -92,6 +95,12 @@ export function SidebarWorkspace({
   );
 
   const activeChannelActivity = activityByChannel[activeChannel];
+  const isGatewayConnected = Boolean(gatewayStatus?.connected);
+  const gatewaySubline = gatewayStatus
+    ? isGatewayConnected
+      ? `${gatewayStatus.activeModel || 'hermes-agent'} · ${gatewayStatus.profile || 'default'}`
+      : `Gateway offline · Open Ops`
+    : lastSpokenLine;
 
   useEffect(() => {
     activeChannelBtnRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -127,19 +136,20 @@ export function SidebarWorkspace({
         <button
           type="button"
           onClick={onNewTask}
-          className="ui-tactile flex items-center gap-1 text-xs font-medium text-emerald-50/75 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/6 shrink-0"
+          className="ui-tactile flex items-center gap-1 text-xs font-medium text-emerald-50/80 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/[0.06] shrink-0"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>New</span>
         </button>
       </div>
 
-      {/* Active Session Card */}
+      {/* Agent & Gateway Status Card (opens Operations / Queue) */}
       <div className="px-3">
         <button
           type="button"
           onClick={onOpenQueue}
-          className="ui-tactile w-full text-left rounded-xl border border-white/10 bg-white/[0.03] hover:border-[#34D399]/40 p-2.5 flex items-center gap-3 transition-colors cursor-pointer"
+          title="Open Hermes Agent Operations"
+          className="ui-tactile w-full text-left rounded-xl border border-white/10 bg-white/[0.03] hover:border-[#34D399]/40 hover:bg-white/[0.045] p-2.5 flex items-center gap-3 transition-colors cursor-pointer"
         >
           <AsciiPortraitCanvas
             variant="thumb"
@@ -155,15 +165,30 @@ export function SidebarWorkspace({
               <span className="text-[13px] font-semibold text-white shrink-0">Hermes Agent</span>
               <span
                 data-testid="sidebar-active-lane"
-                className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[#6EE7B7] tabular-nums truncate min-w-0 text-right"
+                className={`inline-flex items-center gap-1.5 font-mono text-[10.5px] tabular-nums truncate min-w-0 text-right ${
+                  !homeSessionDraft && activeChannelActivity?.hasActiveTask
+                    ? 'text-amber-300'
+                    : gatewayStatus && !isGatewayConnected
+                    ? 'text-rose-300/90'
+                    : 'text-[#6EE7B7]'
+                }`}
               >
-                {!homeSessionDraft && activeChannelActivity?.hasActiveTask && (
-                  <StatusPulse state="thinking" size="sm" />
+                {!homeSessionDraft && activeChannelActivity?.hasActiveTask ? (
+                  <>
+                    <StatusPulse state="thinking" size="sm" />
+                    <span>#{activeChannel}</span>
+                  </>
+                ) : gatewayStatus ? (
+                  <>
+                    <StatusPulse state={isGatewayConnected ? 'live' : 'error'} size="sm" />
+                    <span>{isGatewayConnected ? 'online' : 'offline'}</span>
+                  </>
+                ) : (
+                  <span>{homeSessionDraft ? 'new session' : `#${activeChannel}`}</span>
                 )}
-                <span>{homeSessionDraft ? 'new session' : `#${activeChannel}`}</span>
               </span>
             </div>
-            <p className="text-xs text-emerald-100/50 truncate mt-0.5">{lastSpokenLine}</p>
+            <p className="text-[11.5px] text-emerald-100/55 truncate mt-0.5">{gatewaySubline}</p>
           </div>
         </button>
       </div>
@@ -176,8 +201,17 @@ export function SidebarWorkspace({
           </div>
         ) : (
           <>
+            {customSessions.length === 0 && pendingApprovals.length === 0 && openBrief.length === 0 && (
+              <div className="px-2.5 py-6 text-center space-y-1.5">
+                <p className="text-[12px] font-medium text-emerald-100/55">No active sessions yet</p>
+                <p className="text-[11px] text-emerald-100/35 leading-relaxed">
+                  Prompts, approvals, and live gateway lanes appear here.
+                </p>
+              </div>
+            )}
+
             {customSessions.length > 0 && (
-              <div className="px-2 pt-0.5 pb-1 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/40 tabular-nums">
+              <div className="px-2 pt-0.5 pb-1 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/45 tabular-nums">
                 <span>Sessions</span>
                 <span>{customSessions.length}</span>
               </div>
@@ -307,8 +341,11 @@ export function SidebarWorkspace({
 
       {/* Single-Row Typographic Channel Switcher */}
       {channelsVisible && footerChannels.length > 0 && (
-        <div className="py-2.5 px-3 border-t border-white/[0.07] flex items-center justify-between gap-1.5 font-mono text-[9.5px]">
-          <div className="flex flex-nowrap items-center gap-x-1.5 min-w-0 overflow-x-auto cyber-scroll">
+        <div className="py-2.5 px-3.5 border-t border-white/[0.07] flex items-center justify-between gap-2 font-mono text-[11px]">
+          <div className="flex flex-nowrap items-center gap-x-2.5 min-w-0 overflow-x-auto cyber-scroll">
+            <span className="text-[10px] uppercase tracking-[0.12em] text-emerald-100/35 shrink-0">
+              Lanes
+            </span>
             {footerChannels.map((ch) => {
               const active = !homeSessionDraft && ch.id === activeChannel;
               const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
@@ -337,12 +374,12 @@ export function SidebarWorkspace({
                       : ch.description || label
                   }
                   onClick={() => onSelectChannel(ch.id)}
-                  className={`ui-tactile transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1 py-0.5 ${
+                  className={`ui-tactile transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 py-0.5 ${
                     active
                       ? 'text-[#6EE7B7] font-semibold'
                       : hasActiveWork
                       ? 'text-amber-200/90 hover:text-amber-100 font-medium'
-                      : 'text-emerald-100/45 hover:text-white'
+                      : 'text-emerald-100/60 hover:text-white'
                   }`}
                 >
                   {hasActiveWork ? (

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Terminal } from 'lucide-react';
 import type { ChannelId, TerminalEntry } from '../types/hermes';
 import { DecodedText } from './DecodedText';
-import { EmptyState, ScrollToBottomButton, StatusPulse } from './ui';
+import { ScrollToBottomButton, StatusPulse } from './ui';
 
 interface CommandTerminalProps {
   activeChannel: ChannelId;
@@ -12,14 +12,14 @@ interface CommandTerminalProps {
   onSubmitInput: (value: string) => void;
 }
 
-const QUICK_COMMANDS = [
-  '/skills',
-  '/toolsets',
-  '/cron',
-  '/sessions',
-  '/tasks',
-  '/gateway',
-  '/help',
+const QUICK_COMMANDS: Array<{ cmd: string; summary: string }> = [
+  { cmd: '/gateway', summary: 'Probe server health, profile & capabilities' },
+  { cmd: '/skills', summary: 'List skills loaded from GET /v1/skills' },
+  { cmd: '/toolsets', summary: 'Inspect enabled toolsets from GET /v1/toolsets' },
+  { cmd: '/cron', summary: 'Show scheduled jobs from GET /api/jobs' },
+  { cmd: '/sessions', summary: 'List active sessions on this gateway' },
+  { cmd: '/tasks', summary: 'Inspect active & completed turn tasks' },
+  { cmd: '/help', summary: 'Show all CLI & slash commands' },
 ];
 
 export function CommandTerminal({
@@ -61,29 +61,38 @@ export function CommandTerminal({
     };
   }, [scopedEntries.length, lastEntryLen, isThinking, activeChannel]);
 
+  const isDraftSession = !activeSessionId || activeSessionId === 'new session';
+  const sessionLabel = isDraftSession
+    ? activeChannel
+      ? `hermes-${activeChannel}`
+      : 'new-session'
+    : activeSessionId;
+  const readyHeading = isDraftSession
+    ? 'New session ready'
+    : `Session ${sessionLabel} ready`;
+
   return (
     <section
       aria-label="Hermes Command Line Interface"
-      className="relative flex flex-col h-full rounded-xl bg-[#0B1714]/90 border border-white/12 overflow-hidden shadow-[0_12px_36px_rgba(0,0,0,0.35)]"
+      className="relative flex flex-col h-full max-w-[780px] mx-auto w-full rounded-xl bg-white/[0.025] border border-white/10 overflow-hidden"
     >
-      {/* Terminal Header & Quick Commands */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-white/10 bg-black/35">
-        <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/85">
-          <Terminal className="w-3.5 h-3.5 text-[#34D399]" />
-          <span className="font-semibold text-white">hermes-agent</span>
-          <span className="text-emerald-100/40">·</span>
-          <span className="text-emerald-100/75">
-            {activeSessionId || (activeChannel ? `hermes-${activeChannel}` : 'global')}
-          </span>
+      {/* Clean Single-Row Terminal Header & Unboxed Quick-Command Strip */}
+      <div className="px-4 py-2.5 border-b border-white/[0.07] bg-black/25 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/85 min-w-0">
+          <Terminal className="w-3.5 h-3.5 text-[#34D399] shrink-0" />
+          <span className="font-semibold text-white shrink-0">hermes-agent</span>
+          <span className="text-emerald-100/35 shrink-0">·</span>
+          <span className="text-emerald-100/70 truncate">{sessionLabel}</span>
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto cyber-scroll">
-          {QUICK_COMMANDS.map((cmd) => (
+        <div className="flex items-center gap-1 overflow-x-auto cyber-scroll">
+          {QUICK_COMMANDS.map(({ cmd, summary }) => (
             <button
               key={cmd}
               type="button"
+              title={summary}
               onClick={() => onSubmitInput(cmd)}
-              className="ui-tactile px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/14 font-mono text-[11px] text-emerald-50/90 hover:border-[#34D399]/60 hover:text-[#6EE7B7] whitespace-nowrap shrink-0 cursor-pointer"
+              className="ui-tactile px-2 py-1 rounded-md font-mono text-[11px] text-emerald-100/65 hover:text-[#6EE7B7] hover:bg-white/[0.05] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {cmd}
             </button>
@@ -106,11 +115,31 @@ export function CommandTerminal({
         className="cyber-scroll flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs leading-relaxed"
       >
         {scopedEntries.length === 0 ? (
-          <EmptyState
-            icon={<Terminal className="w-4 h-4" />}
-            title={`Session ${activeSessionId || (activeChannel ? `hermes-${activeChannel}` : 'global')} ready`}
-            description="Type a slash command (/help) or send a prompt below to drive this lane."
-          />
+          <div className="h-full flex flex-col justify-center max-w-[540px] mx-auto py-4 space-y-4">
+            <div className="space-y-1">
+              <div className="text-xs font-semibold text-white">
+                {readyHeading}
+              </div>
+              <p className="text-[11.5px] text-emerald-100/50">
+                Select a diagnostic command below or enter a prompt in the composer.
+              </p>
+            </div>
+            <div className="divide-y divide-white/[0.06] border-y border-white/[0.07]">
+              {QUICK_COMMANDS.slice(0, 4).map(({ cmd, summary }) => (
+                <button
+                  key={cmd}
+                  type="button"
+                  onClick={() => onSubmitInput(cmd)}
+                  className="ui-tactile w-full text-left py-2 px-1 flex items-center justify-between gap-4 hover:bg-white/[0.03] transition-colors cursor-pointer group"
+                >
+                  <span className="text-[#6EE7B7] font-semibold shrink-0 group-hover:translate-x-0.5 transition-transform">
+                    {cmd}
+                  </span>
+                  <span className="text-[11px] text-emerald-100/55 truncate">{summary}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
           scopedEntries.map((entry) => {
             const isUser = entry.role === 'user' || entry.role === 'command';

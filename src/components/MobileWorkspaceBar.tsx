@@ -3,7 +3,6 @@ import {
   Brain,
   ChevronDown,
   LayoutGrid,
-  MoreHorizontal,
   PanelLeft,
   RotateCcw,
   Settings,
@@ -210,15 +209,6 @@ export function MobileWorkspaceBar({
             ) : (
               <Volume2 className="w-3.5 h-3.5" />
             )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMenuOpen((v) => !v)}
-            aria-label="Open view options"
-            className="ui-tactile w-7 h-7 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-          >
-            <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
 
           {viewMenuOpen && (
