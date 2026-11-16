@@ -305,8 +305,8 @@ export function SidebarWorkspace({
         )}
       </div>
 
-      {/* Single-Row Typographic Core Channel Switcher (no competing amber pills or duplicate session dumps) */}
-      {channelsVisible && (
+      {/* Single-Row Typographic Channel Switcher */}
+      {channelsVisible && footerChannels.length > 0 && (
         <div className="py-2.5 px-3 border-t border-white/[0.07] flex items-center justify-between gap-1.5 font-mono text-[9.5px]">
           <div className="flex flex-nowrap items-center gap-x-1.5 min-w-0 overflow-x-auto cyber-scroll">
             {footerChannels.map((ch) => {

@@ -7,17 +7,15 @@ import type {
   HermesAgentSession,
   HermesCronJob,
   HermesGatewayStatus,
-  HermesMemoryItem,
   HermesSkill,
+  HermesToolset,
+  HermesTransportMode,
   TerminalEntry,
+  TerminalTurnOutcome,
 } from '../types/hermes';
-import type { UiCustomizationConfig, UiCustomizationPatch } from '../utils/uiCustomization';
+import type { UiCustomizationPatch } from '../utils/uiCustomization';
 import { isTerminalSettledItem, normalizeChannelId } from '../utils/homeSession';
-import {
-  INITIAL_HERMES_CRON,
-  INITIAL_HERMES_MEMORY,
-  INITIAL_HERMES_SKILLS,
-} from '../utils/cliEngine';
+import { createIdempotencyKey } from '../utils/hermesProtocol';
 
 interface HermesCardPayload {
   type: string;
@@ -28,6 +26,10 @@ interface HermesCardPayload {
   action?: string;
   destination?: string;
   url?: string;
+  command?: string;
+  requestId?: string;
+  executionGeneration?: number;
+  choices?: string[];
   entries?: { title?: string; summary?: string }[];
 }
 
@@ -40,12 +42,16 @@ export interface HermesServerItem {
   text?: string;
   streaming?: boolean;
   run_id?: string | null;
+  error_code?: string;
+  terminal_outcome?: TerminalTurnOutcome;
   card?: HermesCardPayload;
   ui_patch?: UiCustomizationPatch;
   activity?: {
     run_id: string;
     status: string;
+    kind?: 'reasoning' | 'commentary' | 'tool' | 'subagent' | 'status';
     summary?: string;
+    detail?: string;
     error?: string;
     steps?: { name: string; label?: string; status: string }[];
   };
@@ -59,6 +65,8 @@ interface HermesTaskPayload {
   background?: boolean;
   handover_id?: string;
   session_id?: string;
+  run_id?: string;
+  error_code?: string;
   progress?: string;
   steps?: { text: string; done?: boolean; active?: boolean }[];
   result?: string;
@@ -95,7 +103,7 @@ type HermesServerEvent =
   | { type: 'task'; task: HermesTaskPayload }
   | { type: 'channel'; channel: HermesChannelPayload }
   | { type: 'session'; session: HermesAgentSession }
-  | { type: 'session_reset'; channelId: string; session: HermesAgentSession; item?: HermesServerItem }
+  | { type: 'session_reset'; channelId: string; session: HermesAgentSession; item?: HermesServerItem | null }
   | { type: 'session_deleted'; channelId: string }
   | { type: 'ui_patch'; channelId?: string; patch: UiCustomizationPatch };
 
@@ -119,6 +127,9 @@ function hhmm(epochMs: number): string {
 function activityText(item: HermesServerItem): string {
   const a = item.activity;
   if (!a) return item.text ?? '';
+  if (a.kind === 'reasoning' && a.detail) return `Reasoning: ${a.detail}`;
+  if (item.text) return item.text;
+  if (a.error) return a.error;
   if (a.summary) return a.summary;
   const running = a.steps?.find((s) => s.status === 'running');
   const last = running ?? a.steps?.[a.steps.length - 1];
@@ -140,6 +151,11 @@ export function hermesItemToEntry(
       source: 'ui',
       text: activityText(item),
       activityStatus: item.activity?.status,
+      activityKind: item.activity?.kind,
+      reasoningDetail: item.activity?.detail,
+      streaming: Boolean(item.streaming),
+      errorCode: item.error_code,
+      terminalOutcome: item.terminal_outcome,
       timestamp: hhmm(item.created_at),
       createdAtMs: item.created_at,
     };
@@ -153,6 +169,8 @@ export function hermesItemToEntry(
     source: 'ui',
     text: item.text ?? '',
     streaming: Boolean(item.streaming),
+    errorCode: item.error_code,
+    terminalOutcome: item.terminal_outcome,
     timestamp: hhmm(item.created_at),
     createdAtMs: item.created_at,
   };
@@ -163,17 +181,22 @@ function pendingToApproval(
   aliases?: ReadonlyMap<string, string>
 ): ApprovalCard | null {
   const c = item.card;
-  if (!c || (c.type !== 'approval' && c.type !== 'payment')) return null;
+  if (!c || (c.type !== 'approval' && c.type !== 'payment' && c.type !== 'clarify')) return null;
   return {
     id: item.id,
     channelId: normalizeChannelId(item.channel_id, aliases),
-    title: c.title || 'Untitled request',
+    title: c.title || 'Run approval required',
     actionType: c.type === 'payment' || c.action === 'pay' ? 'payment' : 'send_message',
+    kind: c.type === 'clarify' ? 'clarify' : 'approval',
     mcpTool: c.action || 'agent_action',
     runId: item.run_id ?? undefined,
-    destination: c.destination ?? c.url ?? 'hermes',
-    summary: (c.body ?? '').slice(0, 200),
-    draft: c.draft ?? '',
+    requestId: c.requestId,
+    executionGeneration: c.executionGeneration,
+    choices: c.choices,
+    command: c.command,
+    destination: c.destination ?? c.url ?? 'hermes-gateway',
+    summary: (c.body ?? '').slice(0, 280),
+    draft: c.draft ?? c.command ?? '',
     status: c.status === 'approved' ? 'approved' : c.status === 'declined' ? 'rejected' : 'pending',
     createdAt: hhmm(item.created_at),
   };
@@ -223,6 +246,8 @@ function mapTask(t: HermesTaskPayload, aliases?: ReadonlyMap<string, string>): B
     id: t.id,
     channelId: resolvedChannelId,
     sessionId: t.session_id,
+    runId: t.run_id,
+    errorCode: t.error_code,
     kind: t.kind ?? (t.background === false ? 'In chat' : 'Background'),
     background: t.background,
     handoverId: t.handover_id,
@@ -263,9 +288,10 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
   const [approvals, setApprovals] = useState<ApprovalCard[]>([]);
   const [tasks, setTasks] = useState<BackgroundTask[]>([]);
   const [brief, setBrief] = useState<BriefDecision[]>([]);
-  const [skills, setSkills] = useState<HermesSkill[]>(INITIAL_HERMES_SKILLS);
-  const [memory, setMemory] = useState<HermesMemoryItem[]>(INITIAL_HERMES_MEMORY);
-  const [cronJobs, setCronJobs] = useState<HermesCronJob[]>(INITIAL_HERMES_CRON);
+  const [skills, setSkills] = useState<HermesSkill[]>([]);
+  const [toolsets, setToolsets] = useState<HermesToolset[]>([]);
+  const [cronJobs, setCronJobs] = useState<HermesCronJob[]>([]);
+  const [transportMode, setTransportMode] = useState<HermesTransportMode>('auto');
 
   const optsRef = useRef(opts);
   optsRef.current = opts;
@@ -274,16 +300,45 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
 
   const refreshGateway = useCallback(async () => {
     try {
-      const res = await fetch('/api/hermes/gateway');
-      if (res.ok) {
-        const data = (await res.json()) as HermesGatewayStatus;
-        setGatewayStatus(data);
-        return data;
+      const [gwRes, ctxRes] = await Promise.all([
+        fetch('/api/hermes/gateway'),
+        fetch('/api/hermes/context').catch(() => null),
+      ]);
+      let nextGw: HermesGatewayStatus | null = null;
+      if (gwRes.ok) {
+        nextGw = (await gwRes.json()) as HermesGatewayStatus;
+        setGatewayStatus(nextGw);
+        if (Array.isArray(nextGw.toolsets)) {
+          setToolsets(nextGw.toolsets);
+        }
       }
+      if (ctxRes?.ok) {
+        const ctx = (await ctxRes.json()) as {
+          skills?: HermesSkill[];
+          toolsets?: HermesToolset[];
+          cronJobs?: HermesCronJob[];
+        };
+        if (Array.isArray(ctx.skills)) setSkills(ctx.skills);
+        if (Array.isArray(ctx.toolsets)) setToolsets(ctx.toolsets);
+        if (Array.isArray(ctx.cronJobs)) setCronJobs(ctx.cronJobs);
+      }
+      return nextGw;
     } catch {
-      // keep existing status
+      return null;
     }
-    return null;
+  }, []);
+
+  const refreshJobs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/hermes/jobs');
+      if (!res.ok) return [];
+      const data = (await res.json()) as { jobs?: HermesCronJob[] };
+      const list = Array.isArray(data.jobs) ? data.jobs : [];
+      setCronJobs(list);
+      return list;
+    } catch {
+      return [];
+    }
   }, []);
 
   const applyItem = useCallback((item: HermesServerItem, triggerSpeech = true) => {
@@ -384,17 +439,19 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
         for (const e of entries) optsRef.current.upsertEntry(e);
 
         if (gwRes?.ok) {
-          setGatewayStatus((await gwRes.json()) as HermesGatewayStatus);
+          const gw = (await gwRes.json()) as HermesGatewayStatus;
+          setGatewayStatus(gw);
+          if (Array.isArray(gw.toolsets)) setToolsets(gw.toolsets);
         }
         if (ctxRes?.ok) {
           const ctx = (await ctxRes.json()) as {
             skills?: HermesSkill[];
-            memory?: HermesMemoryItem[];
+            toolsets?: HermesToolset[];
             cronJobs?: HermesCronJob[];
           };
-          if (Array.isArray(ctx.skills) && ctx.skills.length > 0) setSkills(ctx.skills);
-          if (Array.isArray(ctx.memory) && ctx.memory.length > 0) setMemory(ctx.memory);
-          if (Array.isArray(ctx.cronJobs) && ctx.cronJobs.length > 0) setCronJobs(ctx.cronJobs);
+          if (Array.isArray(ctx.skills)) setSkills(ctx.skills);
+          if (Array.isArray(ctx.toolsets)) setToolsets(ctx.toolsets);
+          if (Array.isArray(ctx.cronJobs)) setCronJobs(ctx.cronJobs);
         }
 
         setConnected(true);
@@ -488,21 +545,33 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
         name?: string;
         topic?: string;
         sessionId?: string;
+        sessionKey?: string;
         persona?: string;
-        uiConfig?: Partial<UiCustomizationConfig>;
+        transportMode?: HermesTransportMode;
+        idempotencyKey?: string;
+        model?: string;
+        provider?: string;
       }
     ) => {
+      const idemKey = sessionMeta?.idempotencyKey || createIdempotencyKey('turn');
       const res = await fetch('/api/hermes/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idemKey,
+        },
         body: JSON.stringify({
           text,
           channel_id: channelId,
           name: sessionMeta?.name,
           topic: sessionMeta?.topic,
           session_id: sessionMeta?.sessionId,
+          session_key: sessionMeta?.sessionKey,
           persona: sessionMeta?.persona,
-          ui_config: sessionMeta?.uiConfig,
+          transport_mode: sessionMeta?.transportMode ?? transportMode,
+          idempotency_key: idemKey,
+          model: sessionMeta?.model,
+          provider: sessionMeta?.provider,
         }),
       });
       if (!res.ok) throw new Error(`hermes message failed: HTTP ${res.status}`);
@@ -510,12 +579,12 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
         item?: HermesServerItem;
         session?: HermesAgentSession;
         task?: HermesTaskPayload;
+        idempotencyKey?: string;
       };
       if (data.task) {
         const mappedTask = mapTask(data.task);
         setTasks((prev) => {
           const existing = prev.find((t) => t.id === mappedTask.id);
-          // Do not overwrite a newer SSE-updated task if it already arrived
           if (
             existing &&
             (existing.updatedAtMs ?? 0) > (mappedTask.updatedAtMs ?? 0)
@@ -527,7 +596,7 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
       }
       return data;
     },
-    []
+    [transportMode]
   );
 
   const createHermesSession = useCallback(
@@ -603,7 +672,7 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
     return (await res.json()) as {
       ok: boolean;
       session?: HermesAgentSession;
-      item?: HermesServerItem;
+      item?: HermesServerItem | null;
     };
   }, []);
 
@@ -615,17 +684,141 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
     return res.json();
   }, []);
 
-  const actOnCard = useCallback(
-    async (cardId: string, action: 'approve' | 'decline', value?: string) => {
-      const res = await fetch(`/api/hermes/cards/${encodeURIComponent(cardId)}/act`, {
+  const actOnRunApproval = useCallback(
+    async (card: ApprovalCard, choice: 'once' | 'always' | 'deny') => {
+      const runId = card.runId;
+      const requestId = card.requestId;
+      const executionGeneration = card.executionGeneration;
+      if (!runId || !requestId || typeof executionGeneration !== 'number') {
+        throw new Error('Approval is missing real run_id, request_id, or execution_generation');
+      }
+      const res = await fetch(`/api/hermes/runs/${encodeURIComponent(runId)}/approval`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, value }),
+        body: JSON.stringify({
+          request_id: requestId,
+          execution_generation: executionGeneration,
+          choice,
+          card_id: card.id,
+        }),
       });
-      if (!res.ok) throw new Error(`card action failed: HTTP ${res.status}`);
-      return res.json();
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = (body as { error?: string; message?: string }).error || (body as { message?: string }).message || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      setApprovals((prev) => prev.filter((a) => a.id !== card.id));
+      return body;
     },
     []
+  );
+
+  const clarifyRun = useCallback(
+    async (card: ApprovalCard, answer: string) => {
+      const runId = card.runId;
+      const requestId = card.requestId;
+      const executionGeneration = card.executionGeneration;
+      if (!runId || !requestId || typeof executionGeneration !== 'number') {
+        throw new Error('Clarification is missing real run_id, request_id, or execution_generation');
+      }
+      const res = await fetch(`/api/hermes/runs/${encodeURIComponent(runId)}/clarify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: requestId,
+          execution_generation: executionGeneration,
+          answer,
+          card_id: card.id,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = (body as { error?: string; message?: string }).error || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      setApprovals((prev) => prev.filter((a) => a.id !== card.id));
+      return body;
+    },
+    []
+  );
+
+  const stopRun = useCallback(async (runId: string) => {
+    const res = await fetch(`/api/hermes/runs/${encodeURIComponent(runId)}/stop`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(`stop run failed: HTTP ${res.status}`);
+    return res.json();
+  }, []);
+
+  const steerRun = useCallback(async (runId: string, text: string) => {
+    const res = await fetch(`/api/hermes/runs/${encodeURIComponent(runId)}/steer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`steer run failed: HTTP ${res.status}`);
+    return res.json();
+  }, []);
+
+  const createJob = useCallback(
+    async (payload: { prompt: string; schedule: string; name?: string; model?: string }) => {
+      const res = await fetch('/api/hermes/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((body as { error?: string }).error || `HTTP ${res.status}`);
+      }
+      await refreshJobs();
+      return body;
+    },
+    [refreshJobs]
+  );
+
+  const pauseJob = useCallback(
+    async (jobId: string) => {
+      const res = await fetch(`/api/hermes/jobs/${encodeURIComponent(jobId)}/pause`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error(`pause job failed: HTTP ${res.status}`);
+      await refreshJobs();
+    },
+    [refreshJobs]
+  );
+
+  const resumeJob = useCallback(
+    async (jobId: string) => {
+      const res = await fetch(`/api/hermes/jobs/${encodeURIComponent(jobId)}/resume`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error(`resume job failed: HTTP ${res.status}`);
+      await refreshJobs();
+    },
+    [refreshJobs]
+  );
+
+  const runJob = useCallback(
+    async (jobId: string) => {
+      const res = await fetch(`/api/hermes/jobs/${encodeURIComponent(jobId)}/run`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error(`run job failed: HTTP ${res.status}`);
+      await refreshJobs();
+    },
+    [refreshJobs]
+  );
+
+  const deleteJob = useCallback(
+    async (jobId: string) => {
+      const res = await fetch(`/api/hermes/jobs/${encodeURIComponent(jobId)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error(`delete job failed: HTTP ${res.status}`);
+      await refreshJobs();
+    },
+    [refreshJobs]
   );
 
   const confirmTask = useCallback(async (taskId: string) => {
@@ -674,15 +867,26 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
       tasks,
       brief,
       skills,
-      memory,
+      toolsets,
       cronJobs,
+      transportMode,
+      setTransportMode,
       sendMessage,
       abortRun,
       createHermesSession,
       loadChannelHistory,
       resetHermesSession,
       deleteHermesSession,
-      actOnCard,
+      actOnRunApproval,
+      clarifyRun,
+      stopRun,
+      steerRun,
+      refreshJobs,
+      createJob,
+      pauseJob,
+      resumeJob,
+      runJob,
+      deleteJob,
       confirmTask,
       reopenTask,
       cancelTask,
@@ -699,15 +903,25 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
       tasks,
       brief,
       skills,
-      memory,
+      toolsets,
       cronJobs,
+      transportMode,
       sendMessage,
       abortRun,
       createHermesSession,
       loadChannelHistory,
       resetHermesSession,
       deleteHermesSession,
-      actOnCard,
+      actOnRunApproval,
+      clarifyRun,
+      stopRun,
+      steerRun,
+      refreshJobs,
+      createJob,
+      pauseJob,
+      resumeJob,
+      runJob,
+      deleteJob,
       confirmTask,
       reopenTask,
       cancelTask,

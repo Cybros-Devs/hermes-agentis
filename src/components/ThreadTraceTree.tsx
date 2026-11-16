@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import {
+  Brain,
   ChevronDown,
   CornerDownRight,
   Link2,
+  MessageSquareText,
   MoreHorizontal,
   Sparkles,
   Users,
@@ -19,7 +21,7 @@ interface ThreadTraceTreeProps {
   hideLiveFooter?: boolean;
 }
 
-const DEFAULT_VISIBLE_LIMIT = 4;
+const DEFAULT_VISIBLE_LIMIT = 6;
 
 export function ThreadTraceTree({
   agentLabel = 'Activity',
@@ -39,6 +41,10 @@ export function ThreadTraceTree({
 
   const renderStepIcon = (icon: ClassifiedTraceStep['icon']) => {
     switch (icon) {
+      case 'reasoning':
+        return <Brain className="w-3.5 h-3.5 text-emerald-300/90" />;
+      case 'commentary':
+        return <MessageSquareText className="w-3.5 h-3.5 text-sky-300/85" />;
       case 'spawn':
         return <Users className="w-3.5 h-3.5 text-[#6EE7B7]/85" />;
       case 'link':
@@ -50,9 +56,10 @@ export function ThreadTraceTree({
     }
   };
 
+  const hasReasoning = items.some((s) => s.icon === 'reasoning' || s.isReasoning);
   const stepSummary =
     items.length > 0
-      ? `${items.length} ${items.length === 1 ? 'step' : 'steps'}`
+      ? `${items.length} ${items.length === 1 ? 'step' : 'steps'}${hasReasoning ? ' · reasoning' : ''}`
       : isLive
       ? 'Running'
       : '';
@@ -70,7 +77,7 @@ export function ThreadTraceTree({
           {agentLabel}
         </span>
         {stepSummary && (
-          <span className="font-mono text-[11px] text-emerald-100/40 tabular-nums">
+          <span className="font-mono text-[11px] text-emerald-100/45 tabular-nums">
             · {stepSummary}
           </span>
         )}
@@ -97,31 +104,64 @@ export function ThreadTraceTree({
             </button>
           )}
 
-          {visibleItems.map((step, idx) => (
-            <StaggerItem
-              key={step.id}
-              index={idx}
-              className="flex items-center justify-between gap-3 text-[12.5px] leading-snug py-0.5"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <span aria-hidden="true" className="shrink-0 flex items-center">
-                  {renderStepIcon(step.icon)}
-                </span>
-                <span className="font-medium text-emerald-50/85 shrink-0 truncate max-w-[160px] sm:max-w-none">
-                  {step.label}
-                </span>
-                {step.detail && (
-                  <span className="text-emerald-100/45 truncate text-[12px]">
-                    {step.detail}
-                  </span>
-                )}
-              </div>
+          {visibleItems.map((step, idx) => {
+            const isReasoningStep = Boolean(step.isReasoning || step.icon === 'reasoning');
+            return (
+              <StaggerItem
+                key={step.id}
+                index={idx}
+                className={`text-[12.5px] leading-snug py-0.5 ${
+                  isReasoningStep ? 'space-y-1' : 'flex items-center justify-between gap-3'
+                }`}
+              >
+                {isReasoningStep ? (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span aria-hidden="true" className="shrink-0 flex items-center">
+                          {renderStepIcon(step.icon)}
+                        </span>
+                        <span className="font-medium text-emerald-200/90 shrink-0">
+                          {step.label}
+                        </span>
+                      </div>
+                      <span className="font-mono text-[10.5px] tabular-nums text-emerald-100/35 shrink-0">
+                        {step.timestamp}
+                      </span>
+                    </div>
+                    {step.detail && (
+                      <p
+                        data-testid="reasoning-trace-detail"
+                        className="ml-5.5 text-[12px] leading-relaxed text-emerald-100/65 whitespace-pre-wrap break-words rounded-md bg-white/[0.025] border border-white/[0.06] px-2.5 py-1.5"
+                      >
+                        {step.detail}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span aria-hidden="true" className="shrink-0 flex items-center">
+                        {renderStepIcon(step.icon)}
+                      </span>
+                      <span className="font-medium text-emerald-50/85 shrink-0 truncate max-w-[160px] sm:max-w-none">
+                        {step.label}
+                      </span>
+                      {step.detail && (
+                        <span className="text-emerald-100/45 truncate text-[12px]">
+                          {step.detail}
+                        </span>
+                      )}
+                    </div>
 
-              <span className="font-mono text-[10.5px] tabular-nums text-emerald-100/35 shrink-0">
-                {step.timestamp}
-              </span>
-            </StaggerItem>
-          ))}
+                    <span className="font-mono text-[10.5px] tabular-nums text-emerald-100/35 shrink-0">
+                      {step.timestamp}
+                    </span>
+                  </>
+                )}
+              </StaggerItem>
+            );
+          })}
 
           {isLive && !hideLiveFooter && (
             <div className="flex items-center gap-2 text-[12px] text-emerald-100/75 py-0.5">
@@ -134,4 +174,3 @@ export function ThreadTraceTree({
     </div>
   );
 }
-

@@ -1,7 +1,7 @@
 import type { TerminalEntry } from '../types/hermes';
 import { dedupeActivityEntries } from './taskInsights';
 
-export type TraceStepIcon = 'spawn' | 'tool' | 'link' | 'status';
+export type TraceStepIcon = 'reasoning' | 'commentary' | 'spawn' | 'tool' | 'link' | 'status';
 
 export interface ClassifiedTraceStep {
   id: string;
@@ -9,6 +9,7 @@ export interface ClassifiedTraceStep {
   detail: string;
   timestamp: string;
   icon: TraceStepIcon;
+  isReasoning?: boolean;
 }
 
 export type ThreadTimelineBlock =
@@ -24,8 +25,37 @@ export function classifyTraceStep(entry: TerminalEntry): ClassifiedTraceStep {
   const raw = entry.text.trim();
   const lower = raw.toLowerCase();
 
+  if (entry.activityKind === 'reasoning') {
+    const detail = (entry.reasoningDetail ?? raw.replace(/^reasoning\s*[:—-]\s*/i, '')).trim();
+    return {
+      id: entry.id,
+      label: 'Reasoning',
+      detail,
+      timestamp: entry.timestamp,
+      icon: 'reasoning',
+      isReasoning: true,
+    };
+  }
+
+  if (entry.activityKind === 'commentary') {
+    const detail = raw.replace(/^commentary\s*[:—-]\s*/i, '').trim();
+    return {
+      id: entry.id,
+      label: 'Commentary',
+      detail,
+      timestamp: entry.timestamp,
+      icon: 'commentary',
+    };
+  }
+
   let icon: TraceStepIcon = 'status';
-  if (lower.includes('spawn') || lower.includes('agent') || lower.includes('session')) {
+  if (entry.activityKind === 'subagent') {
+    icon = 'spawn';
+  } else if (entry.activityKind === 'tool') {
+    icon = 'tool';
+  } else if (lower.startsWith('reasoning:') || lower.startsWith('reasoning —')) {
+    icon = 'reasoning';
+  } else if (lower.includes('spawn') || lower.includes('agent') || lower.includes('session')) {
     icon = 'spawn';
   } else if (
     lower.includes('link') ||
@@ -67,12 +97,34 @@ export function classifyTraceStep(entry: TerminalEntry): ClassifiedTraceStep {
     detail,
     timestamp: entry.timestamp,
     icon,
+    isReasoning: icon === 'reasoning',
   };
+}
+
+export function isTerminalDiagnosticActivity(entry: TerminalEntry): boolean {
+  if (entry.role !== 'activity') return false;
+  if (
+    entry.activityKind === 'tool' ||
+    entry.activityKind === 'reasoning' ||
+    entry.activityKind === 'subagent' ||
+    entry.activityKind === 'commentary'
+  ) {
+    return false;
+  }
+  return Boolean(
+    entry.errorCode ||
+      entry.terminalOutcome === 'failed' ||
+      entry.terminalOutcome === 'cancelled' ||
+      entry.terminalOutcome === 'admission_conflict' ||
+      entry.activityStatus === 'error'
+  );
 }
 
 /**
  * Groups consecutive `activity` entries into collapsible vertical trace trees
  * and optionally attaches the live thinking state to the trailing trace tree.
+ * Terminal diagnostic entries (e.g. gateway_offline, cancelled, admission_conflict)
+ * stay standalone entry blocks so failure badges remain visible even in Clean mode.
  */
 export function groupThreadTimeline(
   entries: TerminalEntry[],
@@ -101,7 +153,7 @@ export function groupThreadTimeline(
   };
 
   for (const entry of entries) {
-    if (entry.role === 'activity') {
+    if (entry.role === 'activity' && !isTerminalDiagnosticActivity(entry)) {
       if (pendingRaw.length === 0) {
         pendingFirstId = `trace-${entry.id}`;
       }

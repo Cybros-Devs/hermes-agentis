@@ -354,7 +354,7 @@ export function MobileWorkspaceBar({
             onClick={() => onChangePanelView(panelView === 'canvas' ? 'voice' : 'canvas')}
             className="text-[11px] font-medium text-emerald-100/75 hover:text-white whitespace-nowrap cursor-pointer tabular-nums"
           >
-            {canvasSessions.length} sessions
+            {canvasSessions.length} {canvasSessions.length === 1 ? 'session' : 'sessions'}
             {runningCount > 0 ? ` · ${runningCount} live` : ''}
           </button>
         </div>

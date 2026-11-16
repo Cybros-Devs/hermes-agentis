@@ -37,7 +37,15 @@ export interface ChannelTaskSummary {
 }
 
 export interface TaskStatusDisplay {
-  label: 'Working' | 'Queued' | 'Waiting' | 'Paused' | 'Done' | 'Failed' | 'Cancelled';
+  label:
+    | 'Working'
+    | 'Queued'
+    | 'Waiting'
+    | 'Paused'
+    | 'Done'
+    | 'Budget limit'
+    | 'Failed'
+    | 'Cancelled';
   pulseState: 'thinking' | 'live' | 'idle';
   tone: 'amber' | 'emerald' | 'slate' | 'rose';
 }
@@ -104,8 +112,14 @@ export function getTaskStatusDisplay(task: BackgroundTask): TaskStatusDisplay {
   if (task.rawStatus === 'failed') {
     return { label: 'Failed', pulseState: 'idle', tone: 'rose' };
   }
-  if (task.rawStatus === 'cancelled') {
+  if (task.rawStatus === 'cancelled' || task.rawStatus === 'interrupted') {
     return { label: 'Cancelled', pulseState: 'idle', tone: 'slate' };
+  }
+  if (
+    task.rawStatus === 'iteration_budget_exhausted' ||
+    task.errorCode === 'iteration_budget_exhausted'
+  ) {
+    return { label: 'Budget limit', pulseState: 'live', tone: 'amber' };
   }
   if (task.status === 'running') {
     if (task.rawStatus === 'queued') {
@@ -114,7 +128,7 @@ export function getTaskStatusDisplay(task: BackgroundTask): TaskStatusDisplay {
     return { label: 'Working', pulseState: 'thinking', tone: 'amber' };
   }
   if (task.status === 'paused') {
-    if (task.rawStatus === 'waiting') {
+    if (task.rawStatus === 'waiting' || task.rawStatus === 'waiting_for_approval') {
       return { label: 'Waiting', pulseState: 'idle', tone: 'amber' };
     }
     return { label: 'Paused', pulseState: 'idle', tone: 'slate' };
@@ -640,10 +654,10 @@ export function applyStreamingDeltaToSteps(
  */
 export function finalizeTurnTaskSteps(
   prevSteps: GenericTaskStep[],
-  outcome: 'done' | 'failed' | 'cancelled',
+  outcome: 'done' | 'failed' | 'cancelled' | 'iteration_budget_exhausted',
   finalLabel?: string
 ): { steps: GenericTaskStep[]; progress: string } {
-  if (outcome === 'done') {
+  if (outcome === 'done' || outcome === 'iteration_budget_exhausted') {
     const nextSteps: GenericTaskStep[] =
       prevSteps.length > 0
         ? prevSteps.map((s) => ({
@@ -654,7 +668,25 @@ export function finalizeTurnTaskSteps(
             done: true,
             active: false,
           }))
-        : [{ text: finalLabel || 'Completed response', done: true, active: false }];
+        : [
+            {
+              text:
+                finalLabel ||
+                (outcome === 'iteration_budget_exhausted'
+                  ? 'Iteration budget reached (partial answer)'
+                  : 'Completed response'),
+              done: true,
+              active: false,
+            },
+          ];
+
+    if (
+      outcome === 'iteration_budget_exhausted' &&
+      finalLabel &&
+      !nextSteps.some((s) => s.text === finalLabel)
+    ) {
+      nextSteps.push({ text: finalLabel, done: true, active: false });
+    }
 
     return {
       steps: nextSteps,
@@ -762,7 +794,12 @@ export function dedupeActivityEntries(activities: TerminalEntry[]): TerminalEntr
     const isGenericRunning = /^running\s+/i.test(trimmed);
     const needle = extractToolNeedleFromText(trimmed);
 
-    if (result.length > 0 && needle) {
+    if (
+      result.length > 0 &&
+      needle &&
+      entry.activityKind !== 'reasoning' &&
+      result[result.length - 1].activityKind !== 'reasoning'
+    ) {
       const prev = result[result.length - 1];
       const prevTrimmed = prev.text.trim();
       const prevIsGenericRunning = /^running\s+/i.test(prevTrimmed);

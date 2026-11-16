@@ -28,6 +28,8 @@ export type ChannelId = string;
 
 export type HermesSessionRuntimeStatus = 'idle' | 'thinking' | 'speaking' | 'running';
 
+export type HermesTransportMode = 'auto' | 'runs' | 'chat_completions' | 'session_stream';
+
 export interface HermesAgentSession {
   sessionId: string;
   channelId: ChannelId;
@@ -38,6 +40,9 @@ export interface HermesAgentSession {
   turnCount: number;
   lastMessage?: string;
   updatedAtMs: number;
+  source?: string;
+  model?: string;
+  ownedByApiServer?: boolean;
 }
 
 export interface Channel {
@@ -56,6 +61,11 @@ export interface ApprovalCard {
   actionType: 'send_message' | 'payment' | 'deploy' | 'calendar' | 'tool';
   mcpTool?: string;
   runId?: string;
+  requestId?: string;
+  executionGeneration?: number;
+  kind?: 'approval' | 'clarify';
+  choices?: string[];
+  command?: string;
   destination: string;
   summary: string;
   draft: string;
@@ -83,12 +93,14 @@ export interface BackgroundTask {
   id: string;
   channelId: ChannelId;
   sessionId?: string;
+  runId?: string;
   kind?: string;
   background?: boolean;
   handoverId?: string;
   title: string;
   status: 'running' | 'completed' | 'paused';
   rawStatus?: string;
+  errorCode?: string;
   progress: number;
   progressLabel?: string;
   lastStep: string;
@@ -105,7 +117,17 @@ export interface HermesSkill {
   name: string;
   source: string;
   summary: string;
+  category?: string;
   enabled: boolean;
+}
+
+export interface HermesToolset {
+  name: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  configured: boolean;
+  tools: string[];
 }
 
 export interface HermesMemoryItem {
@@ -116,25 +138,63 @@ export interface HermesMemoryItem {
 
 export interface HermesCronJob {
   id: string;
+  name?: string;
   schedule: string;
   channelId: ChannelId;
   mode: 'agent' | 'no-agent';
   summary: string;
+  paused?: boolean;
+  enabled?: boolean;
+  status?: string;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  lastStatus?: string;
+}
+
+export interface HermesCapabilities {
+  object: string;
+  platform: string;
+  model: string;
+  sessionKeyHeader?: string;
+  features: Record<string, boolean>;
+  endpoints?: Record<string, string>;
+}
+
+export interface HermesModelProviderInfo {
+  id: string;
+  label: string;
+  configured?: boolean;
 }
 
 export interface HermesGatewayStatus {
   connected: boolean;
   mode: 'hermes-gateway' | 'local-standby';
   gatewayUrl: string;
+  routePrefix?: string;
   profile: string;
   activeModel: string;
+  activeProvider?: string;
   models: string[];
+  providers?: HermesModelProviderInfo[];
   sessionHeader: string;
+  sessionKeyHeader?: string;
   skillsCount: number;
-  toolsets: string[];
-  hermesHomeFound?: boolean;
+  toolsets: HermesToolset[];
+  capabilities?: HermesCapabilities | null;
+  transportMode?: HermesTransportMode;
+  resolvedTransport?: 'runs' | 'chat_completions' | 'session_stream';
+  healthStatus?: string;
+  checkedAtMs?: number;
   error?: string;
 }
+
+export type TerminalTurnOutcome =
+  | 'completed'
+  | 'cancelled'
+  | 'failed'
+  | 'interrupted'
+  | 'iteration_budget_exhausted'
+  | 'admission_conflict';
 
 export interface TerminalEntry {
   id: string;
@@ -147,6 +207,10 @@ export interface TerminalEntry {
   commandUsed?: string;
   streaming?: boolean;
   activityStatus?: string;
+  activityKind?: 'reasoning' | 'commentary' | 'tool' | 'subagent' | 'status';
+  reasoningDetail?: string;
+  errorCode?: string;
+  terminalOutcome?: TerminalTurnOutcome;
   /** Epoch ms from the Hermes server; used to keep items chronologically ordered. */
   createdAtMs?: number;
 }

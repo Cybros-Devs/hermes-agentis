@@ -1,5 +1,18 @@
 import { useState } from 'react';
-import { Check, X, Hash, CheckCircle2, RefreshCw } from 'lucide-react';
+import {
+  Check,
+  CheckCircle2,
+  Cpu,
+  Hash,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Send,
+  Trash2,
+  Wrench,
+  X,
+} from 'lucide-react';
 import type {
   ApprovalCard,
   BriefDecision,
@@ -7,14 +20,10 @@ import type {
   ChannelId,
   HermesCronJob,
   HermesGatewayStatus,
-  HermesMemoryItem,
   HermesSkill,
+  HermesToolset,
+  HermesTransportMode,
 } from '../types/hermes';
-import {
-  INITIAL_HERMES_CRON,
-  INITIAL_HERMES_MEMORY,
-  INITIAL_HERMES_SKILLS,
-} from '../utils/cliEngine';
 import { EmptyState, MorphTabs, StaggerItem, StatusPulse, type MorphTabItem } from './ui';
 
 interface HermesOperationsPanelProps {
@@ -22,18 +31,26 @@ interface HermesOperationsPanelProps {
   activeChannel: ChannelId;
   onSelectChannel: (id: ChannelId) => void;
   approvals: ApprovalCard[];
-  onApproveCard: (id: string, editedDraft: string) => void;
+  onApproveCard: (id: string, choice?: 'once' | 'always' | 'deny') => void;
   onRejectCard: (id: string) => void;
+  onClarifyCard?: (id: string, answer: string) => void;
   brief: BriefDecision[];
   onRunBriefCommand: (command: string, briefId: string) => void;
   gatewayStatus?: HermesGatewayStatus | null;
-  onRefreshGateway?: () => void;
+  onRefreshGateway?: () => Promise<unknown> | void;
   skills?: HermesSkill[];
-  memory?: HermesMemoryItem[];
+  toolsets?: HermesToolset[];
   cronJobs?: HermesCronJob[];
+  transportMode?: HermesTransportMode;
+  onChangeTransportMode?: (mode: HermesTransportMode) => void;
+  onCreateJob?: (payload: { prompt: string; schedule: string; name?: string }) => Promise<unknown>;
+  onPauseJob?: (jobId: string) => Promise<void>;
+  onResumeJob?: (jobId: string) => Promise<void>;
+  onRunJob?: (jobId: string) => Promise<void>;
+  onDeleteJob?: (jobId: string) => Promise<void>;
 }
 
-type OpsTab = 'runtime' | 'approvals' | 'brief';
+type OpsTab = 'runtime' | 'approvals' | 'jobs';
 
 export function HermesOperationsPanel({
   channels,
@@ -42,25 +59,39 @@ export function HermesOperationsPanel({
   approvals,
   onApproveCard,
   onRejectCard,
-  brief,
-  onRunBriefCommand,
+  onClarifyCard,
   gatewayStatus,
   onRefreshGateway,
-  skills = INITIAL_HERMES_SKILLS,
-  memory = INITIAL_HERMES_MEMORY,
-  cronJobs = INITIAL_HERMES_CRON,
+  skills = [],
+  toolsets = [],
+  cronJobs = [],
+  transportMode = 'auto',
+  onChangeTransportMode,
+  onCreateJob,
+  onPauseJob,
+  onResumeJob,
+  onRunJob,
+  onDeleteJob,
 }: HermesOperationsPanelProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending').length;
-  const openBriefCount = brief.filter((b) => !b.resolved).length;
 
-  const [activeTab, setActiveTab] = useState<OpsTab>(pendingApprovals > 0 ? 'approvals' : 'runtime');
-  const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState<OpsTab>(
+    pendingApprovals > 0 ? 'approvals' : 'runtime'
+  );
+  const [clarifyInputs, setClarifyInputs] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedToolset, setExpandedToolset] = useState<string | null>(null);
+  const [showNewJobForm, setShowNewJobForm] = useState(false);
+  const [newJobSchedule, setNewJobSchedule] = useState('0 9 * * *');
+  const [newJobPrompt, setNewJobPrompt] = useState('');
+  const [newJobName, setNewJobName] = useState('');
+  const [jobBusyId, setJobBusyId] = useState<string | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
 
   const opsTabs: MorphTabItem<OpsTab>[] = [
-    { id: 'runtime', label: 'Hermes Gateway' },
-    { id: 'approvals', label: `Actions (${pendingApprovals})` },
-    { id: 'brief', label: `Brief (${openBriefCount})` },
+    { id: 'runtime', label: 'Gateway & Tools' },
+    { id: 'approvals', label: `Approvals (${pendingApprovals})` },
+    { id: 'jobs', label: `Jobs (${cronJobs.length})` },
   ];
 
   const handleRefresh = async () => {
@@ -73,36 +104,80 @@ export function HermesOperationsPanel({
     }
   };
 
+  const handleCreateJobSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onCreateJob || !newJobPrompt.trim() || !newJobSchedule.trim()) return;
+    setJobError(null);
+    setJobBusyId('create');
+    try {
+      await onCreateJob({
+        prompt: newJobPrompt.trim(),
+        schedule: newJobSchedule.trim(),
+        name: newJobName.trim() || undefined,
+      });
+      setNewJobPrompt('');
+      setNewJobName('');
+      setShowNewJobForm(false);
+    } catch (err) {
+      setJobError(err instanceof Error ? err.message : 'Failed to create job');
+    } finally {
+      setJobBusyId(null);
+    }
+  };
+
+  const runJobAction = async (jobId: string, fn?: (id: string) => Promise<void>) => {
+    if (!fn) return;
+    setJobError(null);
+    setJobBusyId(jobId);
+    try {
+      await fn(jobId);
+    } catch (err) {
+      setJobError(err instanceof Error ? err.message : 'Job action failed');
+    } finally {
+      setJobBusyId(null);
+    }
+  };
+
+  const isConnected = Boolean(gatewayStatus?.connected);
+  const capabilities = gatewayStatus?.capabilities;
+  const routeDisplay = `${gatewayStatus?.gatewayUrl || 'http://127.0.0.1:8642'}${gatewayStatus?.routePrefix || ''}`;
+
   return (
     <section
       aria-label="Hermes Agent Operations"
       data-testid="hermes-operations-panel"
       className="flex flex-col rounded-xl bg-[#0B1714]/90 border border-white/12 overflow-hidden shadow-[0_12px_36px_rgba(0,0,0,0.35)]"
     >
-      {/* Channel & Session Lane Strip */}
+      {/* Session Lane Strip */}
       <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/8 bg-black/20 overflow-x-auto cyber-scroll">
         <div className="flex items-center gap-1.5">
-          {channels.map((ch) => {
-            const active = ch.id === activeChannel;
-            return (
-              <button
-                key={ch.id}
-                type="button"
-                onClick={() => onSelectChannel(ch.id)}
-                className={`ui-tactile px-3 py-1.5 rounded-lg font-mono text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                  active
-                    ? 'bg-[#34D399] text-[#05140E] font-semibold'
-                    : 'bg-white/[0.05] text-emerald-50/75 hover:text-white border border-white/10'
-                }`}
-              >
-                <Hash className="w-3 h-3" />
-                <span>{ch.name.replace(/^#/, '')}</span>
-              </button>
-            );
-          })}
+          {channels.length === 0 ? (
+            <span className="font-mono text-xs text-emerald-100/50">
+              No active sessions synced from gateway
+            </span>
+          ) : (
+            channels.map((ch) => {
+              const active = ch.id === activeChannel;
+              return (
+                <button
+                  key={ch.id}
+                  type="button"
+                  onClick={() => onSelectChannel(ch.id)}
+                  className={`ui-tactile px-3 py-1.5 rounded-lg font-mono text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                    active
+                      ? 'bg-[#34D399] text-[#05140E] font-semibold'
+                      : 'bg-white/[0.05] text-emerald-50/75 hover:text-white border border-white/10'
+                  }`}
+                >
+                  <Hash className="w-3 h-3" />
+                  <span>{ch.name.replace(/^#/, '')}</span>
+                </button>
+              );
+            })
+          )}
         </div>
         <span className="font-mono text-[11px] text-emerald-100/50 whitespace-nowrap shrink-0">
-          key: hermes-{activeChannel}
+          {gatewayStatus?.sessionKeyHeader || 'X-Hermes-Session-Key'}
         </span>
       </div>
 
@@ -121,29 +196,42 @@ export function HermesOperationsPanel({
       {/* Tab Content */}
       <div
         key={activeTab}
-        className="ui-card-enter p-3 sm:p-3.5 space-y-2.5 lg:max-h-[min(56vh,520px)] overflow-y-auto cyber-scroll"
+        className="ui-card-enter p-3 sm:p-3.5 space-y-3 lg:max-h-[min(62vh,560px)] overflow-y-auto cyber-scroll"
       >
         {activeTab === 'approvals' &&
           (approvals.length === 0 ? (
             <EmptyState
               icon={<CheckCircle2 className="w-4 h-4" />}
-              title="All action gates clear"
-              description="Pending outbound tool confirmations from your Hermes Agent sessions will appear here."
+              title="No pending run approvals"
+              description="Pending execution gates from /v1/runs/{id}/events and pending_controls will appear here when a run requests confirmation."
             />
           ) : (
             approvals.map((card, idx) => {
-              const currentDraft = draftEdits[card.id] ?? card.draft;
               const isPending = card.status === 'pending';
+              const isClarify = card.kind === 'clarify';
+              const clarifyVal = clarifyInputs[card.id] ?? '';
               return (
                 <StaggerItem key={card.id} index={idx}>
                   <div
                     data-testid={`approval-card-${card.id}`}
-                    className="rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 transition-colors p-3 space-y-2"
+                    className="rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 transition-colors p-3 space-y-2.5"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-emerald-100/55">
-                          <span>{card.id}</span>
+                          <span>run:{card.runId || card.id}</span>
+                          {card.requestId && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>req:{card.requestId}</span>
+                            </>
+                          )}
+                          {typeof card.executionGeneration === 'number' && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>gen:{card.executionGeneration}</span>
+                            </>
+                          )}
                           <span aria-hidden="true">·</span>
                           <span>#{card.channelId}</span>
                           {card.mcpTool && (
@@ -152,8 +240,6 @@ export function HermesOperationsPanel({
                               <span className="text-[#6EE7B7]/85">{card.mcpTool}</span>
                             </>
                           )}
-                          <span aria-hidden="true">·</span>
-                          <span>{card.createdAt}</span>
                         </div>
                         <h3 className="text-sm font-semibold text-white mt-0.5">{card.title}</h3>
                       </div>
@@ -163,7 +249,7 @@ export function HermesOperationsPanel({
                             ? 'text-emerald-400'
                             : card.status === 'rejected'
                             ? 'text-rose-400'
-                            : 'text-[#6EE7B7]'
+                            : 'text-amber-300'
                         }`}
                       >
                         {isPending && <StatusPulse state="live" size="sm" />}
@@ -171,114 +257,259 @@ export function HermesOperationsPanel({
                       </span>
                     </div>
 
-                    <p className="text-xs text-emerald-50/80">{card.summary}</p>
-                    <p className="font-mono text-[11px] text-[#6EE7B7] truncate">
-                      Target: {card.destination}
-                    </p>
-
-                    {isPending ? (
-                      <>
-                        <label htmlFor={`draft-${card.id}`} className="sr-only">
-                          Editable draft for {card.title}
-                        </label>
-                        <textarea
-                          id={`draft-${card.id}`}
-                          rows={2}
-                          value={currentDraft}
-                          onChange={(e) =>
-                            setDraftEdits((prev) => ({ ...prev, [card.id]: e.target.value }))
-                          }
-                          className="w-full rounded-lg bg-black/35 border border-white/12 p-2 font-mono text-xs text-emerald-50 focus:outline-none focus:border-[#34D399]/60"
-                        />
-                        <div className="flex items-center gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => onApproveCard(card.id, currentDraft)}
-                            className="flex-1 min-h-[40px] rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
-                          >
-                            <Check className="w-4 h-4" />
-                            <span>Approve &amp; Dispatch</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onRejectCard(card.id)}
-                            className="min-h-[40px] px-4 rounded-lg bg-white/[0.05] text-emerald-50/80 border border-white/10 text-xs flex items-center justify-center gap-1.5 hover:text-white hover:border-white/25 transition-colors cursor-pointer"
-                          >
-                            <X className="w-4 h-4" />
-                            <span>Hold</span>
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="font-mono text-xs text-emerald-100/55">
-                        Draft: &ldquo;{currentDraft}&rdquo;
-                      </p>
+                    {card.summary && (
+                      <p className="text-xs text-emerald-50/80 whitespace-pre-wrap">{card.summary}</p>
                     )}
+
+                    {(card.command || card.draft) && (
+                      <pre className="rounded-lg bg-black/45 border border-white/10 p-2 font-mono text-[11px] text-[#6EE7B7] overflow-x-auto whitespace-pre-wrap">
+                        {card.command || card.draft}
+                      </pre>
+                    )}
+
+                    {isPending && isClarify && onClarifyCard ? (
+                      <div className="flex items-center gap-2 pt-1">
+                        <input
+                          type="text"
+                          value={clarifyVal}
+                          onChange={(e) =>
+                            setClarifyInputs((prev) => ({ ...prev, [card.id]: e.target.value }))
+                          }
+                          placeholder="Enter clarification answer..."
+                          className="flex-1 min-w-0 rounded-lg bg-black/35 border border-white/12 px-2.5 py-2 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => onClarifyCard(card.id, clarifyVal)}
+                          disabled={!clarifyVal.trim()}
+                          className="min-h-[36px] px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs inline-flex items-center gap-1.5 hover:bg-[#6EE7B7] disabled:opacity-45 cursor-pointer"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Reply</span>
+                        </button>
+                      </div>
+                    ) : isPending ? (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          data-testid={`approve-once-${card.id}`}
+                          onClick={() => onApproveCard(card.id, 'once')}
+                          className="flex-1 min-h-[38px] px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Approve Once</span>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`approve-always-${card.id}`}
+                          onClick={() => onApproveCard(card.id, 'always')}
+                          className="min-h-[38px] px-3 rounded-lg bg-[#34D399]/18 text-[#6EE7B7] border border-[#34D399]/40 font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-[#34D399]/28 transition-colors cursor-pointer"
+                        >
+                          <span>Always Allow</span>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`approve-deny-${card.id}`}
+                          onClick={() => onRejectCard(card.id)}
+                          className="min-h-[38px] px-3.5 rounded-lg bg-rose-500/12 text-rose-200 border border-rose-400/30 text-xs flex items-center justify-center gap-1.5 hover:bg-rose-500/22 transition-colors cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                          <span>Deny</span>
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </StaggerItem>
               );
             })
           ))}
 
-        {activeTab === 'brief' &&
-          (brief.length === 0 ? (
-            <EmptyState
-              icon={<CheckCircle2 className="w-4 h-4" />}
-              title="Morning brief clear"
-              description="Open decisions from scheduled Hermes Agent briefs will appear here."
-            />
-          ) : (
-            brief.map((item, idx) => (
-              <StaggerItem key={item.id} index={idx}>
-                <div className="rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 transition-colors p-3.5 flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-100/55">
-                      <span
-                        className={
-                          item.priority === 'high'
-                            ? 'text-rose-400 font-semibold'
-                            : item.priority === 'medium'
-                            ? 'text-[#6EE7B7] font-semibold'
-                            : 'text-emerald-100/50'
-                        }
-                      >
-                        {item.priority.toUpperCase()}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span>{item.resolved ? 'Resolved' : 'Pending'}</span>
-                    </div>
-                    <h3 className="text-sm font-medium text-white">{item.title}</h3>
-                    <p className="text-xs text-emerald-100/60">{item.detail}</p>
-                  </div>
-
+        {activeTab === 'jobs' && (
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-mono text-xs text-white font-semibold">
+                Scheduled Jobs (GET /api/jobs)
+              </div>
+              <div className="flex items-center gap-2">
+                {onRefreshGateway && (
                   <button
                     type="button"
-                    disabled={item.resolved}
-                    onClick={() => onRunBriefCommand(item.suggestedCommand, item.id)}
-                    className={`ui-tactile min-h-[38px] px-3 rounded-lg font-mono text-xs whitespace-nowrap shrink-0 cursor-pointer ${
-                      item.resolved
-                        ? 'bg-black/25 text-emerald-100/35 cursor-not-allowed'
-                        : 'bg-black/30 text-[#6EE7B7] border border-[#34D399]/35 hover:bg-[#34D399] hover:text-[#05140E]'
-                    }`}
+                    onClick={() => void handleRefresh()}
+                    className="ui-tactile px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/10 text-[11px] font-mono text-emerald-100/75 hover:text-white cursor-pointer"
                   >
-                    {item.resolved ? 'Done' : item.suggestedCommand}
+                    Refresh
+                  </button>
+                )}
+                {onCreateJob && isConnected && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNewJobForm((v) => !v)}
+                    className="ui-tactile px-2.5 py-1 rounded-md bg-[#34D399]/18 border border-[#34D399]/40 text-[11px] font-mono text-[#6EE7B7] hover:bg-[#34D399]/28 inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>New Job</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {jobError && (
+              <div className="rounded-lg bg-rose-500/15 border border-rose-400/30 px-3 py-2 font-mono text-[11px] text-rose-200">
+                {jobError}
+              </div>
+            )}
+
+            {showNewJobForm && onCreateJob && (
+              <form
+                onSubmit={handleCreateJobSubmit}
+                className="rounded-xl bg-black/35 border border-[#34D399]/30 p-3 space-y-2"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={newJobName}
+                    onChange={(e) => setNewJobName(e.target.value)}
+                    placeholder="Name (optional)"
+                    className="rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                  />
+                  <input
+                    type="text"
+                    value={newJobSchedule}
+                    onChange={(e) => setNewJobSchedule(e.target.value)}
+                    placeholder="Cron or schedule (e.g. 0 9 * * *)"
+                    className="rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                  />
+                </div>
+                <textarea
+                  rows={2}
+                  value={newJobPrompt}
+                  onChange={(e) => setNewJobPrompt(e.target.value)}
+                  placeholder="Job prompt to execute on gateway..."
+                  className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowNewJobForm(false)}
+                    className="px-3 py-1 rounded-md text-xs text-emerald-100/65 hover:text-white cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={jobBusyId === 'create' || !newJobPrompt.trim()}
+                    className="px-3 py-1 rounded-md bg-[#34D399] text-[#05140E] font-semibold text-xs hover:bg-[#6EE7B7] disabled:opacity-45 cursor-pointer"
+                  >
+                    Create Job
                   </button>
                 </div>
-              </StaggerItem>
-            ))
-          ))}
+              </form>
+            )}
+
+            {cronJobs.length === 0 ? (
+              <EmptyState
+                icon={<Cpu className="w-4 h-4" />}
+                title={isConnected ? 'No scheduled jobs on gateway' : 'Gateway offline'}
+                description={
+                  isConnected
+                    ? 'Create a job above or via cron tools; live jobs from GET /api/jobs will appear here.'
+                    : 'Connect to the Hermes Agent API Server to inspect and manage /api/jobs.'
+                }
+              />
+            ) : (
+              cronJobs.map((job, idx) => {
+                const isPaused = job.paused || job.status === 'paused';
+                const busy = jobBusyId === job.id;
+                return (
+                  <StaggerItem key={job.id} index={idx}>
+                    <div
+                      data-testid={`cron-job-${job.id}`}
+                      className="rounded-xl bg-white/[0.04] border border-white/10 p-3 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+                            <span className="text-[#6EE7B7] font-semibold">{job.schedule}</span>
+                            <span className="text-emerald-100/40">·</span>
+                            <span className={isPaused ? 'text-amber-300' : 'text-emerald-300'}>
+                              {job.status || (isPaused ? 'paused' : 'active')}
+                            </span>
+                            <span className="text-emerald-100/40">·</span>
+                            <span className="text-emerald-100/50 truncate">{job.id}</span>
+                          </div>
+                          <p className="text-xs text-white mt-1">{job.summary}</p>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {onRunJob && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void runJobAction(job.id, onRunJob)}
+                              title="Trigger job now (POST /api/jobs/{id}/run)"
+                              className="px-2 py-1 rounded-md bg-white/[0.06] border border-white/10 text-[11px] font-mono text-[#6EE7B7] hover:bg-white/12 cursor-pointer"
+                            >
+                              Run
+                            </button>
+                          )}
+                          {isPaused
+                            ? onResumeJob && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void runJobAction(job.id, onResumeJob)}
+                                  title="Resume job"
+                                  className="p-1.5 rounded-md bg-white/[0.06] border border-white/10 text-emerald-200 hover:text-white cursor-pointer"
+                                >
+                                  <Play className="w-3 h-3" />
+                                </button>
+                              )
+                            : onPauseJob && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void runJobAction(job.id, onPauseJob)}
+                                  title="Pause job"
+                                  className="p-1.5 rounded-md bg-white/[0.06] border border-white/10 text-amber-200 hover:text-white cursor-pointer"
+                                >
+                                  <Pause className="w-3 h-3" />
+                                </button>
+                              )}
+                          {onDeleteJob && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void runJobAction(job.id, onDeleteJob)}
+                              title="Delete job"
+                              className="p-1.5 rounded-md bg-white/[0.06] border border-white/10 text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </StaggerItem>
+                );
+              })
+            )}
+          </div>
+        )}
 
         {activeTab === 'runtime' && (
           <div className="space-y-3">
             <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2 font-mono text-xs">
                 <div className="flex items-center gap-2">
-                  <StatusPulse state={gatewayStatus?.connected ? 'live' : 'idle'} size="sm" />
+                  <StatusPulse state={isConnected ? 'live' : 'error'} size="sm" />
                   <span className="text-white font-semibold">Hermes Agent API Server</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={gatewayStatus?.connected ? 'text-[#4ADE80]' : 'text-[#6EE7B7]'}>
-                    {gatewayStatus?.connected ? 'CONNECTED' : 'LOCAL STANDBY'}
+                  <span
+                    data-testid="ops-gateway-status"
+                    className={isConnected ? 'text-[#4ADE80]' : 'text-rose-300'}
+                  >
+                    {isConnected ? 'CONNECTED' : 'OFFLINE'}
                   </span>
                   {onRefreshGateway && (
                     <button
@@ -297,88 +528,187 @@ export function HermesOperationsPanel({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px] bg-black/30 border border-white/8 rounded-lg p-2.5">
-                <div>
+                <div className="truncate">
                   <span className="text-emerald-100/45">Endpoint: </span>
-                  <span className="text-emerald-50/90">
-                    {gatewayStatus?.gatewayUrl || 'http://127.0.0.1:8642'}
+                  <span className="text-emerald-50/90" title={routeDisplay}>
+                    {routeDisplay}
                   </span>
                 </div>
                 <div>
                   <span className="text-emerald-100/45">Model: </span>
-                  <span className="text-[#6EE7B7]">{gatewayStatus?.activeModel || 'hermes-agent'}</span>
+                  <span className="text-[#6EE7B7]">
+                    {gatewayStatus?.activeModel || 'hermes-agent'}
+                  </span>
                 </div>
                 <div>
-                  <span className="text-emerald-100/45">Session Header: </span>
-                  <span className="text-emerald-50/90">X-Hermes-Session-Key</span>
+                  <span className="text-emerald-100/45">Profile: </span>
+                  <span className="text-emerald-50/90">
+                    {gatewayStatus?.profile || 'default'} ({gatewayStatus?.healthStatus || (isConnected ? 'ok' : 'unreachable')})
+                  </span>
                 </div>
                 <div>
-                  <span className="text-emerald-100/45">Stream Events: </span>
-                  <span className="text-emerald-50/90">SSE + hermes.tool.progress</span>
+                  <span className="text-emerald-100/45">Transport: </span>
+                  <span className="text-emerald-50/90">
+                    {gatewayStatus?.resolvedTransport || 'chat_completions'}
+                  </span>
                 </div>
               </div>
 
-              <p className="text-xs text-emerald-100/65 leading-relaxed">
-                Enable the native API Server in{' '}
-                <code className="font-mono text-white/85">~/.hermes/.env</code> and run{' '}
-                <code className="font-mono text-[#6EE7B7]">hermes gateway</code>. Every session
-                binds directly via{' '}
-                <code className="font-mono text-[#6EE7B7]">/v1/chat/completions</code> with live
-                tool-progress streaming.
-              </p>
-              <pre className="rounded-lg bg-black/40 border border-white/10 p-2.5 font-mono text-[11px] leading-relaxed text-emerald-50/85 overflow-x-auto">
-{`# ~/.hermes/.env
-API_SERVER_ENABLED=true
-API_SERVER_KEY=change-me-local-dev
+              {onChangeTransportMode && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                  <span className="font-mono text-[11px] text-emerald-100/60">
+                    Turn Transport:
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {(
+                      [
+                        ['auto', 'Auto'],
+                        ['runs', '/v1/runs'],
+                        ['session_stream', '/sessions/stream'],
+                        ['chat_completions', '/v1/chat/completions'],
+                      ] as const
+                    ).map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => onChangeTransportMode(mode)}
+                        className={`px-2 py-1 rounded-md font-mono text-[10.5px] border transition-colors cursor-pointer ${
+                          transportMode === mode
+                            ? 'bg-[#34D399]/20 border-[#34D399]/50 text-[#6EE7B7]'
+                            : 'bg-black/25 border-white/10 text-emerald-100/60 hover:text-white'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-# Start native Hermes Agent gateway
-hermes gateway`}
-              </pre>
+              {capabilities && (
+                <div className="font-mono text-[10.5px] text-emerald-100/60 flex flex-wrap gap-1.5">
+                  <span>/v1/capabilities:</span>
+                  {capabilities.features?.run_submission && (
+                    <span className="text-[#6EE7B7]">runs</span>
+                  )}
+                  {capabilities.features?.run_approval && (
+                    <span className="text-[#6EE7B7]">approvals</span>
+                  )}
+                  {capabilities.features?.session_chat_stream && (
+                    <span className="text-[#6EE7B7]">session_stream</span>
+                  )}
+                  {capabilities.features?.reasoning_streaming && (
+                    <span className="text-[#6EE7B7]">reasoning</span>
+                  )}
+                  {capabilities.sessionKeyHeader && (
+                    <span className="text-[#6EE7B7]">{capabilities.sessionKeyHeader}</span>
+                  )}
+                </div>
+              )}
+
+              {!isConnected && gatewayStatus?.error && (
+                <p className="rounded-lg bg-rose-500/12 border border-rose-400/25 px-2.5 py-2 font-mono text-[11px] text-rose-200">
+                  {gatewayStatus.error}
+                </p>
+              )}
             </div>
 
+            {/* Toolsets from GET /v1/toolsets */}
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-mono text-xs font-semibold text-white flex items-center gap-1.5">
+                  <Wrench className="w-3.5 h-3.5 text-[#6EE7B7]" />
+                  <span>Toolsets (GET /v1/toolsets)</span>
+                </h3>
+                <span className="font-mono text-[10px] text-emerald-100/50">
+                  {toolsets.length} reported
+                </span>
+              </div>
+              {toolsets.length === 0 ? (
+                <p className="font-mono text-[11px] text-emerald-100/45">
+                  {isConnected ? '0 toolsets returned by gateway.' : 'Offline — start hermes gateway to inspect toolsets.'}
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {toolsets.map((ts) => {
+                    const isOpen = expandedToolset === ts.name;
+                    return (
+                      <div
+                        key={ts.name}
+                        className="border-b border-white/6 last:border-0 pb-1.5 last:pb-0 text-xs"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setExpandedToolset(isOpen ? null : ts.name)}
+                          className="w-full text-left flex items-center justify-between gap-2 font-mono text-[11px] cursor-pointer hover:text-white"
+                        >
+                          <span className={ts.enabled ? 'text-[#6EE7B7] font-semibold' : 'text-emerald-100/45'}>
+                            {ts.label}
+                          </span>
+                          <span className="text-emerald-100/50">
+                            {ts.enabled ? (ts.configured === false ? 'unconfigured' : 'enabled') : 'disabled'} · {ts.tools.length} tools
+                          </span>
+                        </button>
+                        {ts.description && (
+                          <p className="text-emerald-100/60 text-[11px] mt-0.5">{ts.description}</p>
+                        )}
+                        {isOpen && ts.tools.length > 0 && (
+                          <div className="mt-1 font-mono text-[10.5px] text-emerald-100/75 bg-black/30 rounded p-2">
+                            {ts.tools.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Skills from GET /v1/skills */}
             <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-mono text-xs font-semibold text-white">
-                  Loaded Skills (~/.hermes/skills/)
+                  Skills (GET /v1/skills)
                 </h3>
                 <span className="font-mono text-[10px] text-emerald-100/50">
-                  {skills.length} active
+                  {skills.length} loaded
                 </span>
               </div>
-              <div className="space-y-1.5">
-                {skills.map((skill) => (
-                  <div
-                    key={skill.name}
-                    className="text-xs border-b border-white/6 last:border-0 pb-1.5 last:pb-0"
-                  >
-                    <div className="flex items-center justify-between font-mono text-[11px]">
-                      <span className="text-[#6EE7B7] font-semibold">{skill.name}</span>
-                      <span className="text-emerald-100/45 truncate max-w-[55%]">
-                        {skill.source}
-                      </span>
+              {skills.length === 0 ? (
+                <p className="font-mono text-[11px] text-emerald-100/45">
+                  {isConnected ? '0 skills returned by gateway.' : 'Offline — start hermes gateway to inspect /v1/skills.'}
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {skills.map((skill) => (
+                    <div
+                      key={skill.name}
+                      className="text-xs border-b border-white/6 last:border-0 pb-1.5 last:pb-0"
+                    >
+                      <div className="flex items-center justify-between font-mono text-[11px]">
+                        <span className="text-[#6EE7B7] font-semibold">{skill.name}</span>
+                        <span className="text-emerald-100/45 truncate max-w-[55%]">
+                          {skill.source}
+                        </span>
+                      </div>
+                      {skill.summary && (
+                        <p className="text-emerald-100/65 mt-0.5">{skill.summary}</p>
+                      )}
                     </div>
-                    <p className="text-emerald-100/65 mt-0.5">{skill.summary}</p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-2">
+            {/* Honest Memory Scoping Summary */}
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3.5 space-y-1.5">
               <h3 className="font-mono text-xs font-semibold text-white">
-                Cron Routines (cronjob_manage) &amp; MEMORY.md
+                Memory &amp; Session Continuity
               </h3>
-              <div className="space-y-1.5 font-mono text-[11px] text-emerald-50/80">
-                {cronJobs.map((job) => (
-                  <div key={job.id} className="flex items-start justify-between gap-2">
-                    <span className="text-[#6EE7B7] shrink-0">{job.schedule}</span>
-                    <span className="text-emerald-100/70 text-right">{job.summary}</span>
-                  </div>
-                ))}
-                {memory.map((mem) => (
-                  <div key={mem.key} className="pt-1 border-t border-white/6 text-emerald-100/60">
-                    <span className="text-white/80">{mem.key}:</span> {mem.value}
-                  </div>
-                ))}
-              </div>
+              <p className="font-mono text-[11px] text-emerald-100/65 leading-relaxed">
+                Transcript continuity uses <span className="text-[#6EE7B7]">X-Hermes-Session-Id</span>; isolated Honcho/long-term memory scoping sends{' '}
+                <span className="text-[#6EE7B7]">{gatewayStatus?.sessionKeyHeader || 'X-Hermes-Session-Key'}</span> per lane. Hermes API Server does not expose a separate /v1/memory endpoint.
+              </p>
             </div>
           </div>
         )}

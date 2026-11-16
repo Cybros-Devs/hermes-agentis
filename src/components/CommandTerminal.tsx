@@ -13,12 +13,12 @@ interface CommandTerminalProps {
 }
 
 const QUICK_COMMANDS = [
-  '/brief',
-  '/tasks',
   '/skills',
+  '/toolsets',
   '/cron',
+  '/sessions',
+  '/tasks',
   '/gateway',
-  '/approve card-1',
   '/help',
 ];
 
@@ -72,7 +72,9 @@ export function CommandTerminal({
           <Terminal className="w-3.5 h-3.5 text-[#34D399]" />
           <span className="font-semibold text-white">hermes-agent</span>
           <span className="text-emerald-100/40">·</span>
-          <span className="text-emerald-100/75">{activeSessionId || `hermes-${activeChannel}`}</span>
+          <span className="text-emerald-100/75">
+            {activeSessionId || (activeChannel ? `hermes-${activeChannel}` : 'global')}
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto cyber-scroll">
@@ -106,7 +108,7 @@ export function CommandTerminal({
         {scopedEntries.length === 0 ? (
           <EmptyState
             icon={<Terminal className="w-4 h-4" />}
-            title={`Session ${activeSessionId || `hermes-${activeChannel}`} ready`}
+            title={`Session ${activeSessionId || (activeChannel ? `hermes-${activeChannel}` : 'global')} ready`}
             description="Type a slash command (/help) or send a prompt below to drive this lane."
           />
         ) : (
@@ -171,7 +173,8 @@ export function CommandTerminal({
       <div className="px-4 py-2 border-t border-white/[0.07] bg-black/25 flex items-center justify-between gap-3 font-mono text-[10.5px] text-emerald-100/45 tabular-nums shrink-0">
         <span className="truncate">Tab autocomplete · ↑↓ command history</span>
         <span className="shrink-0">
-          #{activeChannel} · {scopedEntries.length} {scopedEntries.length === 1 ? 'entry' : 'entries'}
+          {activeChannel ? `#${activeChannel}` : 'global'} · {scopedEntries.length}{' '}
+          {scopedEntries.length === 1 ? 'entry' : 'entries'}
         </span>
       </div>
 

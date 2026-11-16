@@ -30,8 +30,9 @@ import type {
   HermesAgentSession,
   HermesCronJob,
   HermesGatewayStatus,
-  HermesMemoryItem,
   HermesSkill,
+  HermesToolset,
+  HermesTransportMode,
   TerminalEntry,
   VoiceState,
 } from '../types/hermes';
@@ -44,7 +45,7 @@ import {
   type CanvasSession,
 } from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
-import { groupThreadTimeline } from '../utils/threadTrace';
+import { groupThreadTimeline, isTerminalDiagnosticActivity } from '../utils/threadTrace';
 import { computeThreadScrollPin } from '../utils/threadScroll';
 import { shouldShowScrollTopFade } from '../utils/motionChoreography';
 import { partitionChannelTasks } from '../utils/taskInsights';
@@ -86,12 +87,20 @@ interface VoiceWorkspacePaneProps {
   brief: BriefDecision[];
   tasks: BackgroundTask[];
   gatewayStatus?: HermesGatewayStatus | null;
-  onRefreshGateway?: () => void;
+  onRefreshGateway?: () => Promise<unknown> | void;
   skills?: HermesSkill[];
-  memory?: HermesMemoryItem[];
+  toolsets?: HermesToolset[];
   cronJobs?: HermesCronJob[];
-  onApproveCard: (id: string, editedDraft?: string) => void;
+  transportMode?: HermesTransportMode;
+  onChangeTransportMode?: (mode: HermesTransportMode) => void;
+  onCreateJob?: (payload: { prompt: string; schedule: string; name?: string }) => Promise<unknown>;
+  onPauseJob?: (jobId: string) => Promise<void>;
+  onResumeJob?: (jobId: string) => Promise<void>;
+  onRunJob?: (jobId: string) => Promise<void>;
+  onDeleteJob?: (jobId: string) => Promise<void>;
+  onApproveCard: (id: string, choice?: 'once' | 'always' | 'deny') => void;
   onRejectCard: (id: string) => void;
+  onClarifyCard?: (id: string, answer: string) => void;
   onRunBriefCommand: (command: string, briefId: string) => void;
   onToggleTaskStatus: (id: string) => void;
   onConfirmTask?: (id: string) => void;
@@ -153,10 +162,18 @@ export function VoiceWorkspacePane({
   gatewayStatus,
   onRefreshGateway,
   skills,
-  memory,
+  toolsets,
   cronJobs,
+  transportMode,
+  onChangeTransportMode,
+  onCreateJob,
+  onPauseJob,
+  onResumeJob,
+  onRunJob,
+  onDeleteJob,
   onApproveCard,
   onRejectCard,
+  onClarifyCard,
   onRunBriefCommand,
   onToggleTaskStatus,
   onConfirmTask,
@@ -196,6 +213,7 @@ export function VoiceWorkspacePane({
 }: VoiceWorkspacePaneProps) {
   const [tick, setTick] = useState(0);
   const [input, setInput] = useState('');
+  const [clarifyDraft, setClarifyDraft] = useState<Record<string, string>>({});
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [workingSeconds, setWorkingSeconds] = useState(0);
   const [portraitStatus, setPortraitStatus] = useState<PortraitAssetStatus>('loading');
@@ -235,7 +253,7 @@ export function VoiceWorkspacePane({
     [canvasSessions, activeChannel]
   );
   const activeHermesSessionId =
-    activeCanvasSession?.hermesSessionId ?? `hermes-${activeChannel}`;
+    activeCanvasSession?.hermesSessionId ?? (activeChannel ? `hermes-${activeChannel}` : 'new session');
   const rawIsThinking = Boolean(thinkingByChannel[activeChannel]);
   const rawIsSpeaking =
     voiceState.isSpeaking && (speakingChannel ?? activeChannel) === activeChannel;
@@ -445,6 +463,7 @@ export function VoiceWorkspacePane({
           e.role === 'user' ||
           e.role === 'hermes' ||
           e.role === 'command' ||
+          isTerminalDiagnosticActivity(e) ||
           (showThinking && e.role === 'activity')
       ),
     [scopedEntries, showThinking]
@@ -633,7 +652,7 @@ export function VoiceWorkspacePane({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                isHomeNewDraft
+                isHomeNewDraft || !activeChannel
                   ? voiceState.isListening
                     ? 'Listening for new session prompt...'
                     : 'Start a new Hermes session or type /help'
@@ -964,8 +983,27 @@ export function VoiceWorkspacePane({
                 </span>
               </div>
 
-              {/* Live Decoded Speech / Response Readout */}
               <div className="relative z-10 mt-3 max-w-[50ch] text-center space-y-3">
+                {gatewayStatus && !gatewayStatus.connected && (
+                  <div
+                    data-testid="gateway-offline-banner"
+                    className="mx-auto inline-flex items-center gap-2 rounded-lg bg-rose-500/12 border border-rose-400/30 px-3 py-1.5 font-mono text-[11px] text-rose-200"
+                  >
+                    <span>
+                      Gateway offline ({gatewayStatus.gatewayUrl})
+                    </span>
+                    {onRefreshGateway && (
+                      <button
+                        type="button"
+                        onClick={() => void onRefreshGateway()}
+                        className="underline hover:text-white cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <p
                   data-testid="home-decoded-line"
                   className="text-sm sm:text-[15px] leading-relaxed text-white/92"
@@ -1265,6 +1303,7 @@ export function VoiceWorkspacePane({
                   approvals={approvals}
                   onApproveCard={onApproveCard}
                   onRejectCard={onRejectCard}
+                  onClarifyCard={onClarifyCard}
                   brief={brief}
                   onRunBriefCommand={(cmd, id) => {
                     onRunBriefCommand(cmd, id);
@@ -1273,8 +1312,15 @@ export function VoiceWorkspacePane({
                   gatewayStatus={gatewayStatus}
                   onRefreshGateway={onRefreshGateway}
                   skills={skills}
-                  memory={memory}
+                  toolsets={toolsets}
                   cronJobs={cronJobs}
+                  transportMode={transportMode}
+                  onChangeTransportMode={onChangeTransportMode}
+                  onCreateJob={onCreateJob}
+                  onPauseJob={onPauseJob}
+                  onResumeJob={onResumeJob}
+                  onRunJob={onRunJob}
+                  onDeleteJob={onDeleteJob}
                 />
               </div>
             ) : panelView === 'cli' ? (
@@ -1375,6 +1421,20 @@ export function VoiceWorkspacePane({
                           </div>
                         );
                       }
+                      const outcomeLabel =
+                        entry.terminalOutcome === 'iteration_budget_exhausted'
+                          ? 'Budget limit'
+                          : entry.terminalOutcome === 'cancelled'
+                          ? 'Cancelled'
+                          : entry.terminalOutcome === 'interrupted'
+                          ? 'Interrupted'
+                          : entry.terminalOutcome === 'admission_conflict'
+                          ? 'Conflict'
+                          : entry.errorCode === 'gateway_offline'
+                          ? 'Gateway offline'
+                          : entry.terminalOutcome === 'failed'
+                          ? 'Failed'
+                          : null;
                       return (
                         <div key={entry.id} className="ui-msg-enter max-w-[66ch] space-y-1">
                           <p className="text-[14.5px] sm:text-[15px] leading-[1.68] font-normal text-[#ECF3F0] whitespace-pre-wrap break-words">
@@ -1383,9 +1443,23 @@ export function VoiceWorkspacePane({
                               animate={!entry.id.startsWith('init-') && !entry.streaming}
                             />
                           </p>
-                          {idx > 0 && (
-                            <div className="font-mono text-[10.5px] text-emerald-100/40 tabular-nums">
-                              {entry.timestamp}
+                          {(idx > 0 || outcomeLabel) && (
+                            <div className="flex items-center gap-2 font-mono text-[10.5px] text-emerald-100/40 tabular-nums">
+                              {idx > 0 && <span>{entry.timestamp}</span>}
+                              {outcomeLabel && (
+                                <span
+                                  data-testid="entry-outcome-badge"
+                                  className={`px-1.5 py-0.5 rounded border text-[10px] ${
+                                    entry.terminalOutcome === 'iteration_budget_exhausted'
+                                      ? 'border-amber-400/35 bg-amber-500/12 text-amber-200'
+                                      : entry.terminalOutcome === 'cancelled' || entry.terminalOutcome === 'interrupted'
+                                      ? 'border-white/20 bg-white/[0.06] text-emerald-100/75'
+                                      : 'border-rose-400/35 bg-rose-500/12 text-rose-200'
+                                  }`}
+                                >
+                                  {outcomeLabel}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1398,43 +1472,91 @@ export function VoiceWorkspacePane({
                       </div>
                     )}
 
-                    {/* Inline Pending Approval Prompt */}
-                    {channelPendingApprovals.length > 0 && !activeIsThinking && (
-                      <div
-                        data-testid={`approval-card-${channelPendingApprovals[0].id}`}
-                        className="max-w-[66ch] rounded-xl bg-white/[0.03] border border-white/10 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => onChangePanelView('queue')}
-                          className="flex items-center gap-2 min-w-0 text-left hover:text-[#6EE7B7] transition-colors cursor-pointer"
+                    {/* Inline Pending Run Approval / Clarification Card */}
+                    {channelPendingApprovals.length > 0 && (() => {
+                      const card = channelPendingApprovals[0];
+                      const isClarify = card.kind === 'clarify';
+                      const draftVal = clarifyDraft[card.id] ?? '';
+                      return (
+                        <div
+                          data-testid={`approval-card-${card.id}`}
+                          className="max-w-[66ch] rounded-xl bg-amber-500/[0.06] border border-amber-400/30 p-3 space-y-2.5"
                         >
-                          <RefreshCw className="w-3.5 h-3.5 text-[#6EE7B7] shrink-0" aria-hidden="true" />
-                          <span className="text-xs sm:text-[13px] font-medium text-white truncate">
-                            {channelPendingApprovals[0].title}
-                          </span>
-                        </button>
+                          <div className="flex items-start justify-between gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => onChangePanelView('queue')}
+                              className="flex items-center gap-2 min-w-0 text-left hover:text-[#6EE7B7] transition-colors cursor-pointer"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
+                              <span className="text-xs sm:text-[13px] font-medium text-white truncate">
+                                {card.title}
+                              </span>
+                            </button>
+                            <span className="font-mono text-[10px] text-amber-200/80 shrink-0">
+                              {card.mcpTool || 'approval'}
+                            </span>
+                          </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => onApproveCard(channelPendingApprovals[0].id)}
-                            className="h-8 px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs inline-flex items-center gap-1 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Approve</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onRejectCard(channelPendingApprovals[0].id)}
-                            className="h-8 px-3 rounded-lg bg-white/[0.05] border border-white/10 text-emerald-50/80 hover:text-white text-xs inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>Not now</span>
-                          </button>
+                          {(card.command || card.summary) && (
+                            <pre className="rounded-lg bg-black/40 border border-white/10 px-2.5 py-1.5 font-mono text-[11px] text-[#6EE7B7] whitespace-pre-wrap break-all">
+                              {card.command || card.summary}
+                            </pre>
+                          )}
+
+                          {isClarify && onClarifyCard ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={draftVal}
+                                onChange={(e) =>
+                                  setClarifyDraft((prev) => ({ ...prev, [card.id]: e.target.value }))
+                                }
+                                placeholder="Provide answer to continue run..."
+                                className="flex-1 min-w-0 rounded-lg bg-black/40 border border-white/15 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]"
+                              />
+                              <button
+                                type="button"
+                                disabled={!draftVal.trim()}
+                                onClick={() => onClarifyCard(card.id, draftVal)}
+                                className="h-8 px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs hover:bg-[#6EE7B7] disabled:opacity-45 cursor-pointer"
+                              >
+                                Send
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                data-testid={`thread-approve-once-${card.id}`}
+                                onClick={() => onApproveCard(card.id, 'once')}
+                                className="h-8 px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs inline-flex items-center gap-1 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Once</span>
+                              </button>
+                              <button
+                                type="button"
+                                data-testid={`thread-approve-always-${card.id}`}
+                                onClick={() => onApproveCard(card.id, 'always')}
+                                className="h-8 px-3 rounded-lg bg-[#34D399]/18 border border-[#34D399]/40 text-[#6EE7B7] font-semibold text-xs inline-flex items-center gap-1 hover:bg-[#34D399]/28 transition-colors cursor-pointer"
+                              >
+                                <span>Always</span>
+                              </button>
+                              <button
+                                type="button"
+                                data-testid={`thread-approve-deny-${card.id}`}
+                                onClick={() => onRejectCard(card.id)}
+                                className="h-8 px-3 rounded-lg bg-rose-500/12 border border-rose-400/30 text-rose-200 hover:bg-rose-500/22 text-xs inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span>Deny</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     <div ref={bottomAnchorRef} aria-hidden="true" className="h-px shrink-0" />
                   </div>

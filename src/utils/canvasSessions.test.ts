@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import type { Channel } from '../types/hermes';
 import {
   CANVAS_BOUNDS,
   CANVAS_ZOOM_BOUNDS,
@@ -24,7 +25,37 @@ import {
   slugifySessionName,
   zoomViewportAroundPoint,
 } from './canvasSessions';
-import { INITIAL_CHANNELS } from './cliEngine';
+
+const TEST_CHANNELS: Channel[] = [
+  {
+    id: 'general',
+    name: 'general',
+    sessionId: 'hermes-general',
+    description: 'Primary session lane',
+    unreadCount: 0,
+  },
+  {
+    id: 'ops',
+    name: 'ops',
+    sessionId: 'hermes-ops',
+    description: 'Build & gateway ops',
+    unreadCount: 0,
+  },
+  {
+    id: 'research',
+    name: 'research',
+    sessionId: 'hermes-research',
+    description: 'Deep technical research',
+    unreadCount: 0,
+  },
+  {
+    id: 'launch',
+    name: 'launch',
+    sessionId: 'hermes-launch',
+    description: 'Release tracking',
+    unreadCount: 0,
+  },
+];
 
 test('clampCanvasPosition enforces safe canvas stage bounds', () => {
   const low = clampCanvasPosition(-20, 0);
@@ -51,7 +82,7 @@ test('findOpenCanvasSpot maximizes distance from existing sessions without overl
   const dist = Math.hypot(next.xPct - first.xPct, next.yPct - first.yPct);
   assert.ok(dist >= 15, `expected open spot well separated from existing session, got dist=${dist}`);
 
-  const seeded = createSeedCanvasSessions(INITIAL_CHANNELS);
+  const seeded = createSeedCanvasSessions(TEST_CHANNELS);
   const extraSpot = findOpenCanvasSpot(seeded);
   for (const item of seeded) {
     const clearance = Math.hypot(
@@ -66,7 +97,7 @@ test('findOpenCanvasSpot maximizes distance from existing sessions without overl
 });
 
 test('createSeedCanvasSessions assigns distinct hermes-agent sessions, personas, and Dots autonomy', () => {
-  const seeded = createSeedCanvasSessions(INITIAL_CHANNELS);
+  const seeded = createSeedCanvasSessions(TEST_CHANNELS);
   assert.ok(seeded.length >= 4);
   const sessionIds = new Set(seeded.map((s) => s.hermesSessionId));
   assert.equal(sessionIds.size, seeded.length, 'each shape must have a unique hermesSessionId');
@@ -147,7 +178,7 @@ test('viewport zoom and pan helpers clamp cleanly and preserve cursor anchor poi
 });
 
 test('filterCanvasSessions, formatters, templates, and Berd workspace pins behave deterministically', () => {
-  const seeded = createSeedCanvasSessions(INITIAL_CHANNELS);
+  const seeded = createSeedCanvasSessions(TEST_CHANNELS);
   const autoOnly = filterCanvasSessions(seeded, 'autonomous', {});
   assert.ok(autoOnly.every((s) => s.autonomyMode !== 'manual'));
   assert.ok(autoOnly.length >= 1);

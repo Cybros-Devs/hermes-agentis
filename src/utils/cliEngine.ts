@@ -2,12 +2,13 @@ import type {
   ApprovalCard,
   BackgroundTask,
   BriefDecision,
-  Channel,
   ChannelId,
   ExpressionMood,
+  HermesCapabilities,
   HermesCronJob,
-  HermesMemoryItem,
   HermesSkill,
+  HermesToolset,
+  HermesTransportMode,
 } from '../types/hermes';
 import {
   CURATED_UI_PRESETS,
@@ -17,224 +18,6 @@ import {
   type UiCustomizationPatch,
 } from './uiCustomization';
 
-export const INITIAL_CHANNELS: Channel[] = [
-  {
-    id: 'general',
-    name: '#general',
-    sessionId: 'hermes-general',
-    description: 'Primary Hermes Agent voice thread, daily check-ins, and morning brief',
-    unreadCount: 0,
-  },
-  {
-    id: 'ops',
-    name: '#ops',
-    sessionId: 'hermes-ops',
-    description: 'hermes gateway (:8642), cronjob_manage schedules, and infra operations',
-    unreadCount: 1,
-  },
-  {
-    id: 'launch',
-    name: '#launch',
-    sessionId: 'hermes-launch',
-    description: '~/.hermes/skills/ workflows, build artifacts, and QA checks',
-    unreadCount: 2,
-  },
-  {
-    id: 'research',
-    name: '#research',
-    sessionId: 'hermes-research',
-    description: 'Isolated background runs and persistent MEMORY.md synthesis',
-    unreadCount: 0,
-  },
-];
-
-export const INITIAL_HERMES_SKILLS: HermesSkill[] = [
-  {
-    name: 'hermes-memory',
-    source: '~/.hermes/skills/hermes-memory/SKILL.md',
-    summary: 'Persists cross-session facts, project conventions, and user preferences to MEMORY.md',
-    enabled: true,
-  },
-  {
-    name: 'morning-brief',
-    source: '~/.hermes/skills/morning-brief/SKILL.md',
-    summary: 'Summarizes overnight cron runs and ranks top open agent decisions',
-    enabled: true,
-  },
-  {
-    name: 'playwright-parity',
-    source: '~/.hermes/skills/playwright-parity/SKILL.md',
-    summary: 'Headless browser verification & responsive layout checks via terminal tools',
-    enabled: true,
-  },
-  {
-    name: 'cron-orchestrator',
-    source: '~/.hermes/skills/cron-orchestrator/SKILL.md',
-    summary: 'Schedules isolated agent & no-agent jobs with cronjob_manage',
-    enabled: true,
-  },
-];
-
-export const INITIAL_HERMES_MEMORY: HermesMemoryItem[] = [
-  {
-    key: 'gateway.endpoint',
-    scope: 'host',
-    value: 'http://127.0.0.1:8642 (API_SERVER_ENABLED=true, OpenAI /v1/chat/completions)',
-  },
-  {
-    key: 'session.scoping',
-    scope: 'session',
-    value: 'X-Hermes-Session-Key binds each lane/shape to an isolated Hermes memory scope',
-  },
-  {
-    key: 'brief.cadence',
-    scope: 'preference',
-    value: 'Standing cron prep runs 07:30 local; morning brief summarizes at 08:00 local',
-  },
-];
-
-export const INITIAL_HERMES_CRON: HermesCronJob[] = [
-  {
-    id: 'cron-standing-pages',
-    schedule: '30 7 * * *',
-    channelId: 'launch',
-    mode: 'agent',
-    summary: 'Rebuild standing brief artifacts 30m prior to morning brief',
-  },
-  {
-    id: 'cron-morning-brief',
-    schedule: '0 8 * * *',
-    channelId: 'general',
-    mode: 'agent',
-    summary: 'Compile morning brief across #general, #ops, and #launch sessions',
-  },
-  {
-    id: 'cron-downloads-watch',
-    schedule: '*/30 9-18 * * 1-5',
-    channelId: 'ops',
-    mode: 'no-agent',
-    summary: 'Watch ~/Downloads and enqueue invoice PDFs for #ops triage',
-  },
-];
-
-export const INITIAL_BRIEF_DECISIONS: BriefDecision[] = [
-  {
-    id: 'brief-1',
-    priority: 'high',
-    title: 'Approve outbound release dispatch for beta cohort',
-    detail: 'Hermes Agent drafted the v2.4 release note for 184 subscribers in session hermes-general.',
-    suggestedCommand: '/approve card-1',
-    resolved: false,
-  },
-  {
-    id: 'brief-2',
-    priority: 'medium',
-    title: 'Review scheduled cronjob_manage watcher rule in #ops',
-    detail: 'Invoice triage rule queued for confirmation in session hermes-ops.',
-    suggestedCommand: '/tasks',
-    resolved: false,
-  },
-  {
-    id: 'brief-3',
-    priority: 'low',
-    title: 'Inspect standing morning-brief.html diff in #launch',
-    detail: '07:30 scheduled rebuild logged 2 updated steps in hermes-launch.',
-    suggestedCommand: '/switch launch',
-    resolved: false,
-  },
-];
-
-export const INITIAL_APPROVALS: ApprovalCard[] = [
-  {
-    id: 'card-1',
-    channelId: 'general',
-    title: 'Send Release Dispatch via Mail Tool',
-    actionType: 'send_message',
-    mcpTool: 'mail_dispatch',
-    runId: 'run-hermes-781',
-    destination: 'mail://beta-cohort (184 recipients)',
-    summary: 'Dispatches the v2.4 Hermes Agent changelog with streaming tool-progress support.',
-    draft:
-      'Hermes Agent v2.4 is live: direct Gateway (/v1/chat/completions) streaming, X-Hermes-Session-Key isolation, and live Braille voice sync are active.',
-    status: 'pending',
-    createdAt: '08:05',
-  },
-];
-
-const SEED_BOOT_MS = Date.now();
-
-export const INITIAL_TASKS: BackgroundTask[] = [
-  {
-    id: 'task-101',
-    channelId: 'launch',
-    sessionId: 'hermes-launch',
-    kind: 'Background',
-    background: true,
-    title: 'Rebuild standing morning-brief.html',
-    status: 'running',
-    rawStatus: 'running',
-    progress: 67,
-    progressLabel: '4/6',
-    lastStep: 'Verifying responsive layout across Playwright parity lane',
-    createdAtMs: SEED_BOOT_MS - 878_000,
-    updatedAtMs: SEED_BOOT_MS - 18_000,
-    updatedAt: '14:21',
-    steps: [
-      { text: 'Collect overnight thread summaries & tool outputs', done: true },
-      { text: 'Compile static morning-brief.html bundle', done: true },
-      { text: 'Verify desktop 1440×900 layout & contrast hierarchy', done: true },
-      { text: 'Capture mobile 390×844 snapshot & scroll bounds', done: true },
-      { text: 'Streaming tool progress across Playwright parity lane', done: false, active: true },
-      { text: 'Publish signed artifact to #launch brief archive', done: false },
-    ],
-  },
-  {
-    id: 'task-102',
-    channelId: 'research',
-    sessionId: 'hermes-research',
-    kind: 'Background',
-    background: true,
-    title: 'Index ~/.hermes/skills/ & toolsets',
-    status: 'completed',
-    rawStatus: 'done',
-    progress: 100,
-    progressLabel: '3/3',
-    lastStep: 'Synced 4 skills and native Hermes toolsets to #research',
-    agentDoneAtMs: SEED_BOOT_MS - 1_920_000,
-    createdAtMs: SEED_BOOT_MS - 2_700_000,
-    updatedAtMs: SEED_BOOT_MS - 1_920_000,
-    updatedAt: '13:45',
-    steps: [
-      { text: 'Scan ~/.hermes/skills/ SKILL.md manifests', done: true },
-      { text: 'Validate active Hermes toolset schemas', done: true },
-      { text: 'Synced 4 skills and native Hermes toolsets to #research', done: true },
-    ],
-  },
-  {
-    id: 'task-103',
-    channelId: 'ops',
-    sessionId: 'hermes-ops',
-    kind: 'Cron',
-    background: true,
-    title: 'Audit ~/Downloads watcher rule (cronjob_manage)',
-    status: 'paused',
-    rawStatus: 'waiting',
-    progress: 40,
-    progressLabel: '2/5',
-    lastStep: 'Waiting on confirmation to route invoice PDFs into #ops',
-    createdAtMs: SEED_BOOT_MS - 1_680_000,
-    updatedAtMs: SEED_BOOT_MS - 420_000,
-    updatedAt: '12:10',
-    steps: [
-      { text: 'Inspect active cronjob_manage watcher schedule (*/30 9-18 * * 1-5)', done: true },
-      { text: 'Scan ~/Downloads for matching invoice & receipt patterns', done: true },
-      { text: 'Waiting on confirmation to route invoice PDFs into #ops', done: false, active: true },
-      { text: 'Summarize matched PDF invoices into #ops thread', done: false },
-      { text: 'Persist watcher filter rules to MEMORY.md', done: false },
-    ],
-  },
-];
-
 export interface CliContext {
   activeChannel: ChannelId;
   availableChannels?: ChannelId[];
@@ -243,11 +26,19 @@ export interface CliContext {
   brief: BriefDecision[];
   isMuted: boolean;
   skills?: HermesSkill[];
-  memory?: HermesMemoryItem[];
+  toolsets?: HermesToolset[];
   cronJobs?: HermesCronJob[];
   gatewayConnected?: boolean;
   gatewayUrl?: string;
   activeModel?: string;
+  gatewayProfile?: string;
+  routePrefix?: string;
+  healthStatus?: string;
+  sessionKeyHeader?: string;
+  capabilities?: HermesCapabilities | null;
+  transportMode?: HermesTransportMode;
+  resolvedTransport?: string;
+  gatewayError?: string;
 }
 
 export type CliExecutionResult =
@@ -260,7 +51,10 @@ export type CliExecutionResult =
       startNewSession?: boolean;
       newSessionPrompt?: string;
       approveCardId?: string;
+      approveChoice?: 'once' | 'always' | 'deny';
       rejectCardId?: string;
+      cancelActiveRun?: boolean;
+      setTransportMode?: HermesTransportMode;
       toggleMute?: boolean;
       clearTerminal?: boolean;
       setMood?: ExpressionMood;
@@ -279,16 +73,19 @@ export const AVAILABLE_COMMANDS = [
   '/brief',
   '/tasks',
   '/skills',
+  '/toolsets',
   '/memory',
   '/cron',
   '/sessions',
   '/gateway',
   '/doctor',
+  '/transport',
   '/channels',
   '/switch',
   '/resume',
   '/approve',
   '/reject',
+  '/stop',
   '/ui',
   '/customize',
   '/mood',
@@ -308,7 +105,15 @@ const VALID_MOODS: ExpressionMood[] = [
   'alert',
 ];
 
-const VALID_CHANNELS: ChannelId[] = ['general', 'ops', 'launch', 'research'];
+const VALID_TRANSPORTS: Record<string, HermesTransportMode> = {
+  auto: 'auto',
+  runs: 'runs',
+  run: 'runs',
+  completions: 'chat_completions',
+  chat_completions: 'chat_completions',
+  'session-stream': 'session_stream',
+  session_stream: 'session_stream',
+};
 
 /**
  * Pure parser and local executor for Hermes Agent slash commands.
@@ -332,9 +137,10 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
   const [cmdRaw, ...args] = trimmed.split(/\s+/);
   const cmd = cmdRaw.toLowerCase();
   const argStr = args.join(' ').trim();
-  const skills = ctx.skills ?? INITIAL_HERMES_SKILLS;
-  const memory = ctx.memory ?? INITIAL_HERMES_MEMORY;
-  const cronJobs = ctx.cronJobs ?? INITIAL_HERMES_CRON;
+  const skills = ctx.skills ?? [];
+  const toolsets = ctx.toolsets ?? [];
+  const cronJobs = ctx.cronJobs ?? [];
+  const availableChannels = ctx.availableChannels ?? [];
 
   switch (cmd) {
     case '/help': {
@@ -342,27 +148,29 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         type: 'handled',
         mood: 'happy',
         spokenText:
-          'Hermes Agent command reference ready. Start a new session, inspect skills, memory, cron routines, or check gateway status.',
+          'Hermes Agent command reference ready. Inspect capabilities, skills, toolsets, scheduled jobs, or active sessions.',
         output: [
           'HERMES AGENT // COMMAND REFERENCE',
-          '  /new [prompt]        Start a fresh isolated Hermes Agent session on Home',
-          '  /brief               Display open morning brief decisions',
-          '  /tasks               List background & cron tasks per session',
-          '  /skills              List loaded ~/.hermes/skills/ manifests',
-          '  /memory              Inspect persistent MEMORY.md & host context',
-          '  /cron                List scheduled cronjob_manage routines',
-          '  /sessions            Show active X-Hermes-Session-Key IDs per lane',
-          '  /gateway | /doctor   Inspect hermes gateway (:8642) & /v1/models status',
-          '  /switch <channel>    Switch session lane (general|ops|launch|research|...)',
-          '  /resume <session>    Resume lane by session ID (e.g. hermes-ops)',
-          '  /approve <id>        Approve a pending action card',
-          '  /reject <id>         Dismiss a pending action card',
-          '  /ui <spec|preset>    Dynamically customize theme, layout, character & backdrop',
-          '  /customize           Open the interactive UI Studio drawer',
-          '  /mood <state>        Shift portrait (neutral|happy|focused|alert|thinking)',
-          '  /mute                Toggle Hermes voice audio output',
-          '  /status              Report gateway mode, session key, and active tasks',
-          '  /clear               Clear terminal feed',
+          '  /new [prompt]          Start a fresh isolated Hermes Agent session',
+          '  /tasks                 List run & turn tasks per session',
+          '  /skills                List skills from GET /v1/skills',
+          '  /toolsets              List toolsets & tools from GET /v1/toolsets',
+          '  /memory                Inspect X-Hermes-Session-Key memory scoping header',
+          '  /cron                  List scheduled jobs from GET /api/jobs',
+          '  /sessions              Show synced sessions from GET /api/sessions',
+          '  /gateway | /doctor     Inspect /v1/capabilities, /api/model/options & /health',
+          '  /transport [mode]      Switch transport (auto | runs | session-stream | completions)',
+          '  /switch <session>      Switch active session lane',
+          '  /resume <session>      Resume session lane by slug or session id',
+          '  /approve [id] [choice] Approve pending run card (once | always | deny)',
+          '  /reject [id]           Deny a pending run approval card',
+          '  /stop                  Stop active Hermes Agent run (/v1/runs/{id}/stop)',
+          '  /ui <spec|preset>      Customize client theme, layout, character & backdrop',
+          '  /customize             Open the client UI Studio drawer',
+          '  /mood <state>          Shift portrait (neutral|happy|focused|alert|thinking)',
+          '  /mute                  Toggle Hermes voice audio output',
+          '  /status                Report gateway link, transport, and active tasks',
+          '  /clear                 Clear terminal feed',
         ].join('\n'),
       };
     }
@@ -381,20 +189,43 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
     }
 
     case '/brief': {
-      const pending = ctx.brief.filter((b) => !b.resolved);
-      const lines = ctx.brief.map(
-        (b, i) =>
-          `  ${i + 1}. [${b.priority.toUpperCase()}] ${b.title} ${b.resolved ? '(RESOLVED)' : `-> ${b.suggestedCommand}`}`
-      );
+      const pendingApprovals = ctx.approvals.filter((a) => a.status === 'pending');
+      const openBrief = ctx.brief.filter((b) => !b.resolved);
+      if (pendingApprovals.length === 0 && openBrief.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'neutral',
+          spokenText: 'All action gates clear. Zero pending approvals.',
+          output: 'HERMES AGENT // ACTION QUEUE\n  All action gates clear. Zero pending run approvals.',
+        };
+      }
+      const lines = [
+        ...pendingApprovals.map(
+          (a, i) =>
+            `  ${i + 1}. [APPROVAL] ${a.title} (${a.mcpTool || 'tool'}) · run ${a.runId || a.id} -> /approve ${a.id} once`
+        ),
+        ...openBrief.map(
+          (b, i) =>
+            `  ${pendingApprovals.length + i + 1}. [${b.priority.toUpperCase()}] ${b.title}`
+        ),
+      ];
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `Morning brief has ${pending.length} open decisions. Top priority: ${pending[0]?.title ?? 'all clear'}.`,
-        output: ['HERMES AGENT // MORNING BRIEF QUEUE', ...lines].join('\n'),
+        spokenText: `${pendingApprovals.length + openBrief.length} pending items in queue.`,
+        output: ['HERMES AGENT // ACTION QUEUE', ...lines].join('\n'),
       };
     }
 
     case '/tasks': {
+      if (ctx.tasks.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'neutral',
+          spokenText: 'No turn tasks recorded yet.',
+          output: 'HERMES AGENT // SESSION TASKS\n  No tasks recorded yet. Send a prompt to start a run.',
+        };
+      }
       const lines = ctx.tasks.map(
         (t) =>
           `  [${t.id}] ${t.status.toUpperCase().padEnd(9)} ${String(t.progress).padStart(3)}% · #${t.channelId} (${t.sessionId ?? `hermes-${t.channelId}`}) · ${t.title}`
@@ -402,64 +233,139 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `Tracking ${ctx.tasks.length} Hermes Agent runs across your active sessions.`,
-        output: ['HERMES AGENT // SESSION & BACKGROUND TASKS', ...lines].join('\n'),
+        spokenText: `Tracking ${ctx.tasks.length} Hermes Agent runs across active sessions.`,
+        output: ['HERMES AGENT // SESSION & RUN TASKS', ...lines].join('\n'),
       };
     }
 
     case '/skills': {
+      if (!ctx.gatewayConnected && skills.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'alert',
+          spokenText: 'Hermes Gateway is offline. Cannot query /v1/skills.',
+          output: `HERMES AGENT // GET /v1/skills\n  Gateway offline (${ctx.gatewayError || ctx.gatewayUrl || 'http://127.0.0.1:8642'}).`,
+        };
+      }
+      if (skills.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'neutral',
+          spokenText: 'Gateway reported zero loaded skills.',
+          output: 'HERMES AGENT // GET /v1/skills\n  0 skills reported by gateway.',
+        };
+      }
       const lines = skills.map(
-        (s) => `  ${s.enabled ? '[ON]' : '[--]'} ${s.name.padEnd(18)} ${s.source}\n       ${s.summary}`
+        (s) =>
+          `  ${s.enabled ? '[ON]' : '[--]'} ${s.name.padEnd(20)} ${s.source}${s.summary ? `\n       ${s.summary}` : ''}`
       );
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `${skills.filter((s) => s.enabled).length} Hermes Agent skills active under ~/.hermes/skills.`,
-        output: [
-          'HERMES AGENT // ~/.hermes/skills/',
-          ...lines,
-        ].join('\n'),
+        spokenText: `${skills.filter((s) => s.enabled).length} skills loaded from GET /v1/skills.`,
+        output: ['HERMES AGENT // GET /v1/skills', ...lines].join('\n'),
+      };
+    }
+
+    case '/toolsets': {
+      if (!ctx.gatewayConnected && toolsets.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'alert',
+          spokenText: 'Hermes Gateway is offline. Cannot query /v1/toolsets.',
+          output: `HERMES AGENT // GET /v1/toolsets\n  Gateway offline (${ctx.gatewayError || ctx.gatewayUrl || 'http://127.0.0.1:8642'}).`,
+        };
+      }
+      if (toolsets.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'neutral',
+          spokenText: 'Gateway reported zero toolsets.',
+          output: 'HERMES AGENT // GET /v1/toolsets\n  0 toolsets reported by gateway.',
+        };
+      }
+      const lines = toolsets.map((ts) => {
+        const badge = ts.enabled ? (ts.configured === false ? '[UNCFG]' : '[ON]   ') : '[OFF]  ';
+        const toolsPreview = ts.tools.length > 0 ? ts.tools.slice(0, 6).join(', ') : 'none';
+        return `  ${badge} ${ts.label.padEnd(20)} (${ts.tools.length} tools: ${toolsPreview})`;
+      });
+      return {
+        type: 'handled',
+        mood: 'focused',
+        spokenText: `${toolsets.filter((t) => t.enabled).length} active toolsets on gateway.`,
+        output: ['HERMES AGENT // GET /v1/toolsets', ...lines].join('\n'),
       };
     }
 
     case '/memory': {
-      const lines = memory.map(
-        (m) => `  [${m.scope.toUpperCase()}] ${m.key}: ${m.value}`
-      );
+      const keyHeader = ctx.capabilities?.sessionKeyHeader || ctx.sessionKeyHeader || 'X-Hermes-Session-Key';
+      const hasCaps = Boolean(ctx.capabilities);
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `Loaded ${memory.length} persistent Hermes Agent memory entries.`,
-        output: ['HERMES AGENT // PERSISTENT MEMORY (MEMORY.md)', ...lines].join('\n'),
+        spokenText: `Memory isolation scopes per session via ${keyHeader}.`,
+        output: [
+          'HERMES AGENT // MEMORY SCOPING',
+          `  Continuity Header : X-Hermes-Session-Id (active channel: #${ctx.activeChannel})`,
+          `  Scoping Header    : ${keyHeader}${hasCaps && !ctx.capabilities?.sessionKeyHeader ? ' (not advertised in /v1/capabilities)' : ''}`,
+          '  REST Endpoint     : Hermes API Server has no /v1/memory endpoint; persistent memory is managed inside each session.',
+        ].join('\n'),
       };
     }
 
     case '/cron': {
+      if (!ctx.gatewayConnected && cronJobs.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'alert',
+          spokenText: 'Hermes Gateway is offline. Cannot query /api/jobs.',
+          output: `HERMES AGENT // GET /api/jobs\n  Gateway offline (${ctx.gatewayError || ctx.gatewayUrl || 'http://127.0.0.1:8642'}).`,
+        };
+      }
+      if (cronJobs.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'neutral',
+          spokenText: 'Zero scheduled jobs configured on gateway.',
+          output: 'HERMES AGENT // GET /api/jobs\n  No scheduled jobs on gateway.',
+        };
+      }
       const lines = cronJobs.map(
         (c) =>
-          `  [${c.schedule.padEnd(17)}] #${c.channelId.padEnd(8)} (${c.mode}) · ${c.summary}`
+          `  [${c.schedule.padEnd(15)}] ${(c.status || c.mode).padEnd(8)} (${c.id}) · ${c.summary}`
       );
       return {
         type: 'handled',
         mood: 'focused',
-        spokenText: `${cronJobs.length} scheduled cronjob_manage routines active.`,
-        output: ['HERMES AGENT // CRONJOB_MANAGE SCHEDULES', ...lines].join('\n'),
+        spokenText: `${cronJobs.length} scheduled jobs returned by /api/jobs.`,
+        output: ['HERMES AGENT // GET /api/jobs', ...lines].join('\n'),
       };
     }
 
     case '/channels':
     case '/sessions':
     case '/lanes': {
-      const lines = INITIAL_CHANNELS.map(
-        (ch) =>
-          `  #${ch.id.padEnd(9)} key=${ch.sessionId.padEnd(16)} ${ch.id === ctx.activeChannel ? '[ACTIVE] ' : ''}${ch.description}`
+      if (availableChannels.length === 0) {
+        return {
+          type: 'handled',
+          mood: ctx.gatewayConnected ? 'neutral' : 'alert',
+          spokenText: ctx.gatewayConnected
+            ? 'No active gateway sessions found.'
+            : 'Gateway offline; no sessions synced.',
+          output: ctx.gatewayConnected
+            ? 'HERMES AGENT // GET /api/sessions\n  No sessions yet. Use /new <prompt> to create one.'
+            : `HERMES AGENT // GET /api/sessions\n  Gateway offline (${ctx.gatewayError || ctx.gatewayUrl || 'http://127.0.0.1:8642'}).`,
+        };
+      }
+      const lines = availableChannels.map(
+        (id) => `  #${id.padEnd(18)} ${id === ctx.activeChannel ? '[ACTIVE]' : ''}`
       );
       return {
         type: 'handled',
         mood: 'neutral',
-        spokenText: `Active Hermes session is hermes-${ctx.activeChannel}.`,
+        spokenText: `${availableChannels.length} synced Hermes sessions. Active lane is #${ctx.activeChannel}.`,
         output: [
-          `ACTIVE SESSION KEY: X-Hermes-Session-Key: hermes-${ctx.activeChannel}`,
+          `ACTIVE SESSION LANE: #${ctx.activeChannel} (${ctx.sessionKeyHeader || 'X-Hermes-Session-Key'})`,
           ...lines,
         ].join('\n'),
       };
@@ -470,90 +376,160 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
       const url = ctx.gatewayUrl || 'http://127.0.0.1:8642';
       const connected = Boolean(ctx.gatewayConnected);
       const model = ctx.activeModel || 'hermes-agent';
+      const f = ctx.capabilities?.features;
+      const capFlags = f
+        ? [
+            f.run_submission ? 'runs' : null,
+            f.run_approval ? 'approvals' : null,
+            f.session_chat_stream ? 'session-stream' : null,
+            f.reasoning_streaming ? 'reasoning' : null,
+          ]
+            .filter(Boolean)
+            .join(', ') || 'basic completions'
+        : 'unavailable';
       return {
         type: 'handled',
-        mood: connected ? 'happy' : 'focused',
+        mood: connected ? 'happy' : 'alert',
         spokenText: connected
-          ? 'Hermes Gateway is connected and streaming chat completions are online.'
-          : 'Hermes Gateway is in local standby. Start hermes gateway with API_SERVER_ENABLED=true to connect.',
+          ? `Hermes Gateway connected using ${ctx.resolvedTransport || 'chat_completions'} transport.`
+          : 'Hermes Gateway is offline. Start hermes gateway with API_SERVER_ENABLED=true.',
         output: [
           'HERMES AGENT DOCTOR // GATEWAY CHECK',
-          `  hermes-agent API Server : ${url} (${connected ? 'CONNECTED' : 'LOCAL STANDBY'})`,
-          `  Chat Endpoint           : POST /v1/chat/completions (stream: true, hermes.tool.progress)`,
-          `  Responses / Models      : POST /v1/responses · GET /v1/models (${model})`,
-          `  Active Session Header   : X-Hermes-Session-Key: hermes-${ctx.activeChannel}`,
+          `  Gateway URL       : ${url}${ctx.routePrefix || ''} (${connected ? 'CONNECTED' : 'OFFLINE'})`,
+          `  Profile           : ${ctx.gatewayProfile || 'default'} · Health (/health): ${ctx.healthStatus || (connected ? 'ok' : 'unreachable')}`,
+          `  Capabilities      : ${capFlags} (GET /v1/capabilities)`,
+          `  Active Model      : ${model} (GET /api/model/options)`,
+          `  Transport Mode    : ${ctx.transportMode || 'auto'} -> resolved: ${ctx.resolvedTransport || 'chat_completions'}`,
+          `  Session Headers   : X-Hermes-Session-Id + ${ctx.sessionKeyHeader || 'X-Hermes-Session-Key'}`,
+          ...(ctx.gatewayError && !connected ? [`  Error             : ${ctx.gatewayError}`] : []),
         ].join('\n'),
+      };
+    }
+
+    case '/transport': {
+      const arg = argStr.toLowerCase();
+      if (!arg) {
+        return {
+          type: 'handled',
+          mood: 'focused',
+          spokenText: `Active transport mode is ${ctx.transportMode || 'auto'}.`,
+          output: `TRANSPORT MODE // current=${ctx.transportMode || 'auto'}, resolved=${ctx.resolvedTransport || 'chat_completions'}\n  Usage: /transport <auto|runs|session-stream|completions>`,
+        };
+      }
+      const mapped = VALID_TRANSPORTS[arg];
+      if (!mapped) {
+        return {
+          type: 'handled',
+          mood: 'alert',
+          spokenText: 'Invalid transport mode.',
+          output: 'Usage: /transport <auto|runs|session-stream|completions>',
+        };
+      }
+      return {
+        type: 'handled',
+        mood: 'happy',
+        setTransportMode: mapped,
+        spokenText: `Gateway transport preference set to ${mapped}.`,
+        output: `TRANSPORT MODE // Preference updated to "${mapped}".`,
       };
     }
 
     case '/switch':
     case '/resume': {
       const normalized = argStr.replace(/^#/, '').replace(/^(hermes|duet)-/, '').toLowerCase() as ChannelId;
-      const validPool = ctx.availableChannels && ctx.availableChannels.length > 0
-        ? ctx.availableChannels
-        : VALID_CHANNELS;
-      if (!validPool.includes(normalized)) {
+      if (availableChannels.length === 0) {
+        return {
+          type: 'handled',
+          mood: 'alert',
+          spokenText: 'No synced sessions available yet.',
+          output: 'No sessions synced from gateway yet. Use /new <prompt> to start one.',
+        };
+      }
+      if (!normalized || !availableChannels.includes(normalized)) {
         return {
           type: 'handled',
           mood: 'alert',
           spokenText: 'Unknown Hermes session.',
-          output: `Unknown session "${argStr}". Valid sessions: ${validPool.join(', ')} (or hermes-<lane>).`,
+          output: `Unknown session "${argStr}". Synced sessions: ${availableChannels.join(', ')}.`,
         };
       }
       return {
         type: 'handled',
         mood: 'happy',
         switchChannel: normalized,
-        spokenText: `Resumed Hermes session hermes-${normalized}.`,
-        output: `Resumed Hermes session hermes-${normalized} (#${normalized}).`,
+        spokenText: `Switched to session #${normalized}.`,
+        output: `Resumed session #${normalized}.`,
       };
     }
 
     case '/approve': {
-      const targetId = argStr || ctx.approvals.find((c) => c.status === 'pending')?.id || '';
-      const card = ctx.approvals.find((c) => c.id === targetId);
+      const firstPending = ctx.approvals.find((c) => c.status === 'pending');
+      const rawChoice = args[args.length - 1]?.toLowerCase();
+      let choice: 'once' | 'always' | 'deny' = 'once';
+      let targetArg = argStr;
+      if (rawChoice === 'once' || rawChoice === 'always' || rawChoice === 'deny') {
+        choice = rawChoice;
+        targetArg = args.slice(0, -1).join(' ').trim();
+      }
+      const targetId = targetArg || firstPending?.id || '';
+      const card = ctx.approvals.find((c) => c.id === targetId || c.requestId === targetId);
       if (!card) {
         return {
           type: 'handled',
           mood: 'alert',
-          spokenText: 'No matching approval card found.',
-          output: `No approval card found matching "${argStr || 'pending'}".`,
+          spokenText: 'No pending run approval found.',
+          output: `No pending approval found matching "${targetArg || 'pending'}".`,
         };
       }
       if (card.status !== 'pending') {
         return {
           type: 'handled',
           mood: 'neutral',
-          spokenText: `Card ${card.id} is already ${card.status}.`,
-          output: `Card ${card.id} is already marked ${card.status}.`,
+          spokenText: `Approval ${card.id} is already ${card.status}.`,
+          output: `Approval ${card.id} is already ${card.status}.`,
         };
       }
       return {
         type: 'handled',
-        mood: 'happy',
+        mood: choice === 'deny' ? 'neutral' : 'happy',
         approveCardId: card.id,
-        spokenText: `Approved ${card.title}. Dispatching action to ${card.destination}.`,
-        output: `APPROVED [${card.id}] (${card.mcpTool ?? 'agent_action'}): ${card.title} -> ${card.destination}`,
+        approveChoice: choice,
+        spokenText:
+          choice === 'deny'
+            ? `Denied ${card.title}.`
+            : `Approved ${card.title} (${choice}).`,
+        output: `RUN APPROVAL (${choice.toUpperCase()}) [${card.id}]: ${card.title}`,
       };
     }
 
     case '/reject': {
       const targetId = argStr || ctx.approvals.find((c) => c.status === 'pending')?.id || '';
-      const card = ctx.approvals.find((c) => c.id === targetId);
+      const card = ctx.approvals.find((c) => c.id === targetId || c.requestId === targetId);
       if (!card) {
         return {
           type: 'handled',
           mood: 'alert',
-          spokenText: 'No matching approval card found.',
-          output: `No approval card found matching "${argStr || 'pending'}".`,
+          spokenText: 'No matching approval found.',
+          output: `No pending approval found matching "${argStr || 'pending'}".`,
         };
       }
       return {
         type: 'handled',
         mood: 'neutral',
         rejectCardId: card.id,
-        spokenText: `Held ${card.title}. No outbound action executed.`,
-        output: `DISMISSED [${card.id}]: ${card.title} (held locally)`,
+        approveChoice: 'deny',
+        spokenText: `Denied ${card.title}.`,
+        output: `DENIED [${card.id}]: ${card.title}`,
+      };
+    }
+
+    case '/stop': {
+      return {
+        type: 'handled',
+        mood: 'neutral',
+        cancelActiveRun: true,
+        spokenText: 'Stopping active run.',
+        output: `STOP // Requesting cancellation for active run in #${ctx.activeChannel}.`,
       };
     }
 
@@ -629,12 +605,15 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
       const runningCount = ctx.tasks.filter((t) => t.status === 'running').length;
       return {
         type: 'handled',
-        mood: 'focused',
-        spokenText: `Hermes session hermes-${ctx.activeChannel} active. ${pendingCount} pending actions and ${runningCount} background runs active.`,
+        mood: ctx.gatewayConnected ? 'focused' : 'alert',
+        spokenText: ctx.gatewayConnected
+          ? `Connected to Hermes Gateway. ${pendingCount} pending approvals, ${runningCount} active tasks.`
+          : 'Hermes Gateway is offline.',
         output: [
-          `SESSION KEY: hermes-${ctx.activeChannel} (#${ctx.activeChannel})`,
-          `GATEWAY: ${ctx.gatewayConnected ? `HERMES API SERVER (${ctx.gatewayUrl || 'http://127.0.0.1:8642'})` : 'LOCAL STANDBY'}`,
-          `PENDING ACTIONS: ${pendingCount}`,
+          `SESSION LANE: #${ctx.activeChannel}`,
+          `GATEWAY: ${ctx.gatewayConnected ? `CONNECTED (${ctx.gatewayUrl || 'http://127.0.0.1:8642'}${ctx.routePrefix || ''})` : `OFFLINE (${ctx.gatewayError || ctx.gatewayUrl || 'http://127.0.0.1:8642'})`}`,
+          `TRANSPORT: ${ctx.transportMode || 'auto'} -> ${ctx.resolvedTransport || 'chat_completions'}`,
+          `PENDING APPROVALS: ${pendingCount}`,
           `RUNNING TASKS: ${runningCount}`,
           `VOICE AUDIO: ${ctx.isMuted ? 'MUTED' : 'ACTIVE'}`,
         ].join('\n'),
@@ -652,7 +631,7 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         spokenText: argStr
           ? 'Updated UI customization and opened the live studio.'
           : 'UI Customization Studio open. Adjust any theme, layout, or stage element live.',
-        output: 'UI CUSTOMIZATION STUDIO // Opening full theme, layout, character & backdrop controls.',
+        output: 'UI CUSTOMIZATION STUDIO // Opening client theme, layout, character & backdrop controls.',
       };
     }
 

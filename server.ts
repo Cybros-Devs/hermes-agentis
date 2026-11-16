@@ -1,24 +1,40 @@
 import "dotenv/config";
 import express from "express";
-import os from "node:os";
 import path from "node:path";
 import { createServer as createHttpServer } from "node:http";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import {
-  DEFAULT_UI_CONFIG,
-  applyUiPatch,
-  parseNaturalUiIntent,
-  sanitizeUiPatch,
-  type UiCustomizationConfig,
-  type UiCustomizationPatch,
-} from "./src/utils/uiCustomization.ts";
 import {
   applyStreamingDeltaToSteps,
   applyToolProgressToSteps,
   deriveTurnTaskTitle,
   finalizeTurnTaskSteps,
 } from "./src/utils/taskInsights.ts";
+import {
+  ChatCompletionsStreamParser,
+  RunsEventStreamParser,
+  SessionChatStreamParser,
+  buildGatewayUrl,
+  chooseGatewayTransport,
+  createIdempotencyKey,
+  extractModelOptions,
+  fetchWithConcurrentRetry,
+  mapGatewayJobs,
+  mapGatewaySessionMessages,
+  mapGatewaySessions,
+  mapGatewaySkills,
+  mapGatewayToolsets,
+  parseCapabilitiesPayload,
+  parseChatCompletionsJson,
+  resolveProfileGatewayConfig,
+  sanitizeSessionKeyHeader,
+  type TerminalTurnOutcome,
+} from "./src/utils/hermesProtocol.ts";
+import type {
+  HermesCapabilities,
+  HermesGatewayStatus,
+  HermesToolset,
+  HermesTransportMode,
+} from "./src/types/hermes.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,25 +51,27 @@ function parseArgFlag(name: string): string | undefined {
 
 const PORT = Number(parseArgFlag("port") || process.env.PORT || 3000);
 const HOST = parseArgFlag("host") || "0.0.0.0";
-
-const HERMES_API_URL = (process.env.HERMES_API_URL || "http://127.0.0.1:8642").replace(/\/+$/, "");
-const HERMES_API_KEY = process.env.HERMES_API_KEY || "";
-const HERMES_PROFILE = process.env.HERMES_PROFILE || "default";
-const HERMES_DEFAULT_MODEL = process.env.API_SERVER_MODEL_NAME || "hermes-agent";
 const HERMES_CHAT_TIMEOUT_MS = Number(process.env.HERMES_CHAT_TIMEOUT_MS || 300_000);
 
+function getGatewayConfig() {
+  return resolveProfileGatewayConfig(process.env);
+}
+
 // ---------------------------------------------------------------------------
-// Native Hermes Agent session, thread, task, and local ~/.hermes discovery
+// Live Hermes Agent Gateway state (zero simulated channels/tasks/cards)
 // ---------------------------------------------------------------------------
 interface HermesCard {
-  type: "approval" | "brief";
+  type: "approval" | "clarify";
   title?: string;
   body?: string;
   status: "pending" | "approved" | "declined";
   draft?: string;
   action?: string;
   destination?: string;
-  entries?: { title?: string; summary?: string }[];
+  requestId?: string;
+  executionGeneration?: number;
+  choices?: string[];
+  command?: string;
 }
 
 interface HermesItem {
@@ -65,12 +83,15 @@ interface HermesItem {
   text?: string;
   streaming?: boolean;
   run_id?: string | null;
+  error_code?: string;
+  terminal_outcome?: TerminalTurnOutcome;
   card?: HermesCard;
-  ui_patch?: UiCustomizationPatch;
   activity?: {
     run_id: string;
     status: string;
+    kind?: "reasoning" | "commentary" | "tool" | "subagent" | "status";
     summary?: string;
+    detail?: string;
     error?: string;
     steps?: { name: string; label?: string; status: string }[];
   };
@@ -80,10 +101,12 @@ interface HermesTask {
   id: string;
   title: string;
   status: string;
+  error_code?: string;
   kind?: string;
   background?: boolean;
   handover_id?: string;
   session_id?: string;
+  run_id?: string;
   progress?: string;
   steps?: { text: string; done?: boolean; active?: boolean }[];
   result?: string;
@@ -98,190 +121,28 @@ interface HermesChannel {
   id: string;
   name: string;
   session_id: string;
+  session_key: string;
   topic?: string | null;
   persona?: string | null;
+  source?: string | null;
+  model?: string | null;
   archived?: boolean;
   last_at?: number | null;
 }
 
 type SessionRuntimeStatus = "idle" | "thinking" | "speaking" | "running";
 
-const bootTime = Date.now();
-
-const channels: HermesChannel[] = [
-  {
-    id: "general",
-    name: "general",
-    session_id: "hermes-general",
-    topic: "Primary Hermes Agent voice thread, daily check-ins, and morning brief",
-    persona: "Calm primary Hermes Agent coordinator styled after the main cyber-bob operator.",
-  },
-  {
-    id: "ops",
-    name: "ops",
-    session_id: "hermes-ops",
-    topic: "hermes gateway (:8642), cronjob_manage schedules, and infra operations",
-    persona: "Steady ops & cron keeper monitoring gateway health and scheduled jobs.",
-  },
-  {
-    id: "launch",
-    name: "launch",
-    session_id: "hermes-launch",
-    topic: "~/.hermes/skills/ workflows, build artifacts, and QA checks",
-    persona: "High-energy release and QA builder running fast iteration turns.",
-  },
-  {
-    id: "research",
-    name: "research",
-    session_id: "hermes-research",
-    topic: "Isolated background runs and persistent MEMORY.md synthesis",
-    persona: "Quiet deep-research session focused on long-horizon synthesis.",
-  },
-  {
-    id: "daemon",
-    name: "daemon",
-    session_id: "hermes-daemon",
-    topic: "Background cron watcher & ambient signal daemon",
-    persona: "Stealthy background daemon monitoring cron watchers and ambient events.",
-  },
-];
-
-const pendingCards: HermesItem[] = [
-  {
-    id: "card-1",
-    kind: "card",
-    created_at: bootTime - 300_000,
-    channel_id: "general",
-    run_id: "run-hermes-781",
-    card: {
-      type: "approval",
-      title: "Send Release Dispatch via Mail Tool",
-      body: "Dispatches the v2.4 Hermes Agent changelog to 184 recipients.",
-      status: "pending",
-      destination: "mail://beta-cohort (184 recipients)",
-      draft:
-        "Hermes Agent v2.4 is live: direct Gateway (/v1/chat/completions) streaming, X-Hermes-Session-Key isolation, and live Braille voice sync are active.",
-    },
-  },
-  {
-    id: "brief-1",
-    kind: "card",
-    created_at: bootTime - 120_000,
-    channel_id: "general",
-    card: {
-      type: "brief",
-      title: "Morning Brief Decisions",
-      status: "pending",
-      entries: [
-        {
-          title: "Approve outbound release dispatch for beta cohort",
-          summary: "Hermes Agent drafted the v2.4 release note for 184 subscribers in hermes-general.",
-        },
-      ],
-    },
-  },
-];
-
-const tasks: HermesTask[] = [
-  {
-    id: "task-101",
-    title: "Rebuild standing morning-brief.html",
-    status: "running",
-    kind: "Background",
-    background: true,
-    session_id: "hermes-launch",
-    progress: "4/6",
-    channel_id: "launch",
-    created_at: bootTime - 878_000,
-    updated_at: bootTime - 18_000,
-    steps: [
-      { text: "Collect overnight thread summaries & tool outputs", done: true },
-      { text: "Compile static morning-brief.html bundle", done: true },
-      { text: "Verify desktop 1440×900 layout & contrast hierarchy", done: true },
-      { text: "Capture mobile 390×844 snapshot & scroll bounds", done: true },
-      { text: "Streaming tool progress across Playwright parity lane", done: false },
-      { text: "Publish signed artifact to #launch brief archive", done: false },
-    ],
-  },
-  {
-    id: "task-102",
-    title: "Index ~/.hermes/skills/ & toolsets",
-    status: "done",
-    kind: "Background",
-    background: true,
-    session_id: "hermes-research",
-    progress: "3/3",
-    channel_id: "research",
-    agent_done_at: bootTime - 1_920_000,
-    created_at: bootTime - 2_700_000,
-    updated_at: bootTime - 1_920_000,
-    steps: [
-      { text: "Scan ~/.hermes/skills/ SKILL.md manifests", done: true },
-      { text: "Validate active Hermes toolset schemas", done: true },
-      { text: "Synced 4 skills and native Hermes toolsets to #research", done: true },
-    ],
-  },
-  {
-    id: "task-103",
-    title: "Audit ~/Downloads watcher rule (cronjob_manage)",
-    status: "waiting",
-    kind: "Cron",
-    background: true,
-    session_id: "hermes-ops",
-    progress: "2/5",
-    channel_id: "ops",
-    created_at: bootTime - 1_680_000,
-    updated_at: bootTime - 420_000,
-    steps: [
-      { text: "Inspect active cronjob_manage watcher schedule (*/30 9-18 * * 1-5)", done: true },
-      { text: "Scan ~/Downloads for matching invoice & receipt patterns", done: true },
-      { text: "Waiting on confirmation to route invoice PDFs into #ops", done: false },
-      { text: "Summarize matched PDF invoices into #ops thread", done: false },
-      { text: "Persist watcher filter rules to MEMORY.md", done: false },
-    ],
-  },
-];
-
-const items: HermesItem[] = [
-  {
-    id: "init-welcome-general",
-    kind: "assistant",
-    created_at: bootTime - 60_000,
-    channel_id: "general",
-    text: "Session hermes-general online (Cyber Bob). Bound to X-Hermes-Session-Key: hermes-general — tap Voice or type /help.",
-  },
-  {
-    id: "init-welcome-ops",
-    kind: "assistant",
-    created_at: bootTime - 58_000,
-    channel_id: "ops",
-    text: "Session hermes-ops online (Seraph). Monitoring :8642 gateway health and cronjob_manage schedules.",
-  },
-  {
-    id: "init-welcome-launch",
-    kind: "assistant",
-    created_at: bootTime - 56_000,
-    channel_id: "launch",
-    text: "Session hermes-launch online (Twintails). Tracking ~/.hermes/skills/ workflows and QA checks.",
-  },
-  {
-    id: "init-welcome-research",
-    kind: "assistant",
-    created_at: bootTime - 54_000,
-    channel_id: "research",
-    text: "Session hermes-research online (Yume). Isolated MEMORY.md synthesis and ~/.hermes/skills/ index ready.",
-  },
-  {
-    id: "init-welcome-daemon",
-    kind: "assistant",
-    created_at: bootTime - 52_000,
-    channel_id: "daemon",
-    text: "Session hermes-daemon online (Neko). Silent watcher lane listening for cron triggers and ambient events.",
-  },
-];
+const channels: HermesChannel[] = [];
+const pendingCards: HermesItem[] = [];
+const tasks: HermesTask[] = [];
+const items: HermesItem[] = [];
 
 const sessionStatusMap = new Map<string, SessionRuntimeStatus>();
 const activeRunAborts = new Map<string, AbortController>();
+const activeGatewayRunIds = new Map<string, string>();
+
+let cachedCapabilities: HermesCapabilities | null = null;
+let cachedGatewayStatus: HermesGatewayStatus | null = null;
 
 function normalizeChannelKey(raw?: string | null): string {
   return String(raw ?? "")
@@ -292,48 +153,70 @@ function normalizeChannelKey(raw?: string | null): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function ensureChannel(opts: {
-  channelId: string;
+function defaultSessionKeyForChannel(channelId: string): string {
+  return sanitizeSessionKeyHeader(`voxcell-${channelId}`) || `voxcell-session`;
+}
+
+function upsertLocalChannel(opts: {
+  channelId?: string;
   name?: string;
-  sessionId?: string;
-  topic?: string;
-  persona?: string;
+  sessionId: string;
+  sessionKey?: string;
+  topic?: string | null;
+  persona?: string | null;
+  source?: string | null;
+  model?: string | null;
+  lastAt?: number | null;
 }): HermesChannel {
-  const cleanId = normalizeChannelKey(opts.channelId) || "session";
-  let existing = channels.find((c) => c.id === cleanId);
+  const existingBySid = channels.find((c) => c.session_id === opts.sessionId);
+  const cleanId =
+    existingBySid?.id ||
+    normalizeChannelKey(opts.channelId || opts.sessionId) ||
+    "session";
+
+  let existing = existingBySid || channels.find((c) => c.id === cleanId);
   if (!existing) {
     existing = {
       id: cleanId,
-      name: (opts.name || cleanId).replace(/^#/, ""),
-      session_id: opts.sessionId?.trim() || `hermes-${cleanId}`,
-      topic: opts.topic?.trim() || `Isolated hermes-agent session #${cleanId}`,
-      persona:
-        opts.persona?.trim() ||
-        "Focused hermes-agent session running an independent X-Hermes-Session-Key context.",
-      last_at: Date.now(),
+      name: (opts.name || opts.topic || cleanId).replace(/^#/, ""),
+      session_id: opts.sessionId,
+      session_key:
+        sanitizeSessionKeyHeader(opts.sessionKey) || defaultSessionKeyForChannel(cleanId),
+      topic: opts.topic ?? null,
+      persona: opts.persona ?? null,
+      source: opts.source ?? null,
+      model: opts.model ?? null,
+      last_at: opts.lastAt ?? Date.now(),
     };
     channels.push(existing);
   } else {
     if (opts.name) existing.name = opts.name.replace(/^#/, "");
-    if (opts.sessionId?.trim()) existing.session_id = opts.sessionId.trim();
-    if (opts.topic?.trim()) existing.topic = opts.topic.trim();
-    if (opts.persona?.trim()) existing.persona = opts.persona.trim();
+    if (opts.sessionId) existing.session_id = opts.sessionId;
+    if (opts.sessionKey) {
+      existing.session_key =
+        sanitizeSessionKeyHeader(opts.sessionKey) || existing.session_key;
+    }
+    if (opts.topic !== undefined && opts.topic !== null) existing.topic = opts.topic;
+    if (opts.persona !== undefined && opts.persona !== null) existing.persona = opts.persona;
+    if (opts.source !== undefined) existing.source = opts.source;
+    if (opts.model !== undefined) existing.model = opts.model;
+    if (opts.lastAt) existing.last_at = Math.max(existing.last_at ?? 0, opts.lastAt);
   }
   return existing;
 }
 
 function buildSessionSnapshot(ch: HermesChannel) {
-  const chItems = items.filter((it) => (it.channel_id || "general") === ch.id);
+  const chItems = items.filter((it) => (it.channel_id || ch.id) === ch.id);
   const turnCount = chItems.filter((it) => it.kind === "user").length;
   const lastMsg = [...chItems]
     .reverse()
     .find((it) => (it.kind === "assistant" || it.kind === "user") && it.text?.trim());
   const latestTimestamp = chItems.reduce(
     (acc, it) => Math.max(acc, it.created_at),
-    ch.last_at ?? bootTime
+    ch.last_at ?? Date.now()
   );
   const hasRunningTask = tasks.some(
-    (t) => (t.channel_id || "general") === ch.id && t.status === "running"
+    (t) => t.channel_id === ch.id && (t.status === "running" || t.status === "waiting")
   );
   const explicitStatus = sessionStatusMap.get(ch.id);
   const status = explicitStatus ?? (hasRunningTask ? "running" : "idle");
@@ -342,12 +225,15 @@ function buildSessionSnapshot(ch: HermesChannel) {
     sessionId: ch.session_id,
     channelId: ch.id,
     name: ch.name,
-    persona: ch.persona || "Hermes Agent session",
-    topic: ch.topic || `Hermes session #${ch.name}`,
+    persona: ch.persona || "",
+    topic: ch.topic || ch.name,
     status,
     turnCount,
     lastMessage: lastMsg?.text?.trim() || ch.topic || "",
     updatedAtMs: latestTimestamp,
+    source: ch.source ?? undefined,
+    model: ch.model ?? undefined,
+    ownedByApiServer: !ch.source || ch.source === "api_server" || ch.source === "api",
   };
 }
 
@@ -369,188 +255,15 @@ function broadcastEvent(event: Record<string, unknown>) {
 }
 
 // ---------------------------------------------------------------------------
-// Safe read-only local ~/.hermes inspection (optional when running on host)
-// ---------------------------------------------------------------------------
-function resolveHermesHome(): string {
-  return process.env.HERMES_HOME || path.join(os.homedir(), ".hermes");
-}
-
-function readLocalHermesContext() {
-  const hermesHome = resolveHermesHome();
-  const hermesHomeFound = existsSync(hermesHome);
-
-  const discoveredSkills: Array<{ name: string; source: string; summary: string; enabled: boolean }> = [];
-  try {
-    const skillsDir = path.join(hermesHome, "skills");
-    if (existsSync(skillsDir)) {
-      const entries = readdirSync(skillsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const skillMd = path.join(skillsDir, entry.name, "SKILL.md");
-        let summary = `Loaded Hermes skill from ~/.hermes/skills/${entry.name}/SKILL.md`;
-        if (existsSync(skillMd)) {
-          try {
-            const raw = readFileSync(skillMd, "utf8").slice(0, 1000);
-            const descMatch = raw.match(/description:\s*([^\n]+)/i);
-            if (descMatch?.[1]) {
-              summary = descMatch[1].replace(/^["'>|\s]+|["'\s]+$/g, "").slice(0, 160);
-            }
-          } catch {
-            // ignore unreadable skill manifest
-          }
-        }
-        discoveredSkills.push({
-          name: entry.name,
-          source: `~/.hermes/skills/${entry.name}/SKILL.md`,
-          summary,
-          enabled: true,
-        });
-      }
-    }
-  } catch {
-    // ignore host fs error
-  }
-
-  const discoveredMemory: Array<{ key: string; scope: "host" | "session" | "preference"; value: string }> = [
-    {
-      key: "gateway.endpoint",
-      scope: "host",
-      value: `${HERMES_API_URL} (OpenAI /v1/chat/completions + /v1/responses + /v1/models)`,
-    },
-    {
-      key: "session.scoping",
-      scope: "session",
-      value: "X-Hermes-Session-Key binds each lane/shape to an isolated Hermes memory scope",
-    },
-  ];
-  try {
-    const memoryMd = path.join(hermesHome, "MEMORY.md");
-    if (existsSync(memoryMd)) {
-      const raw = readFileSync(memoryMd, "utf8").trim();
-      if (raw) {
-        const lines = raw
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l && !l.startsWith("#"))
-          .slice(0, 4);
-        lines.forEach((line, i) => {
-          discoveredMemory.push({
-            key: `memory.md[${i + 1}]`,
-            scope: "host",
-            value: line.slice(0, 180),
-          });
-        });
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  const discoveredCron: Array<{
-    id: string;
-    schedule: string;
-    channelId: string;
-    mode: "agent" | "no-agent";
-    summary: string;
-  }> = [];
-  try {
-    const cronFile = path.join(hermesHome, "cron", "jobs.json");
-    if (existsSync(cronFile)) {
-      const parsed = JSON.parse(readFileSync(cronFile, "utf8")) as Array<{
-        id?: string;
-        name?: string;
-        schedule?: string;
-        cron?: string;
-        prompt?: string;
-        command?: string;
-        channel?: string;
-      }>;
-      if (Array.isArray(parsed)) {
-        for (const job of parsed.slice(0, 12)) {
-          discoveredCron.push({
-            id: job.id || job.name || `cron-${discoveredCron.length + 1}`,
-            schedule: job.schedule || job.cron || "* * * * *",
-            channelId: normalizeChannelKey(job.channel) || "ops",
-            mode: job.command && !job.prompt ? "no-agent" : "agent",
-            summary: (job.prompt || job.command || job.name || "Scheduled Hermes job").slice(0, 140),
-          });
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  return {
-    hermesHomeFound,
-    skills:
-      discoveredSkills.length > 0
-        ? discoveredSkills
-        : [
-            {
-              name: "hermes-memory",
-              source: "~/.hermes/skills/hermes-memory/SKILL.md",
-              summary: "Persists cross-session facts, project conventions, and user preferences to MEMORY.md",
-              enabled: true,
-            },
-            {
-              name: "morning-brief",
-              source: "~/.hermes/skills/morning-brief/SKILL.md",
-              summary: "Summarizes overnight cron runs and ranks top open agent decisions",
-              enabled: true,
-            },
-            {
-              name: "playwright-parity",
-              source: "~/.hermes/skills/playwright-parity/SKILL.md",
-              summary: "Headless browser verification & responsive layout checks via terminal tools",
-              enabled: true,
-            },
-            {
-              name: "cron-orchestrator",
-              source: "~/.hermes/skills/cron-orchestrator/SKILL.md",
-              summary: "Schedules isolated agent & no-agent jobs with cronjob_manage",
-              enabled: true,
-            },
-          ],
-    memory: discoveredMemory,
-    cronJobs:
-      discoveredCron.length > 0
-        ? discoveredCron
-        : [
-            {
-              id: "cron-standing-pages",
-              schedule: "30 7 * * *",
-              channelId: "launch",
-              mode: "agent" as const,
-              summary: "Rebuild standing brief artifacts 30m prior to morning brief",
-            },
-            {
-              id: "cron-morning-brief",
-              schedule: "0 8 * * *",
-              channelId: "general",
-              mode: "agent" as const,
-              summary: "Compile morning brief across #general, #ops, and #launch sessions",
-            },
-            {
-              id: "cron-downloads-watch",
-              schedule: "*/30 9-18 * * 1-5",
-              channelId: "ops",
-              mode: "no-agent" as const,
-              summary: "Watch ~/Downloads and enqueue invoice PDFs for #ops triage",
-            },
-          ],
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Direct Hermes Agent Gateway client (OpenAI-compatible + hermes.tool.progress)
+// Direct Hermes Agent Gateway HTTP helpers
 // ---------------------------------------------------------------------------
 async function fetchHermesGateway(
   pathname: string,
-  init?: RequestInit,
-  timeoutMs = 2000,
+  init?: RequestInit & { unprefixed?: boolean },
+  timeoutMs = 3000,
   externalSignal?: AbortSignal
-) {
+): Promise<Response> {
+  const cfg = getGatewayConfig();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onExternalAbort = () => controller.abort();
@@ -560,11 +273,13 @@ async function fetchHermesGateway(
     "Content-Type": "application/json",
     ...(init?.headers as Record<string, string> | undefined),
   };
-  if (HERMES_API_KEY) {
-    headers.Authorization = `Bearer ${HERMES_API_KEY}`;
+  if (cfg.apiKey && !headers.Authorization) {
+    headers.Authorization = `Bearer ${cfg.apiKey}`;
   }
+
+  const targetUrl = buildGatewayUrl(cfg, pathname, { unprefixed: init?.unprefixed });
   try {
-    return await fetch(`${HERMES_API_URL}${pathname}`, {
+    return await fetch(targetUrl, {
       ...init,
       headers,
       signal: controller.signal,
@@ -575,299 +290,974 @@ async function fetchHermesGateway(
   }
 }
 
-async function probeHermesGateway() {
-  const ctx = readLocalHermesContext();
+async function probeHermesGateway(): Promise<HermesGatewayStatus> {
+  const cfg = getGatewayConfig();
+  const checkedAtMs = Date.now();
+
   let connected = false;
+  let capabilities: HermesCapabilities | null = null;
+  let healthStatus: string | undefined;
   let models: string[] = [];
-  let skillsCount = ctx.skills.length;
-  let toolsets = ["terminal", "file_ops", "web_search", "memory", "skills", "cronjob_manage"];
+  let activeModel = process.env.API_SERVER_MODEL_NAME || "";
+  let activeProvider: string | undefined;
+  let providers: Array<{ id: string; label: string; configured?: boolean }> = [];
+  let skillsCount = 0;
+  let toolsets: HermesToolset[] = [];
   let errorMsg: string | undefined;
 
-  // 1. Standard NousResearch/hermes-agent API Server endpoint: GET /v1/models
+  // 1. Primary probe: GET /v1/capabilities
   try {
-    const modelsRes = await fetchHermesGateway("/v1/models", { method: "GET" }, 1500);
-    if (modelsRes.ok) {
+    const capRes = await fetchHermesGateway("/v1/capabilities", { method: "GET" }, 1800);
+    if (capRes.ok) {
       connected = true;
-      const body = (await modelsRes.json().catch(() => null)) as {
-        data?: Array<{ id?: string }>;
-        models?: Array<{ id?: string } | string>;
-      } | null;
-      if (Array.isArray(body?.data)) {
-        models = body.data.map((m) => m.id).filter((id): id is string => Boolean(id));
-      } else if (Array.isArray(body?.models)) {
-        models = body.models
-          .map((m) => (typeof m === "string" ? m : m.id))
-          .filter((id): id is string => Boolean(id));
+      const body = await capRes.json().catch(() => null);
+      capabilities = parseCapabilitiesPayload(body);
+      if (capabilities) {
+        cachedCapabilities = capabilities;
+        if (!activeModel && capabilities.model) {
+          activeModel = capabilities.model;
+        }
       }
-    } else if (modelsRes.status === 401 || modelsRes.status === 403) {
-      errorMsg = `Gateway responded HTTP ${modelsRes.status} (check HERMES_API_KEY)`;
+    } else if (capRes.status === 401 || capRes.status === 403) {
+      errorMsg =
+        cfg.profile !== "default"
+          ? `Gateway responded HTTP ${capRes.status} for profile "${cfg.profile}" (check HERMES_PROFILE_API_KEY)`
+          : `Gateway responded HTTP ${capRes.status} (check HERMES_API_KEY)`;
+    } else {
+      errorMsg = `Capabilities check returned HTTP ${capRes.status}`;
     }
   } catch (err) {
     errorMsg = err instanceof Error ? err.message : String(err);
   }
 
-  // 2. Fallback health check (/v1/health or /health) if /v1/models failed
-  if (!connected) {
-    for (const healthPath of ["/v1/health", "/health"]) {
-      try {
-        const hRes = await fetchHermesGateway(healthPath, { method: "GET" }, 1200);
-        if (hRes.ok) {
-          connected = true;
-          errorMsg = undefined;
-          break;
-        }
-      } catch {
-        // try next
+  // 2. Documented liveness probe: GET /health (never /v1/health)
+  try {
+    const hRes = await fetchHermesGateway(
+      "/health",
+      { method: "GET", unprefixed: cfg.routePrefix === "" },
+      1200
+    );
+    if (hRes.ok) {
+      const hJson = (await hRes.json().catch(() => null)) as { status?: string } | null;
+      healthStatus = hJson?.status || "ok";
+      if (!connected && !errorMsg) {
+        connected = true;
+      }
+    } else if (!connected && cfg.routePrefix) {
+      const rootHealthRes = await fetchHermesGateway(
+        "/health",
+        { method: "GET", unprefixed: true },
+        1200
+      ).catch(() => null);
+      if (rootHealthRes?.ok) {
+        const hj = (await rootHealthRes.json().catch(() => null)) as { status?: string } | null;
+        healthStatus = hj?.status || "ok";
       }
     }
+  } catch {
+    // ignore secondary health error when capabilities already reported status
   }
 
-  // 3. Optional capability endpoints (/v1/skills, /v1/toolsets) when connected
+  // 3. Model picker inventory: GET /api/model/options primary, /v1/models fallback
   if (connected) {
     try {
-      const [skillsRes, toolsRes] = await Promise.all([
-        fetchHermesGateway("/v1/skills", { method: "GET" }, 1000).catch(() => null),
-        fetchHermesGateway("/v1/toolsets", { method: "GET" }, 1000).catch(() => null),
-      ]);
-      if (skillsRes?.ok) {
-        const sj = (await skillsRes.json().catch(() => null)) as {
-          data?: unknown[];
-          skills?: unknown[];
-        } | null;
-        const list = sj?.skills ?? sj?.data;
-        if (Array.isArray(list) && list.length > 0) skillsCount = list.length;
-      }
-      if (toolsRes?.ok) {
-        const tj = (await toolsRes.json().catch(() => null)) as {
-          data?: string[];
-          toolsets?: string[];
-        } | null;
-        const tlist = tj?.toolsets ?? tj?.data;
-        if (Array.isArray(tlist) && tlist.length > 0) toolsets = tlist.slice(0, 10);
+      const optRes = await fetchHermesGateway("/api/model/options", { method: "GET" }, 2000);
+      if (optRes.ok) {
+        const parsed = extractModelOptions(await optRes.json().catch(() => null));
+        models = parsed.models;
+        providers = parsed.providers;
+        if (!activeModel && parsed.activeModel) activeModel = parsed.activeModel;
+        if (parsed.activeProvider) activeProvider = parsed.activeProvider;
       }
     } catch {
-      // Optional capability endpoints absent on some builds
+      // fall back to /v1/models
     }
-  }
 
-  const activeModel = process.env.API_SERVER_MODEL_NAME || models[0] || HERMES_DEFAULT_MODEL;
-  if (models.length === 0) models = [activeModel];
-
-  return {
-    connected,
-    mode: connected ? ("hermes-gateway" as const) : ("local-standby" as const),
-    gatewayUrl: HERMES_API_URL,
-    profile: HERMES_PROFILE,
-    activeModel,
-    models,
-    sessionHeader: "X-Hermes-Session-Key",
-    skillsCount,
-    toolsets,
-    hermesHomeFound: ctx.hermesHomeFound,
-    ...(errorMsg && !connected ? { error: errorMsg } : {}),
-  };
-}
-
-interface StreamTurnHandlers {
-  onDelta?: (accumulatedText: string) => void;
-  onToolProgress?: (eventPayload: {
-    toolName: string;
-    label: string;
-    status: string;
-    summary: string;
-  }) => void;
-  abortSignal?: AbortSignal;
-}
-
-async function callHermesGatewayTurn(
-  params: {
-    message: string;
-    channelId: string;
-    sessionId: string;
-    persona?: string;
-    history?: Array<{ role?: string; text?: string }>;
-    uiConfig?: Partial<UiCustomizationConfig>;
-  },
-  handlers: StreamTurnHandlers = {}
-): Promise<{
-  reply: string;
-  mood: "happy" | "focused" | "alert" | "neutral";
-  uiPatch?: UiCustomizationPatch;
-  sourceMode: "hermes-gateway" | "local-ui-patch" | "gateway-offline";
-  sessionId: string;
-  error?: string;
-}> {
-  const { message, channelId, sessionId, persona, history = [], uiConfig } = params;
-
-  const currentUi: UiCustomizationConfig = applyUiPatch(
-    DEFAULT_UI_CONFIG,
-    sanitizeUiPatch(uiConfig ?? {})
-  ).next;
-  const heuristicPatch = parseNaturalUiIntent(message, currentUi);
-  const resolvedPersona =
-    typeof persona === "string" && persona.trim()
-      ? persona.trim()
-      : "Isolated Hermes Agent session running independent conversation context.";
-
-  const gwMessages = [
-    {
-      role: "system",
-      content: `You are Hermes Agent (session ${sessionId}, lane #${channelId}). Persona: ${resolvedPersona}. Respond concisely in 1-3 clear spoken sentences unless the user requests detailed output.`,
-    },
-    ...history.slice(-6).map((h) => ({
-      role: h.role === "user" ? "user" : "assistant",
-      content: h.text ?? "",
-    })),
-    { role: "user", content: message },
-  ];
-
-  let gatewayFailure = "Gateway unreachable";
-  try {
-    const gwRes = await fetchHermesGateway(
-      "/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "X-Hermes-Session-Key": sessionId,
-          Accept: "text/event-stream, application/json",
-        },
-        body: JSON.stringify({
-          model: HERMES_DEFAULT_MODEL,
-          messages: gwMessages,
-          user: sessionId,
-          stream: Boolean(handlers.onDelta),
-        }),
-      },
-      HERMES_CHAT_TIMEOUT_MS,
-      handlers.abortSignal
-    );
-
-    if (!gwRes.ok) {
-      gatewayFailure = `gateway HTTP ${gwRes.status}`;
-    } else {
-      const contentType = gwRes.headers.get("content-type") || "";
-      if (contentType.includes("text/event-stream") && gwRes.body) {
-        // Stream OpenAI chat.completion.chunk + Hermes `event: hermes.tool.progress` frames
-        const reader = gwRes.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let currentEvent = "message";
-        let accumulated = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          let newlineIdx: number;
-          while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-            const rawLine = buffer.slice(0, newlineIdx);
-            buffer = buffer.slice(newlineIdx + 1);
-            const line = rawLine.replace(/\r$/, "");
-
-            if (line === "") {
-              currentEvent = "message";
-              continue;
-            }
-            if (line.startsWith(":")) {
-              // Keepalive comment (`: keepalive`) — ignore per SSE spec
-              continue;
-            }
-            if (line.startsWith("event:")) {
-              currentEvent = line.slice("event:".length).trim();
-              continue;
-            }
-            if (!line.startsWith("data:")) continue;
-
-            const dataStr = line.slice("data:".length).trim();
-            if (dataStr === "[DONE]") continue;
-
-            try {
-              const payload = JSON.parse(dataStr) as Record<string, unknown>;
-              if (currentEvent === "hermes.tool.progress") {
-                const toolName = String(
-                  payload.tool || payload.name || payload.tool_name || "tool"
-                );
-                const status = String(payload.status || "running");
-                const detail = String(
-                  payload.summary || payload.label || payload.message || payload.args || ""
-                ).trim();
-                handlers.onToolProgress?.({
-                  toolName,
-                  label: detail ? `${toolName}: ${detail}` : toolName,
-                  status,
-                  summary: detail ? `${toolName}: ${detail}` : `Running ${toolName}`,
-                });
-                continue;
-              }
-
-              const choices = payload.choices as
-                | Array<{ delta?: { content?: string }; message?: { content?: string } }>
-                | undefined;
-              const delta = choices?.[0]?.delta?.content ?? choices?.[0]?.message?.content;
-              if (typeof delta === "string" && delta.length > 0) {
-                accumulated += delta;
-                handlers.onDelta?.(accumulated);
-              }
-            } catch {
-              // ignore partial/non-JSON frame
-            }
+    if (models.length === 0) {
+      try {
+        const mRes = await fetchHermesGateway("/v1/models", { method: "GET" }, 1500);
+        if (mRes.ok) {
+          const mj = (await mRes.json().catch(() => null)) as {
+            data?: Array<{ id?: string }>;
+            models?: Array<{ id?: string } | string>;
+          } | null;
+          if (Array.isArray(mj?.data)) {
+            models = mj.data.map((m) => m.id).filter((id): id is string => Boolean(id));
+          } else if (Array.isArray(mj?.models)) {
+            models = mj.models
+              .map((m) => (typeof m === "string" ? m : m.id))
+              .filter((id): id is string => Boolean(id));
           }
+          if (!activeModel && models[0]) activeModel = models[0];
         }
-
-        const finalText = accumulated.trim();
-        if (finalText) {
-          return {
-            reply: finalText,
-            mood: "happy",
-            uiPatch: heuristicPatch ? sanitizeUiPatch(heuristicPatch) : undefined,
-            sourceMode: "hermes-gateway",
-            sessionId,
-          };
-        }
-        gatewayFailure = "stream completed with empty content";
-      } else {
-        const data = (await gwRes.json().catch(() => null)) as {
-          choices?: Array<{ message?: { content?: string } }>;
-        } | null;
-        const content = data?.choices?.[0]?.message?.content?.trim();
-        if (content) {
-          return {
-            reply: content,
-            mood: "happy",
-            uiPatch: heuristicPatch ? sanitizeUiPatch(heuristicPatch) : undefined,
-            sourceMode: "hermes-gateway",
-            sessionId,
-          };
-        }
-        gatewayFailure = "gateway response contained no content";
+      } catch {
+        // ignore
       }
     }
-  } catch (err) {
-    if (handlers.abortSignal?.aborted) {
-      throw err;
+
+    // 4. Deterministic skills & toolsets discovery
+    const [skillsRes, toolsetsRes] = await Promise.all([
+      fetchHermesGateway("/v1/skills", { method: "GET" }, 1800).catch(() => null),
+      fetchHermesGateway("/v1/toolsets", { method: "GET" }, 1800).catch(() => null),
+    ]);
+    if (skillsRes?.ok) {
+      const mapped = mapGatewaySkills(await skillsRes.json().catch(() => null));
+      skillsCount = mapped.length;
     }
-    gatewayFailure = err instanceof Error ? err.message : String(err);
+    if (toolsetsRes?.ok) {
+      toolsets = mapGatewayToolsets(await toolsetsRes.json().catch(() => null));
+    }
+  } else {
+    cachedCapabilities = null;
   }
 
-  // If the user issued a natural-language UI customization, apply it locally cleanly!
-  if (heuristicPatch) {
-    const applied = applyUiPatch(currentUi, heuristicPatch);
+  const resolvedModel = activeModel || models[0] || "hermes-agent";
+  const resolvedTransport = chooseGatewayTransport("auto", capabilities);
+
+  const status: HermesGatewayStatus = {
+    connected,
+    mode: connected ? "hermes-gateway" : "local-standby",
+    gatewayUrl: cfg.baseUrl,
+    routePrefix: cfg.routePrefix,
+    profile: cfg.profile,
+    activeModel: resolvedModel,
+    activeProvider,
+    models,
+    providers,
+    sessionHeader: "X-Hermes-Session-Id",
+    sessionKeyHeader: capabilities?.sessionKeyHeader || "X-Hermes-Session-Key",
+    skillsCount,
+    toolsets,
+    capabilities,
+    resolvedTransport,
+    healthStatus,
+    checkedAtMs,
+    ...(errorMsg && !connected ? { error: errorMsg } : {}),
+  };
+
+  cachedGatewayStatus = status;
+  return status;
+}
+
+async function syncSessionsFromGateway(): Promise<void> {
+  try {
+    const res = await fetchHermesGateway(
+      "/api/sessions?limit=50&include_children=false",
+      { method: "GET" },
+      2200
+    );
+    if (!res.ok) return;
+    const raw = await res.json().catch(() => null);
+    const gwSessions = mapGatewaySessions(raw);
+    const activeIds = new Set(gwSessions.map((s) => s.id));
+
+    for (const s of gwSessions) {
+      upsertLocalChannel({
+        sessionId: s.id,
+        name: s.title || s.id,
+        topic: s.title || s.id,
+        source: s.source ?? null,
+        model: s.model ?? null,
+        lastAt: s.updatedAtMs ?? s.createdAtMs ?? null,
+      });
+    }
+
+    // Drop stale local entries that were deleted externally on the gateway unless they have active runs
+    for (let i = channels.length - 1; i >= 0; i--) {
+      const ch = channels[i];
+      if (!activeIds.has(ch.session_id) && !activeRunAborts.has(ch.id)) {
+        channels.splice(i, 1);
+      }
+    }
+  } catch {
+    // gateway offline or /api/sessions unavailable
+  }
+}
+
+async function fetchGatewayContext() {
+  const status = await probeHermesGateway();
+  if (!status.connected) {
     return {
-      reply: `Updated workspace UI: ${applied.summary}.`,
-      mood: "happy",
-      uiPatch: sanitizeUiPatch(heuristicPatch),
-      sourceMode: "local-ui-patch",
-      sessionId,
+      connected: false,
+      skills: [],
+      toolsets: [],
+      cronJobs: [],
+      sessionKeyHeader: status.sessionKeyHeader || "X-Hermes-Session-Key",
+      error: status.error || "Gateway unreachable",
     };
   }
 
+  const [skillsRes, toolsetsRes, jobsRes] = await Promise.all([
+    fetchHermesGateway("/v1/skills", { method: "GET" }, 2000).catch(() => null),
+    fetchHermesGateway("/v1/toolsets", { method: "GET" }, 2000).catch(() => null),
+    fetchHermesGateway("/api/jobs", { method: "GET" }, 2000).catch(() => null),
+  ]);
+
+  const skills = skillsRes?.ok
+    ? mapGatewaySkills(await skillsRes.json().catch(() => null))
+    : [];
+  const toolsets = toolsetsRes?.ok
+    ? mapGatewayToolsets(await toolsetsRes.json().catch(() => null))
+    : status.toolsets;
+  const cronJobs = jobsRes?.ok
+    ? mapGatewayJobs(await jobsRes.json().catch(() => null))
+    : [];
+
   return {
-    reply: `Hermes Gateway at ${HERMES_API_URL} is in local standby (${gatewayFailure}). Run "hermes gateway" with API_SERVER_ENABLED=true in ~/.hermes/.env to route live turns, or use /help, /skills, /memory, /cron, and /ui locally.`,
-    mood: "focused",
-    sourceMode: "gateway-offline",
-    sessionId,
-    error: gatewayFailure,
+    connected: true,
+    skills,
+    toolsets,
+    cronJobs,
+    sessionKeyHeader: status.sessionKeyHeader || "X-Hermes-Session-Key",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gateway Turn Execution (Runs API / Chat Completions / Session Chat Stream)
+// ---------------------------------------------------------------------------
+interface ExecuteTurnParams {
+  message: string;
+  channel: HermesChannel;
+  runIdLocal: string;
+  turnTask: HermesTask;
+  transportMode?: HermesTransportMode;
+  idempotencyKey: string;
+  abortSignal: AbortSignal;
+  model?: string;
+  provider?: string;
+}
+
+interface TurnExecutionOutcome {
+  reply: string;
+  reasoning: string;
+  outcome: TerminalTurnOutcome;
+  errorCode?: string;
+  error?: string;
+  gatewayRunId?: string;
+}
+
+function recordReasoningActivity(params: {
+  channel: HermesChannel;
+  runIdLocal: string;
+  accumulatedReasoning: string;
+  reasoningItemIdRef: { current: string | null };
+  streaming: boolean;
+}) {
+  const { channel, runIdLocal, accumulatedReasoning, reasoningItemIdRef, streaming } = params;
+  const trimmed = accumulatedReasoning.trim();
+  if (!trimmed) return;
+
+  if (!reasoningItemIdRef.current) {
+    reasoningItemIdRef.current = `reason-${runIdLocal}`;
+    const item: HermesItem = {
+      id: reasoningItemIdRef.current,
+      kind: "activity",
+      created_at: Date.now(),
+      channel_id: channel.id,
+      run_id: runIdLocal,
+      streaming,
+      text: `Reasoning: ${trimmed}`,
+      activity: {
+        run_id: runIdLocal,
+        status: streaming ? "thinking" : "done",
+        kind: "reasoning",
+        summary: "Reasoning",
+        detail: trimmed,
+      },
+    };
+    items.push(item);
+    broadcastEvent({ type: "item", item });
+  } else {
+    const existing = items.find((it) => it.id === reasoningItemIdRef.current);
+    if (existing) {
+      existing.text = `Reasoning: ${trimmed}`;
+      existing.streaming = streaming;
+      existing.updated_at = Date.now();
+      existing.activity = {
+        run_id: runIdLocal,
+        status: streaming ? "thinking" : "done",
+        kind: "reasoning",
+        summary: "Reasoning",
+        detail: trimmed,
+      };
+      broadcastEvent({ type: "item", item: existing });
+    }
+  }
+}
+
+function recordToolOrSubagentActivity(params: {
+  channel: HermesChannel;
+  runIdLocal: string;
+  turnTask: HermesTask;
+  seqRef: { current: number };
+  toolName: string;
+  label: string;
+  status: string;
+  summary: string;
+  kind?: "tool" | "subagent" | "commentary";
+}) {
+  const { channel, runIdLocal, turnTask, seqRef, toolName, label, status, summary, kind = "tool" } =
+    params;
+  const normalizedStatus = (status || "running").toLowerCase();
+  const isGenericRunning = /^running\s+/i.test(summary.trim());
+  const toolKey = toolName.trim().toLowerCase();
+
+  const existingIdx = items.findIndex(
+    (it) =>
+      it.kind === "activity" &&
+      it.run_id === runIdLocal &&
+      it.activity?.kind === kind &&
+      it.activity?.steps?.[0]?.name?.toLowerCase() === toolKey &&
+      (it.activity?.steps?.[0]?.status === "running" ||
+        /^running\s+/i.test((it.text ?? "").trim()))
+  );
+
+  if (existingIdx >= 0 && (!isGenericRunning || normalizedStatus !== "running")) {
+    const existing = items[existingIdx];
+    existing.text = summary;
+    existing.updated_at = Date.now();
+    existing.activity = {
+      run_id: runIdLocal,
+      status,
+      kind,
+      summary,
+      steps: [{ name: toolName, label, status }],
+    };
+    broadcastEvent({ type: "item", item: existing });
+  } else {
+    seqRef.current += 1;
+    const activityItem: HermesItem = {
+      id: `act-${runIdLocal}-${seqRef.current}`,
+      kind: "activity",
+      created_at: Date.now(),
+      channel_id: channel.id,
+      run_id: runIdLocal,
+      text: summary,
+      activity: {
+        run_id: runIdLocal,
+        status,
+        kind,
+        summary,
+        steps: [{ name: toolName, label, status }],
+      },
+    };
+    items.push(activityItem);
+    broadcastEvent({ type: "item", item: activityItem });
+  }
+
+  if (kind === "tool" || kind === "subagent") {
+    const updatedSteps = applyToolProgressToSteps(turnTask.steps ?? [], {
+      toolName,
+      label,
+      status,
+      summary,
+    });
+    turnTask.steps = updatedSteps.steps;
+    turnTask.progress = updatedSteps.progress;
+    turnTask.updated_at = Date.now();
+    if (sessionStatusMap.get(channel.id) !== "running") {
+      sessionStatusMap.set(channel.id, "running");
+      broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
+    }
+    broadcastEvent({ type: "task", task: turnTask });
+  }
+}
+
+async function readStreamWithParser(
+  body: ReadableStream<Uint8Array>,
+  onChunk: (text: string) => void
+) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onChunk(decoder.decode(value, { stream: true }));
+  }
+  const tail = decoder.decode();
+  if (tail) onChunk(tail);
+}
+
+async function readGatewayErrorBody(res: Response): Promise<{ code?: string; message: string }> {
+  const text = await res.text().catch(() => "");
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as {
+        error?: { code?: string; message?: string } | string;
+        code?: string;
+        message?: string;
+        detail?: string;
+      };
+      const nestedErr = typeof parsed.error === "object" ? parsed.error : null;
+      const code =
+        nestedErr?.code ||
+        parsed.code ||
+        undefined;
+      const message =
+        nestedErr?.message ||
+        (typeof parsed.error === "string" ? parsed.error : "") ||
+        parsed.message ||
+        parsed.detail ||
+        text;
+      return { code, message: String(message) };
+    } catch {
+      return { message: text.slice(0, 300) };
+    }
+  }
+  return { message: `HTTP ${res.status}` };
+}
+
+async function executeGatewayTurn(
+  params: ExecuteTurnParams,
+  assistantId: string
+): Promise<TurnExecutionOutcome> {
+  const {
+    message,
+    channel,
+    runIdLocal,
+    turnTask,
+    transportMode = "auto",
+    idempotencyKey,
+    abortSignal,
+    model,
+    provider,
+  } = params;
+
+  if (!cachedCapabilities) {
+    await probeHermesGateway().catch(() => null);
+  }
+  const transport = chooseGatewayTransport(transportMode, cachedCapabilities);
+  const cfg = getGatewayConfig();
+  const resolvedModel = model || cachedGatewayStatus?.activeModel || process.env.API_SERVER_MODEL_NAME || "hermes-agent";
+  const resolvedProvider = provider || cachedGatewayStatus?.activeProvider;
+
+  const reasoningItemIdRef = { current: null as string | null };
+  const seqRef = { current: 0 };
+  let streamedPlaceholderCreated = false;
+
+  const onContentDelta = (accumulated: string) => {
+    const streamed = applyStreamingDeltaToSteps(turnTask.steps ?? []);
+    if (streamed.changed) {
+      turnTask.steps = streamed.steps;
+      turnTask.progress = streamed.progress;
+      turnTask.updated_at = Date.now();
+      broadcastEvent({ type: "task", task: turnTask });
+    }
+    if (!streamedPlaceholderCreated) {
+      streamedPlaceholderCreated = true;
+      const placeholder: HermesItem = {
+        id: assistantId,
+        kind: "assistant",
+        created_at: Date.now(),
+        channel_id: channel.id,
+        streaming: true,
+        run_id: runIdLocal,
+        text: accumulated,
+      };
+      items.push(placeholder);
+      sessionStatusMap.set(channel.id, "speaking");
+      broadcastEvent({ type: "item", item: placeholder });
+      broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
+    } else {
+      const existing = items.find((it) => it.id === assistantId);
+      if (existing) existing.text = accumulated;
+      broadcastEvent({ type: "delta", item_id: assistantId, text: accumulated });
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Transport 1: Runs API (POST /v1/runs + GET /v1/runs/{id}/events)
+  // -------------------------------------------------------------------------
+  if (transport === "runs") {
+    const runBody: Record<string, unknown> = {
+      input: message,
+      session_id: channel.session_id,
+      ...(channel.persona ? { instructions: channel.persona } : {}),
+      ...(model ? { model } : {}),
+      ...(provider ? { provider } : {}),
+    };
+
+    const createRes = await fetchWithConcurrentRetry(
+      () =>
+        fetchHermesGateway(
+          "/v1/runs",
+          {
+            method: "POST",
+            headers: {
+              "Idempotency-Key": idempotencyKey,
+              "X-Hermes-Session-Key": channel.session_key,
+            },
+            body: JSON.stringify(runBody),
+          },
+          HERMES_CHAT_TIMEOUT_MS,
+          abortSignal
+        ),
+      { signal: abortSignal }
+    );
+
+    if (!createRes.ok) {
+      const errInfo = await readGatewayErrorBody(createRes);
+      return {
+        reply: "",
+        reasoning: "",
+        outcome:
+          errInfo.code === "admission_conflict" ? "admission_conflict" : "failed",
+        errorCode: errInfo.code,
+        error: `Gateway ${createRes.status}: ${errInfo.message}`,
+      };
+    }
+
+    const createdJson = (await createRes.json().catch(() => null)) as {
+      run_id?: string;
+      status?: string;
+    } | null;
+    const gwRunId = createdJson?.run_id;
+    if (!gwRunId) {
+      return {
+        reply: "",
+        reasoning: "",
+        outcome: "failed",
+        error: "Gateway /v1/runs did not return a run_id",
+      };
+    }
+
+    activeGatewayRunIds.set(channel.id, gwRunId);
+    turnTask.run_id = gwRunId;
+    broadcastEvent({ type: "task", task: turnTask });
+
+    try {
+      const eventsRes = await fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(gwRunId)}/events`,
+        {
+          method: "GET",
+          headers: { Accept: "text/event-stream" },
+        },
+        HERMES_CHAT_TIMEOUT_MS,
+        abortSignal
+      );
+
+      if (!eventsRes.ok || !eventsRes.body) {
+        const errInfo = await readGatewayErrorBody(eventsRes);
+        return {
+          reply: "",
+          reasoning: "",
+          outcome: "failed",
+          errorCode: errInfo.code,
+          error: `Run events HTTP ${eventsRes.status}: ${errInfo.message}`,
+          gatewayRunId: gwRunId,
+        };
+      }
+
+      const parser = new RunsEventStreamParser();
+      const callbacks = {
+        onReasoningDelta: (acc: string) => {
+          recordReasoningActivity({
+            channel,
+            runIdLocal,
+            accumulatedReasoning: acc,
+            reasoningItemIdRef,
+            streaming: true,
+          });
+        },
+        onInterim: (interim: { text: string; alreadyStreamed: boolean }) => {
+          if (interim.alreadyStreamed) return;
+          recordToolOrSubagentActivity({
+            channel,
+            runIdLocal,
+            turnTask,
+            seqRef,
+            toolName: "commentary",
+            label: "Commentary",
+            status: "done",
+            summary: interim.text,
+            kind: "commentary",
+          });
+        },
+        onToolEvent: (ev: {
+          toolName: string;
+          label: string;
+          status: string;
+          summary: string;
+        }) => {
+          recordToolOrSubagentActivity({
+            channel,
+            runIdLocal,
+            turnTask,
+            seqRef,
+            toolName: ev.toolName,
+            label: ev.label,
+            status: ev.status,
+            summary: ev.summary,
+            kind: "tool",
+          });
+        },
+        onSubagentStart: (info: { summary: string }) => {
+          recordToolOrSubagentActivity({
+            channel,
+            runIdLocal,
+            turnTask,
+            seqRef,
+            toolName: "subagent",
+            label: "Subagent spawned",
+            status: "running",
+            summary: `Agent spawned: ${info.summary}`,
+            kind: "subagent",
+          });
+        },
+        onSubagentComplete: (info: { status: string; summary: string }) => {
+          recordToolOrSubagentActivity({
+            channel,
+            runIdLocal,
+            turnTask,
+            seqRef,
+            toolName: "subagent",
+            label: `Subagent ${info.status}`,
+            status: info.status === "failed" ? "failed" : "done",
+            summary: `Subagent ${info.status}: ${info.summary}`,
+            kind: "subagent",
+          });
+        },
+        onApprovalRequest: async (req: {
+          requestId: string;
+          executionGeneration: number;
+          kind: "approval" | "clarify";
+          title: string;
+          toolName?: string;
+          command?: string;
+          summary: string;
+          destination: string;
+          choices: string[];
+        }) => {
+          // Confirm canonical pending_controls identity via GET /v1/runs/{id} when available
+          let resolvedReqId = req.requestId;
+          let resolvedGen = req.executionGeneration;
+          try {
+            const runPoll = await fetchHermesGateway(
+              `/v1/runs/${encodeURIComponent(gwRunId)}`,
+              { method: "GET" },
+              1500
+            );
+            if (runPoll.ok) {
+              const runState = (await runPoll.json().catch(() => null)) as {
+                pending_controls?: {
+                  prompt_id?: string;
+                  request_id?: string;
+                  execution_generation?: number;
+                };
+              } | null;
+              if (runState?.pending_controls) {
+                resolvedReqId =
+                  runState.pending_controls.prompt_id ||
+                  runState.pending_controls.request_id ||
+                  resolvedReqId;
+                if (typeof runState.pending_controls.execution_generation === "number") {
+                  resolvedGen = runState.pending_controls.execution_generation;
+                }
+              }
+            }
+          } catch {
+            // proceed with event identity
+          }
+
+          turnTask.status = "waiting";
+          turnTask.updated_at = Date.now();
+          broadcastEvent({ type: "task", task: turnTask });
+
+          const cardId = `approval-${gwRunId}-${resolvedReqId}`;
+          const existingIdx = pendingCards.findIndex((c) => c.id === cardId);
+          const cardItem: HermesItem = {
+            id: cardId,
+            kind: "card",
+            created_at: Date.now(),
+            channel_id: channel.id,
+            run_id: gwRunId,
+            card: {
+              type: req.kind,
+              title: req.title,
+              body: req.summary,
+              status: "pending",
+              action: req.toolName,
+              destination: req.destination,
+              draft: req.command || req.summary,
+              command: req.command,
+              requestId: resolvedReqId,
+              executionGeneration: resolvedGen,
+              choices: req.choices,
+            },
+          };
+          if (existingIdx >= 0) pendingCards[existingIdx] = cardItem;
+          else pendingCards.push(cardItem);
+          broadcastEvent({ type: "item", item: cardItem });
+        },
+        onSteered: (text: string) => {
+          recordToolOrSubagentActivity({
+            channel,
+            runIdLocal,
+            turnTask,
+            seqRef,
+            toolName: "steer",
+            label: "Steer",
+            status: "done",
+            summary: `Steer: ${text}`,
+            kind: "commentary",
+          });
+        },
+        onDelta: onContentDelta,
+      };
+
+      await readStreamWithParser(eventsRes.body, (chunk) => parser.push(chunk, callbacks));
+      const result = parser.finish(callbacks);
+
+      if (result.reasoning.trim()) {
+        recordReasoningActivity({
+          channel,
+          runIdLocal,
+          accumulatedReasoning: result.reasoning,
+          reasoningItemIdRef,
+          streaming: false,
+        });
+      }
+
+      // Clear any unsettled approval card tied to this run once settled
+      for (const pc of pendingCards) {
+        if (pc.run_id === gwRunId && pc.card?.status === "pending") {
+          pc.card.status = result.outcome === "cancelled" ? "declined" : "approved";
+          pc.updated_at = Date.now();
+          broadcastEvent({ type: "item", item: pc });
+        }
+      }
+
+      return {
+        reply: result.output.trim(),
+        reasoning: result.reasoning.trim(),
+        outcome: result.outcome,
+        errorCode: result.errorCode,
+        error: result.error,
+        gatewayRunId: gwRunId,
+      };
+    } finally {
+      if (activeGatewayRunIds.get(channel.id) === gwRunId) {
+        activeGatewayRunIds.delete(channel.id);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Transport 2: Session Chat Stream (POST /api/sessions/{id}/chat/stream)
+  // -------------------------------------------------------------------------
+  if (transport === "session_stream") {
+    const streamRes = await fetchWithConcurrentRetry(
+      () =>
+        fetchHermesGateway(
+          `/api/sessions/${encodeURIComponent(channel.session_id)}/chat/stream`,
+          {
+            method: "POST",
+            headers: {
+              "Idempotency-Key": idempotencyKey,
+              "X-Hermes-Session-Key": channel.session_key,
+              Accept: "text/event-stream",
+            },
+            body: JSON.stringify({
+              input: message,
+              ...(model ? { model } : {}),
+              ...(provider ? { provider } : {}),
+            }),
+          },
+          HERMES_CHAT_TIMEOUT_MS,
+          abortSignal
+        ),
+      { signal: abortSignal }
+    );
+
+    if (!streamRes.ok || !streamRes.body) {
+      const errInfo = await readGatewayErrorBody(streamRes);
+      return {
+        reply: "",
+        reasoning: "",
+        outcome: errInfo.code === "admission_conflict" ? "admission_conflict" : "failed",
+        errorCode: errInfo.code,
+        error: `Gateway ${streamRes.status}: ${errInfo.message}`,
+      };
+    }
+
+    const parser = new SessionChatStreamParser();
+    const callbacks = {
+      onCommentary: (c: { text: string; alreadyStreamed: boolean }) => {
+        if (c.alreadyStreamed) return;
+        recordToolOrSubagentActivity({
+          channel,
+          runIdLocal,
+          turnTask,
+          seqRef,
+          toolName: "commentary",
+          label: "Commentary",
+          status: "done",
+          summary: c.text,
+          kind: "commentary",
+        });
+      },
+      onToolEvent: (ev: {
+        toolName: string;
+        label: string;
+        status: string;
+        summary: string;
+      }) => {
+        recordToolOrSubagentActivity({
+          channel,
+          runIdLocal,
+          turnTask,
+          seqRef,
+          toolName: ev.toolName,
+          label: ev.label,
+          status: ev.status,
+          summary: ev.summary,
+          kind: "tool",
+        });
+      },
+      onDelta: onContentDelta,
+    };
+
+    await readStreamWithParser(streamRes.body, (chunk) => parser.push(chunk, callbacks));
+    const result = parser.finish(callbacks);
+    return {
+      reply: result.content.trim(),
+      reasoning: "",
+      outcome: result.outcome,
+      error: result.error,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Transport 3: Chat Completions (POST /v1/chat/completions)
+  // Sends X-Hermes-Session-Id for full server-side history (no .slice(-6)!)
+  // and X-Hermes-Session-Key strictly for Honcho/long-term memory scoping.
+  // -------------------------------------------------------------------------
+  const chatBody: Record<string, unknown> = {
+    model: resolvedModel,
+    ...(resolvedProvider ? { provider: resolvedProvider } : {}),
+    messages: [{ role: "user", content: message }],
+    user: channel.session_key,
+    stream: true,
+  };
+
+  const gwRes = await fetchWithConcurrentRetry(
+    () =>
+      fetchHermesGateway(
+        "/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Idempotency-Key": idempotencyKey,
+            "X-Hermes-Session-Id": channel.session_id,
+            "X-Hermes-Session-Key": channel.session_key,
+            Accept: "text/event-stream, application/json",
+          },
+          body: JSON.stringify(chatBody),
+        },
+        HERMES_CHAT_TIMEOUT_MS,
+        abortSignal
+      ),
+    { signal: abortSignal }
+  );
+
+  if (!gwRes.ok) {
+    const errInfo = await readGatewayErrorBody(gwRes);
+    return {
+      reply: "",
+      reasoning: "",
+      outcome:
+        errInfo.code === "admission_conflict" || gwRes.status === 409
+          ? "admission_conflict"
+          : "failed",
+      errorCode: errInfo.code,
+      error: `Gateway HTTP ${gwRes.status}: ${errInfo.message}`,
+    };
+  }
+
+  const contentType = gwRes.headers.get("content-type") || "";
+  if (contentType.includes("text/event-stream") && gwRes.body) {
+    const parser = new ChatCompletionsStreamParser();
+    const callbacks = {
+      onReasoningDelta: (acc: string) => {
+        recordReasoningActivity({
+          channel,
+          runIdLocal,
+          accumulatedReasoning: acc,
+          reasoningItemIdRef,
+          streaming: true,
+        });
+      },
+      onToolProgress: (ev: {
+        toolName: string;
+        label: string;
+        status: string;
+        summary: string;
+      }) => {
+        recordToolOrSubagentActivity({
+          channel,
+          runIdLocal,
+          turnTask,
+          seqRef,
+          toolName: ev.toolName,
+          label: ev.label,
+          status: ev.status,
+          summary: ev.summary,
+          kind: "tool",
+        });
+      },
+      onContentDelta,
+    };
+
+    await readStreamWithParser(gwRes.body, (chunk) => parser.push(chunk, callbacks));
+    const parsed = parser.finish(callbacks);
+
+    if (parsed.reasoning.trim()) {
+      recordReasoningActivity({
+        channel,
+        runIdLocal,
+        accumulatedReasoning: parsed.reasoning,
+        reasoningItemIdRef,
+        streaming: false,
+      });
+    }
+
+    if (parsed.sessionId && parsed.sessionId !== channel.session_id) {
+      channel.session_id = parsed.sessionId;
+    }
+
+    return {
+      reply: parsed.content.trim(),
+      reasoning: parsed.reasoning.trim(),
+      outcome: parsed.outcome,
+      errorCode: parsed.errorCode,
+      error: parsed.errorMessage,
+    };
+  }
+
+  const nonStream = parseChatCompletionsJson(await gwRes.json().catch(() => null));
+  if (!nonStream) {
+    return {
+      reply: "",
+      reasoning: "",
+      outcome: "failed",
+      error: `Invalid response payload from ${cfg.baseUrl}/v1/chat/completions`,
+    };
+  }
+  if (nonStream.reasoning.trim()) {
+    recordReasoningActivity({
+      channel,
+      runIdLocal,
+      accumulatedReasoning: nonStream.reasoning,
+      reasoningItemIdRef,
+      streaming: false,
+    });
+  }
+  return {
+    reply: nonStream.content.trim(),
+    reasoning: nonStream.reasoning.trim(),
+    outcome: nonStream.outcome,
+    errorCode: nonStream.errorCode,
+    error: nonStream.errorMessage,
   };
 }
 
@@ -876,12 +1266,14 @@ async function createServer() {
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/api/health", (_req, res) => {
+    const cfg = getGatewayConfig();
     const hasDeepgramKey = Boolean(process.env.DEEPGRAM_API_KEY);
     res.json({
       ok: true,
       hasDeepgramKey,
-      hermesApiUrl: HERMES_API_URL,
-      hermesProfile: HERMES_PROFILE,
+      hermesApiUrl: cfg.baseUrl,
+      hermesProfile: cfg.profile,
+      routePrefix: cfg.routePrefix,
       ttsProvider: hasDeepgramKey ? "deepgram" : "browser",
     });
   });
@@ -891,11 +1283,128 @@ async function createServer() {
     res.json(status);
   });
 
-  app.get("/api/hermes/context", (_req, res) => {
-    res.json(readLocalHermesContext());
+  app.get("/api/hermes/context", async (_req, res) => {
+    const ctx = await fetchGatewayContext();
+    res.json(ctx);
   });
 
-  app.get("/api/hermes/state", (_req, res) => {
+  app.get("/api/hermes/skills", async (_req, res) => {
+    try {
+      const r = await fetchHermesGateway("/v1/skills", { method: "GET" }, 2500);
+      if (!r.ok) {
+        const err = await readGatewayErrorBody(r);
+        res.status(r.status).json({ error: err.message, skills: [] });
+        return;
+      }
+      res.json({ skills: mapGatewaySkills(await r.json().catch(() => null)) });
+    } catch (err) {
+      res.status(503).json({
+        error: err instanceof Error ? err.message : "Gateway unreachable",
+        skills: [],
+      });
+    }
+  });
+
+  app.get("/api/hermes/toolsets", async (_req, res) => {
+    try {
+      const r = await fetchHermesGateway("/v1/toolsets", { method: "GET" }, 2500);
+      if (!r.ok) {
+        const err = await readGatewayErrorBody(r);
+        res.status(r.status).json({ error: err.message, toolsets: [] });
+        return;
+      }
+      res.json({ toolsets: mapGatewayToolsets(await r.json().catch(() => null)) });
+    } catch (err) {
+      res.status(503).json({
+        error: err instanceof Error ? err.message : "Gateway unreachable",
+        toolsets: [],
+      });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Jobs API (/api/jobs -> /api/hermes/jobs*)
+  // -------------------------------------------------------------------------
+  app.get("/api/hermes/jobs", async (_req, res) => {
+    try {
+      const r = await fetchHermesGateway("/api/jobs", { method: "GET" }, 2500);
+      if (!r.ok) {
+        const err = await readGatewayErrorBody(r);
+        res.status(r.status).json({ error: err.message, jobs: [] });
+        return;
+      }
+      res.json({ jobs: mapGatewayJobs(await r.json().catch(() => null)) });
+    } catch (err) {
+      res.status(503).json({
+        error: err instanceof Error ? err.message : "Gateway unreachable",
+        jobs: [],
+      });
+    }
+  });
+
+  app.post("/api/hermes/jobs", async (req, res) => {
+    try {
+      const r = await fetchHermesGateway(
+        "/api/jobs",
+        { method: "POST", body: JSON.stringify(req.body ?? {}) },
+        4000
+      );
+      const body = await r.json().catch(() => ({}));
+      res.status(r.status).json(body);
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : "Gateway unreachable" });
+    }
+  });
+
+  app.patch("/api/hermes/jobs/:jobId", async (req, res) => {
+    try {
+      const r = await fetchHermesGateway(
+        `/api/jobs/${encodeURIComponent(req.params.jobId)}`,
+        { method: "PATCH", body: JSON.stringify(req.body ?? {}) },
+        4000
+      );
+      const body = await r.json().catch(() => ({}));
+      res.status(r.status).json(body);
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : "Gateway unreachable" });
+    }
+  });
+
+  app.delete("/api/hermes/jobs/:jobId", async (req, res) => {
+    try {
+      const r = await fetchHermesGateway(
+        `/api/jobs/${encodeURIComponent(req.params.jobId)}`,
+        { method: "DELETE" },
+        4000
+      );
+      const body = await r.json().catch(() => ({ ok: r.ok }));
+      res.status(r.status).json(body);
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : "Gateway unreachable" });
+    }
+  });
+
+  for (const action of ["pause", "resume", "run"] as const) {
+    app.post(`/api/hermes/jobs/:jobId/${action}`, async (req, res) => {
+      try {
+        const r = await fetchHermesGateway(
+          `/api/jobs/${encodeURIComponent(req.params.jobId)}/${action}`,
+          { method: "POST" },
+          4000
+        );
+        const body = await r.json().catch(() => ({ ok: r.ok }));
+        res.status(r.status).json(body);
+      } catch (err) {
+        res.status(503).json({ error: err instanceof Error ? err.message : "Gateway unreachable" });
+      }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // State Snapshot & Channel History (backed by real GET /api/sessions)
+  // -------------------------------------------------------------------------
+  app.get("/api/hermes/state", async (_req, res) => {
+    await syncSessionsFromGateway();
     res.status(200).json({
       items,
       pending: pendingCards,
@@ -905,10 +1414,58 @@ async function createServer() {
     });
   });
 
-  app.get("/api/hermes/channels/:channelId/items", (req, res) => {
+  app.get("/api/hermes/channels/:channelId/items", async (req, res) => {
     const slug = normalizeChannelKey(req.params.channelId) || "general";
+    const channel = channels.find((c) => c.id === slug);
+    const localItems = items.filter((it) => (it.channel_id || slug) === slug);
+
+    if (channel && localItems.length === 0) {
+      try {
+        const msgRes = await fetchHermesGateway(
+          `/api/sessions/${encodeURIComponent(channel.session_id)}/messages?inline_images=false`,
+          { method: "GET" },
+          2500
+        );
+        if (msgRes.ok) {
+          const gwMessages = mapGatewaySessionMessages(
+            await msgRes.json().catch(() => null),
+            channel.session_id
+          );
+          for (const msg of gwMessages) {
+            if (msg.reasoning) {
+              const reasonItem: HermesItem = {
+                id: `${msg.id}-reasoning`,
+                kind: "activity",
+                created_at: Math.max(0, msg.createdAtMs - 1),
+                channel_id: slug,
+                text: `Reasoning: ${msg.reasoning}`,
+                activity: {
+                  run_id: msg.id,
+                  status: "done",
+                  kind: "reasoning",
+                  summary: "Reasoning",
+                  detail: msg.reasoning,
+                },
+              };
+              if (!items.some((it) => it.id === reasonItem.id)) items.push(reasonItem);
+            }
+            const entryItem: HermesItem = {
+              id: msg.id,
+              kind: msg.role === "user" ? "user" : msg.role === "system" ? "system" : "assistant",
+              created_at: msg.createdAtMs,
+              channel_id: slug,
+              text: msg.text,
+            };
+            if (!items.some((it) => it.id === entryItem.id)) items.push(entryItem);
+          }
+        }
+      } catch {
+        // gateway offline or messages unavailable
+      }
+    }
+
     const chItems = items
-      .filter((it) => (it.channel_id || "general") === slug)
+      .filter((it) => (it.channel_id || slug) === slug)
       .sort((a, b) => a.created_at - b.created_at);
     res.status(200).json({ items: chItems, has_more: false });
   });
@@ -917,6 +1474,9 @@ async function createServer() {
     res.status(200).json({ ok: true });
   });
 
+  // -------------------------------------------------------------------------
+  // Run Submission & Turn Execution
+  // -------------------------------------------------------------------------
   app.post("/api/hermes/messages", async (req, res) => {
     const {
       text,
@@ -924,30 +1484,46 @@ async function createServer() {
       name,
       topic,
       session_id,
+      session_key,
       persona,
-      ui_config,
+      transport_mode,
+      idempotency_key,
+      model,
+      provider,
     } = (req.body ?? {}) as {
       text?: string;
       channel_id?: string;
       name?: string;
       topic?: string;
       session_id?: string;
+      session_key?: string;
       persona?: string;
-      ui_config?: Partial<UiCustomizationConfig>;
+      transport_mode?: HermesTransportMode;
+      idempotency_key?: string;
+      model?: string;
+      provider?: string;
     };
-    if (!text || typeof text !== "string") {
+
+    if (!text || typeof text !== "string" || !text.trim()) {
       res.status(400).json({ error: "text is required" });
       return;
     }
 
-    const channel = ensureChannel({
-      channelId: channel_id,
+    const cleanId = normalizeChannelKey(channel_id) || "session";
+    const resolvedSessionId = session_id?.trim() || `hermes-${cleanId}`;
+    const channel = upsertLocalChannel({
+      channelId: cleanId,
       name,
-      sessionId: session_id,
+      sessionId: resolvedSessionId,
+      sessionKey: session_key,
       topic,
       persona,
+      lastAt: Date.now(),
     });
-    channel.last_at = Date.now();
+
+    const resolvedIdemKey =
+      sanitizeSessionKeyHeader(idempotency_key || req.header("idempotency-key")) ||
+      createIdempotencyKey("turn");
 
     const userItem: HermesItem = {
       id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -959,13 +1535,23 @@ async function createServer() {
     items.push(userItem);
     sessionStatusMap.set(channel.id, "thinking");
 
-    // Abort any prior in-flight run on this lane and settle any active turn task
+    // Abort any prior local turn controller on this lane
     activeRunAborts.get(channel.id)?.abort();
+    const priorGwRun = activeGatewayRunIds.get(channel.id);
+    if (priorGwRun) {
+      activeGatewayRunIds.delete(channel.id);
+      void fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(priorGwRun)}/stop`,
+        { method: "POST" },
+        1500
+      ).catch(() => {});
+    }
+
     for (const prevTask of tasks) {
       if (
         prevTask.channel_id === channel.id &&
         prevTask.id.startsWith("task-turn-") &&
-        (prevTask.status === "running" || prevTask.status === "queued")
+        (prevTask.status === "running" || prevTask.status === "queued" || prevTask.status === "waiting")
       ) {
         const finalizedPrev = finalizeTurnTaskSteps(
           prevTask.steps ?? [],
@@ -983,10 +1569,10 @@ async function createServer() {
     const runController = new AbortController();
     activeRunAborts.set(channel.id, runController);
 
-    const runId = `run-${Date.now().toString(36)}`;
+    const runIdLocal = `run-${Date.now().toString(36)}`;
     const turnStartMs = Date.now();
     const turnTask: HermesTask = {
-      id: `task-turn-${runId}`,
+      id: `task-turn-${runIdLocal}`,
       title: deriveTurnTaskTitle(text, `#${channel.name}`),
       status: "running",
       kind: "In chat",
@@ -994,14 +1580,18 @@ async function createServer() {
       session_id: channel.session_id,
       channel_id: channel.id,
       progress: "0/1",
-      steps: [{ text: `Working in ${channel.session_id}`, done: false, active: true }],
+      steps: [],
       created_at: turnStartMs,
       updated_at: turnStartMs,
     };
     tasks.push(turnTask);
     if (tasks.length > 200) {
       const evictIdx = tasks.findIndex(
-        (t) => t.id.startsWith("task-turn-") && t.status !== "running" && t.status !== "queued"
+        (t) =>
+          t.id.startsWith("task-turn-") &&
+          t.status !== "running" &&
+          t.status !== "queued" &&
+          t.status !== "waiting"
       );
       if (evictIdx >= 0) tasks.splice(evictIdx, 1);
     }
@@ -1013,231 +1603,268 @@ async function createServer() {
       item: userItem,
       session: buildSessionSnapshot(channel),
       task: turnTask,
+      idempotencyKey: resolvedIdemKey,
     });
 
     const assistantId = `hermes-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    let streamedPlaceholderCreated = false;
-    let toolSeq = 0;
 
     void (async () => {
       try {
-        const history = items
-          .filter(
-            (it) =>
-              (it.kind === "user" || it.kind === "assistant") &&
-              (it.channel_id || "general") === channel.id &&
-              it.id !== userItem.id
-          )
-          .slice(-6)
-          .map((it) => ({
-            role: it.kind === "user" ? "user" : "hermes",
-            text: it.text ?? "",
-          }));
-
-        const replyData = await callHermesGatewayTurn(
+        const outcome = await executeGatewayTurn(
           {
             message: text,
-            channelId: channel.id,
-            sessionId: channel.session_id,
-            persona: channel.persona ?? undefined,
-            history,
-            uiConfig: ui_config,
-          },
-          {
+            channel,
+            runIdLocal,
+            turnTask,
+            transportMode: transport_mode,
+            idempotencyKey: resolvedIdemKey,
             abortSignal: runController.signal,
-            onToolProgress: ({ toolName, label, status, summary }) => {
-              const normalizedStatus = (status || "running").toLowerCase();
-              const isGenericRunning = /^running\s+/i.test(summary.trim());
-              const toolKey = toolName.trim().toLowerCase();
-
-              // Settle an existing open placeholder activity entry for the same run + tool instead of creating duplicate lines
-              const existingIdx = items.findIndex(
-                (it) =>
-                  it.kind === "activity" &&
-                  it.run_id === runId &&
-                  it.activity?.steps?.[0]?.name?.toLowerCase() === toolKey &&
-                  (it.activity?.steps?.[0]?.status === "running" || /^running\s+/i.test((it.text ?? "").trim()))
-              );
-
-              if (existingIdx >= 0 && (!isGenericRunning || normalizedStatus !== "running")) {
-                const existing = items[existingIdx];
-                existing.text = summary;
-                existing.updated_at = Date.now();
-                existing.activity = {
-                  run_id: runId,
-                  status,
-                  summary,
-                  steps: [{ name: toolName, label, status }],
-                };
-                broadcastEvent({ type: "item", item: existing });
-              } else {
-                toolSeq += 1;
-                const activityItem: HermesItem = {
-                  id: `act-${runId}-${toolSeq}`,
-                  kind: "activity",
-                  created_at: Date.now(),
-                  channel_id: channel.id,
-                  run_id: runId,
-                  text: summary,
-                  activity: {
-                    run_id: runId,
-                    status,
-                    summary,
-                    steps: [{ name: toolName, label, status }],
-                  },
-                };
-                items.push(activityItem);
-                broadcastEvent({ type: "item", item: activityItem });
-              }
-
-              const updatedSteps = applyToolProgressToSteps(turnTask.steps ?? [], {
-                toolName,
-                label,
-                status,
-                summary,
-              });
-              turnTask.steps = updatedSteps.steps;
-              turnTask.progress = updatedSteps.progress;
-              turnTask.updated_at = Date.now();
-              if (sessionStatusMap.get(channel.id) !== "running") {
-                sessionStatusMap.set(channel.id, "running");
-                broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
-              }
-              broadcastEvent({ type: "task", task: turnTask });
-            },
-            onDelta: (accumulated) => {
-              const streamed = applyStreamingDeltaToSteps(turnTask.steps ?? []);
-              if (streamed.changed) {
-                turnTask.steps = streamed.steps;
-                turnTask.progress = streamed.progress;
-                turnTask.updated_at = Date.now();
-                broadcastEvent({ type: "task", task: turnTask });
-              }
-              if (!streamedPlaceholderCreated) {
-                streamedPlaceholderCreated = true;
-                const placeholder: HermesItem = {
-                  id: assistantId,
-                  kind: "assistant",
-                  created_at: Date.now(),
-                  channel_id: channel.id,
-                  streaming: true,
-                  run_id: runId,
-                  text: accumulated,
-                };
-                items.push(placeholder);
-                sessionStatusMap.set(channel.id, "speaking");
-                broadcastEvent({ type: "item", item: placeholder });
-                broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
-              } else {
-                const existing = items.find((it) => it.id === assistantId);
-                if (existing) existing.text = accumulated;
-                broadcastEvent({ type: "delta", item_id: assistantId, text: accumulated });
-              }
-            },
-          }
+            model,
+            provider,
+          },
+          assistantId
         );
 
-        if (runController.signal.aborted) return;
-
-        const existingPlaceholder = items.find((it) => it.id === assistantId);
-        const finalAssistant: HermesItem = existingPlaceholder ?? {
-          id: assistantId,
-          kind: "assistant",
-          created_at: Date.now(),
-          channel_id: channel.id,
-          run_id: runId,
-        };
-        finalAssistant.streaming = false;
-        finalAssistant.ui_patch = replyData.uiPatch;
-        finalAssistant.text = replyData.reply;
-        finalAssistant.updated_at = Date.now();
-        if (!existingPlaceholder) {
-          items.push(finalAssistant);
+        if (runController.signal.aborted && outcome.outcome !== "cancelled") {
+          return;
         }
 
         const settledAt = Date.now();
-        const finalStepLabel =
-          replyData.sourceMode === "local-ui-patch"
-            ? "Updated workspace UI"
-            : replyData.sourceMode === "gateway-offline"
-            ? "Gateway standby response"
-            : "Completed response";
-        const finalized = finalizeTurnTaskSteps(turnTask.steps ?? [], "done", finalStepLabel);
-        turnTask.steps = finalized.steps;
-        turnTask.progress = finalized.progress;
-        turnTask.status = "done";
-        turnTask.result = replyData.reply.slice(0, 200);
-        turnTask.agent_done_at = settledAt;
-        turnTask.updated_at = settledAt;
 
-        sessionStatusMap.set(channel.id, "idle");
-        if (replyData.uiPatch) {
-          broadcastEvent({
-            type: "ui_patch",
-            channelId: channel.id,
-            patch: replyData.uiPatch,
-          });
+        if (outcome.outcome === "admission_conflict") {
+          const msg =
+            outcome.error || "Idempotency key admission conflict (409 admission_conflict).";
+          const finalized = finalizeTurnTaskSteps(turnTask.steps ?? [], "failed", msg);
+          turnTask.steps = finalized.steps;
+          turnTask.progress = finalized.progress;
+          turnTask.status = "failed";
+          turnTask.error_code = "admission_conflict";
+          turnTask.updated_at = settledAt;
+          sessionStatusMap.set(channel.id, "idle");
+          const errItem: HermesItem = {
+            id: assistantId,
+            kind: "activity",
+            created_at: settledAt,
+            channel_id: channel.id,
+            run_id: runIdLocal,
+            error_code: "admission_conflict",
+            terminal_outcome: "admission_conflict",
+            text: msg,
+            activity: { run_id: runIdLocal, status: "error", kind: "status", error: msg },
+          };
+          items.push(errItem);
+          broadcastEvent({ type: "task", task: turnTask });
+          broadcastEvent({ type: "item", item: errItem });
+          broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
+          return;
         }
-        broadcastEvent({ type: "task", task: turnTask });
-        broadcastEvent({ type: "item", item: finalAssistant });
-        broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
-      } catch (err) {
-        sessionStatusMap.set(channel.id, "idle");
-        if (runController.signal.aborted) {
-          const stoppedAt = Date.now();
-          if (turnTask.status === "running" || turnTask.status === "queued") {
-            const finalized = finalizeTurnTaskSteps(
-              turnTask.steps ?? [],
-              "cancelled",
-              "Stopped by operator"
-            );
-            turnTask.steps = finalized.steps;
-            turnTask.progress = finalized.progress;
-            turnTask.status = "cancelled";
-            turnTask.updated_at = stoppedAt;
-            broadcastEvent({ type: "task", task: turnTask });
-          }
+
+        if (outcome.outcome === "cancelled" || outcome.outcome === "interrupted") {
+          const label =
+            outcome.outcome === "interrupted"
+              ? outcome.error || "Gateway shutdown interrupted the run."
+              : "Turn cancelled";
+          const finalized = finalizeTurnTaskSteps(turnTask.steps ?? [], "cancelled", label);
+          turnTask.steps = finalized.steps;
+          turnTask.progress = finalized.progress;
+          turnTask.status = "cancelled";
+          turnTask.error_code = outcome.errorCode || outcome.outcome;
+          turnTask.result = outcome.reply ? outcome.reply.slice(0, 200) : label;
+          turnTask.updated_at = settledAt;
+          sessionStatusMap.set(channel.id, "idle");
 
           const existing = items.find((it) => it.id === assistantId);
           if (existing) {
             existing.streaming = false;
-            existing.text = existing.text ? `${existing.text} [stopped]` : "Turn stopped.";
+            existing.terminal_outcome = outcome.outcome;
+            existing.text = outcome.reply
+              ? `${outcome.reply}\n\n[${label}]`
+              : `[${label}]`;
+            existing.updated_at = settledAt;
+            broadcastEvent({ type: "item", item: existing });
+          } else {
+            const actItem: HermesItem = {
+              id: assistantId,
+              kind: "activity",
+              created_at: settledAt,
+              channel_id: channel.id,
+              run_id: runIdLocal,
+              terminal_outcome: outcome.outcome,
+              text: label,
+              activity: { run_id: runIdLocal, status: "cancelled", kind: "status", summary: label },
+            };
+            items.push(actItem);
+            broadcastEvent({ type: "item", item: actItem });
+          }
+          broadcastEvent({ type: "task", task: turnTask });
+          broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
+          return;
+        }
+
+        if (outcome.outcome === "failed") {
+          const errText = outcome.error || "Gateway turn failed";
+          const finalized = finalizeTurnTaskSteps(
+            turnTask.steps ?? [],
+            "failed",
+            errText.slice(0, 140)
+          );
+          turnTask.steps = finalized.steps;
+          turnTask.progress = finalized.progress;
+          turnTask.status = "failed";
+          turnTask.error_code = outcome.errorCode;
+          turnTask.updated_at = settledAt;
+          sessionStatusMap.set(channel.id, "idle");
+
+          const existing = items.find((it) => it.id === assistantId);
+          if (existing) {
+            existing.streaming = false;
+            existing.terminal_outcome = "failed";
+            existing.updated_at = settledAt;
+            broadcastEvent({ type: "item", item: existing });
+          }
+          const errItem: HermesItem = {
+            id: `${assistantId}-err`,
+            kind: "activity",
+            created_at: settledAt,
+            channel_id: channel.id,
+            run_id: runIdLocal,
+            error_code: outcome.errorCode,
+            terminal_outcome: "failed",
+            text: errText,
+            activity: { run_id: runIdLocal, status: "error", kind: "status", error: errText },
+          };
+          items.push(errItem);
+          broadcastEvent({ type: "task", task: turnTask });
+          broadcastEvent({ type: "item", item: errItem });
+          broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
+          return;
+        }
+
+        // Completed or iteration_budget_exhausted (partial usable wrap-up answer)
+        const isBudgetExhausted = outcome.outcome === "iteration_budget_exhausted";
+        const replyText = outcome.reply;
+
+        if (replyText) {
+          const existingPlaceholder = items.find((it) => it.id === assistantId);
+          const finalAssistant: HermesItem = existingPlaceholder ?? {
+            id: assistantId,
+            kind: "assistant",
+            created_at: settledAt,
+            channel_id: channel.id,
+            run_id: runIdLocal,
+          };
+          finalAssistant.streaming = false;
+          finalAssistant.text = replyText;
+          finalAssistant.error_code = outcome.errorCode;
+          finalAssistant.terminal_outcome = outcome.outcome;
+          finalAssistant.updated_at = settledAt;
+          if (!existingPlaceholder) {
+            items.push(finalAssistant);
+          }
+          broadcastEvent({ type: "item", item: finalAssistant });
+        } else {
+          const noteItem: HermesItem = {
+            id: assistantId,
+            kind: "activity",
+            created_at: settledAt,
+            channel_id: channel.id,
+            run_id: runIdLocal,
+            terminal_outcome: outcome.outcome,
+            text: "Run completed without text output",
+            activity: {
+              run_id: runIdLocal,
+              status: "done",
+              kind: "status",
+              summary: "Run completed without text output",
+            },
+          };
+          items.push(noteItem);
+          broadcastEvent({ type: "item", item: noteItem });
+        }
+
+        const finalized = finalizeTurnTaskSteps(
+          turnTask.steps ?? [],
+          isBudgetExhausted ? "iteration_budget_exhausted" : "done",
+          isBudgetExhausted ? "Iteration budget reached" : "Completed response"
+        );
+        turnTask.steps = finalized.steps;
+        turnTask.progress = finalized.progress;
+        turnTask.status = "done";
+        turnTask.error_code = isBudgetExhausted ? "iteration_budget_exhausted" : undefined;
+        turnTask.result = replyText.slice(0, 200);
+        turnTask.agent_done_at = settledAt;
+        turnTask.updated_at = settledAt;
+
+        sessionStatusMap.set(channel.id, "idle");
+        broadcastEvent({ type: "task", task: turnTask });
+        broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
+      } catch (err) {
+        sessionStatusMap.set(channel.id, "idle");
+        const settledAt = Date.now();
+        if (runController.signal.aborted) {
+          const finalized = finalizeTurnTaskSteps(
+            turnTask.steps ?? [],
+            "cancelled",
+            "Cancelled by operator"
+          );
+          turnTask.steps = finalized.steps;
+          turnTask.progress = finalized.progress;
+          turnTask.status = "cancelled";
+          turnTask.updated_at = settledAt;
+          broadcastEvent({ type: "task", task: turnTask });
+
+          const existing = items.find((it) => it.id === assistantId);
+          if (existing) {
+            existing.streaming = false;
+            existing.terminal_outcome = "cancelled";
+            existing.text = existing.text ? `${existing.text}\n\n[Turn cancelled]` : "[Turn cancelled]";
             broadcastEvent({ type: "item", item: existing });
           } else {
             const stoppedItem: HermesItem = {
               id: assistantId,
               kind: "activity",
-              created_at: Date.now(),
+              created_at: settledAt,
               channel_id: channel.id,
-              run_id: runId,
-              text: "Turn stopped by operator",
-              activity: { run_id: runId, status: "stopped", summary: "Turn stopped by operator" },
+              run_id: runIdLocal,
+              terminal_outcome: "cancelled",
+              text: "Turn cancelled",
+              activity: {
+                run_id: runIdLocal,
+                status: "cancelled",
+                kind: "status",
+                summary: "Turn cancelled",
+              },
             };
             items.push(stoppedItem);
             broadcastEvent({ type: "item", item: stoppedItem });
           }
         } else {
-          const errAt = Date.now();
-          const errText = err instanceof Error ? err.message : "Run error";
+          const cfg = getGatewayConfig();
+          const errText = `Hermes Gateway offline at ${cfg.baseUrl}: ${
+            err instanceof Error ? err.message : String(err)
+          }`;
           const finalized = finalizeTurnTaskSteps(
             turnTask.steps ?? [],
             "failed",
-            errText.slice(0, 120)
+            "Gateway unreachable"
           );
           turnTask.steps = finalized.steps;
           turnTask.progress = finalized.progress;
           turnTask.status = "failed";
-          turnTask.updated_at = errAt;
+          turnTask.error_code = "gateway_offline";
+          turnTask.updated_at = settledAt;
           broadcastEvent({ type: "task", task: turnTask });
 
           const errItem: HermesItem = {
             id: assistantId,
             kind: "activity",
-            created_at: Date.now(),
+            created_at: settledAt,
             channel_id: channel.id,
-            run_id: runId,
+            run_id: runIdLocal,
+            error_code: "gateway_offline",
+            terminal_outcome: "failed",
             text: errText,
-            activity: { run_id: runId, status: "error", error: String(err) },
+            activity: { run_id: runIdLocal, status: "error", kind: "status", error: errText },
           };
           items.push(errItem);
           broadcastEvent({ type: "item", item: errItem });
@@ -1251,79 +1878,325 @@ async function createServer() {
     })();
   });
 
+  // Honest direct chat endpoint (no synthesized offline replies)
   app.post("/api/hermes/chat", async (req, res) => {
     const {
       message,
       channelId = "general",
       sessionId,
-      persona,
-      history = [],
-      uiConfig,
-    } = req.body ?? {};
+      sessionKey,
+      idempotencyKey,
+    } = (req.body ?? {}) as {
+      message?: string;
+      channelId?: string;
+      sessionId?: string;
+      sessionKey?: string;
+      idempotencyKey?: string;
+    };
     if (!message || typeof message !== "string") {
       res.status(400).json({ error: "Message is required." });
       return;
     }
 
-    const resolvedSessionId =
-      typeof sessionId === "string" && sessionId ? sessionId : `hermes-${channelId || "general"}`;
-    const result = await callHermesGatewayTurn({
-      message,
-      channelId,
-      sessionId: resolvedSessionId,
-      persona,
-      history,
-      uiConfig,
-    });
-    res.status(200).json(result);
+    const cfg = getGatewayConfig();
+    const resolvedSessionId = sessionId?.trim() || `hermes-${normalizeChannelKey(channelId) || "general"}`;
+    const resolvedSessionKey =
+      sanitizeSessionKeyHeader(sessionKey) ||
+      defaultSessionKeyForChannel(normalizeChannelKey(channelId) || "general");
+    const resolvedIdem =
+      sanitizeSessionKeyHeader(idempotencyKey || req.header("idempotency-key")) ||
+      createIdempotencyKey("chat");
+
+    try {
+      const gwRes = await fetchWithConcurrentRetry(() =>
+        fetchHermesGateway(
+          "/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Idempotency-Key": resolvedIdem,
+              "X-Hermes-Session-Id": resolvedSessionId,
+              "X-Hermes-Session-Key": resolvedSessionKey,
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              model: cachedGatewayStatus?.activeModel || process.env.API_SERVER_MODEL_NAME || "hermes-agent",
+              messages: [{ role: "user", content: message }],
+              stream: false,
+            }),
+          },
+          HERMES_CHAT_TIMEOUT_MS
+        )
+      );
+
+      if (!gwRes.ok) {
+        const errInfo = await readGatewayErrorBody(gwRes);
+        res.status(gwRes.status).json({
+          sourceMode: "gateway-error",
+          error: errInfo.message,
+          errorCode: errInfo.code,
+          sessionId: resolvedSessionId,
+        });
+        return;
+      }
+
+      const parsed = parseChatCompletionsJson(await gwRes.json().catch(() => null));
+      if (!parsed || parsed.outcome === "admission_conflict") {
+        res.status(parsed?.admissionConflict ? 409 : 502).json({
+          sourceMode: "gateway-error",
+          error: parsed?.errorMessage || "Invalid gateway response",
+          errorCode: parsed?.errorCode,
+          sessionId: resolvedSessionId,
+        });
+        return;
+      }
+
+      res.status(200).json({
+        reply: parsed.content,
+        reasoning: parsed.reasoning,
+        outcome: parsed.outcome,
+        errorCode: parsed.errorCode,
+        sourceMode: "hermes-gateway",
+        sessionId: parsed.sessionId || resolvedSessionId,
+      });
+    } catch (err) {
+      res.status(503).json({
+        sourceMode: "gateway-offline",
+        sessionId: resolvedSessionId,
+        error: `Hermes Gateway unreachable at ${cfg.baseUrl}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      });
+    }
   });
 
-  app.post("/api/hermes/sessions/:channelId/abort", (req, res) => {
+  // -------------------------------------------------------------------------
+  // Run Controls: Stop, Approval, Clarify, Steer, Resolve-Unknown
+  // -------------------------------------------------------------------------
+  app.post("/api/hermes/sessions/:channelId/abort", async (req, res) => {
     const slug = normalizeChannelKey(req.params.channelId) || "general";
-    const controller = activeRunAborts.get(slug);
-    if (controller) {
-      controller.abort();
-      activeRunAborts.delete(slug);
-    }
-    sessionStatusMap.set(slug, "idle");
-    for (const task of tasks) {
-      if (
-        task.channel_id === slug &&
-        task.id.startsWith("task-turn-") &&
-        (task.status === "running" || task.status === "queued")
-      ) {
-        const finalized = finalizeTurnTaskSteps(
-          task.steps ?? [],
-          "cancelled",
-          "Stopped by operator"
+    const gwRunId = activeGatewayRunIds.get(slug);
+    let stoppedOnGateway = false;
+
+    if (gwRunId) {
+      try {
+        const stopRes = await fetchHermesGateway(
+          `/v1/runs/${encodeURIComponent(gwRunId)}/stop`,
+          { method: "POST" },
+          2500
         );
-        task.steps = finalized.steps;
-        task.progress = finalized.progress;
-        task.status = "cancelled";
-        task.updated_at = Date.now();
-        broadcastEvent({ type: "task", task });
+        stoppedOnGateway = stopRes.ok;
+      } catch {
+        // fall through to local abort
       }
     }
-    const ch = channels.find((c) => c.id === slug);
-    if (ch) {
-      broadcastEvent({ type: "session", session: buildSessionSnapshot(ch) });
+
+    const controller = activeRunAborts.get(slug);
+    if (controller && !stoppedOnGateway) {
+      controller.abort();
+      activeRunAborts.delete(slug);
+      sessionStatusMap.set(slug, "idle");
+      for (const task of tasks) {
+        if (
+          task.channel_id === slug &&
+          task.id.startsWith("task-turn-") &&
+          (task.status === "running" || task.status === "queued" || task.status === "waiting")
+        ) {
+          const finalized = finalizeTurnTaskSteps(
+            task.steps ?? [],
+            "cancelled",
+            "Cancelled by operator"
+          );
+          task.steps = finalized.steps;
+          task.progress = finalized.progress;
+          task.status = "cancelled";
+          task.updated_at = Date.now();
+          broadcastEvent({ type: "task", task });
+        }
+      }
+      const ch = channels.find((c) => c.id === slug);
+      if (ch) {
+        broadcastEvent({ type: "session", session: buildSessionSnapshot(ch) });
+      }
     }
-    res.status(200).json({ ok: true, aborted: Boolean(controller), channelId: slug });
+    res.status(200).json({
+      ok: true,
+      aborted: Boolean(controller || stoppedOnGateway),
+      stoppedOnGateway,
+      channelId: slug,
+    });
   });
 
-  app.get("/api/hermes/sessions", (_req, res) => {
+  app.post("/api/hermes/runs/:runId/approval", async (req, res) => {
+    const { request_id, execution_generation, choice, card_id } = (req.body ?? {}) as {
+      request_id?: string;
+      execution_generation?: number;
+      choice?: "once" | "always" | "deny";
+      card_id?: string;
+    };
+    if (!request_id || typeof execution_generation !== "number" || !choice) {
+      res.status(400).json({
+        error: "request_id, execution_generation, and choice (once|always|deny) are required",
+      });
+      return;
+    }
+
+    try {
+      const r = await fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(req.params.runId)}/approval`,
+        {
+          method: "POST",
+          body: JSON.stringify({ request_id, execution_generation, choice }),
+        },
+        4000
+      );
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        res.status(r.status).json(body);
+        return;
+      }
+
+      const card = pendingCards.find(
+        (p) =>
+          p.id === card_id ||
+          (p.run_id === req.params.runId && p.card?.requestId === request_id)
+      );
+      if (card?.card) {
+        card.card.status = choice === "deny" ? "declined" : "approved";
+        card.updated_at = Date.now();
+        broadcastEvent({ type: "item", item: card });
+      }
+
+      const relatedTask = tasks.find((t) => t.run_id === req.params.runId && t.status === "waiting");
+      if (relatedTask && choice !== "deny") {
+        relatedTask.status = "running";
+        relatedTask.updated_at = Date.now();
+        broadcastEvent({ type: "task", task: relatedTask });
+      }
+
+      res.status(200).json({ ok: true, result: body, item: card });
+    } catch (err) {
+      res.status(503).json({
+        error: err instanceof Error ? err.message : "Gateway unreachable",
+      });
+    }
+  });
+
+  app.post("/api/hermes/runs/:runId/clarify", async (req, res) => {
+    const { request_id, execution_generation, answer, card_id } = (req.body ?? {}) as {
+      request_id?: string;
+      execution_generation?: number;
+      answer?: string;
+      card_id?: string;
+    };
+    if (!request_id || typeof execution_generation !== "number" || typeof answer !== "string") {
+      res.status(400).json({
+        error: "request_id, execution_generation, and answer are required",
+      });
+      return;
+    }
+    try {
+      const r = await fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(req.params.runId)}/clarify`,
+        {
+          method: "POST",
+          body: JSON.stringify({ request_id, execution_generation, answer }),
+        },
+        4000
+      );
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        res.status(r.status).json(body);
+        return;
+      }
+      const card = pendingCards.find((p) => p.id === card_id || p.run_id === req.params.runId);
+      if (card?.card) {
+        card.card.status = "approved";
+        card.card.draft = answer;
+        card.updated_at = Date.now();
+        broadcastEvent({ type: "item", item: card });
+      }
+      res.status(200).json({ ok: true, result: body, item: card });
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : "Gateway unreachable" });
+    }
+  });
+
+  app.post("/api/hermes/runs/:runId/steer", async (req, res) => {
+    const { text } = (req.body ?? {}) as { text?: string };
+    if (!text || !text.trim()) {
+      res.status(400).json({ error: "text is required" });
+      return;
+    }
+    try {
+      const r = await fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(req.params.runId)}/steer`,
+        { method: "POST", body: JSON.stringify({ text: text.trim() }) },
+        3000
+      );
+      const body = await r.json().catch(() => ({}));
+      res.status(r.status).json(body);
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : "Gateway unreachable" });
+    }
+  });
+
+  app.post("/api/hermes/runs/:runId/stop", async (req, res) => {
+    try {
+      const r = await fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(req.params.runId)}/stop`,
+        { method: "POST" },
+        3000
+      );
+      const body = await r.json().catch(() => ({}));
+      res.status(r.status).json(body);
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : "Gateway unreachable" });
+    }
+  });
+
+  app.post("/api/hermes/runs/:runId/resolve-unknown", async (req, res) => {
+    const { admission_id, execution_generation } = (req.body ?? {}) as {
+      admission_id?: string;
+      execution_generation?: number;
+    };
+    if (!admission_id || typeof execution_generation !== "number") {
+      res.status(400).json({ error: "admission_id and execution_generation are required" });
+      return;
+    }
+    try {
+      const r = await fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(req.params.runId)}/resolve-unknown`,
+        {
+          method: "POST",
+          body: JSON.stringify({ admission_id, execution_generation }),
+        },
+        3000
+      );
+      const body = await r.json().catch(() => ({}));
+      res.status(r.status).json(body);
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : "Gateway unreachable" });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Sessions CRUD synced to Gateway /api/sessions*
+  // -------------------------------------------------------------------------
+  app.get("/api/hermes/sessions", async (_req, res) => {
+    await syncSessionsFromGateway();
     res.status(200).json({ sessions: buildAllSessionSnapshots() });
   });
 
-  app.post("/api/hermes/sessions", (req, res) => {
-    const { channelId, name, sessionId, topic, persona, skipWelcome, requireFresh } =
+  app.post("/api/hermes/sessions", async (req, res) => {
+    const { channelId, name, sessionId, sessionKey, topic, persona, requireFresh } =
       (req.body ?? {}) as {
         channelId?: string;
         name?: string;
         sessionId?: string;
+        sessionKey?: string;
         topic?: string;
         persona?: string;
-        skipWelcome?: boolean;
         requireFresh?: boolean;
       };
     const rawKey = channelId || name;
@@ -1343,48 +2216,103 @@ async function createServer() {
         })()
       : baseKey;
 
+    let resolvedSessionId = sessionId?.trim() || `hermes-${resolvedKey}`;
+    try {
+      const createRes = await fetchHermesGateway(
+        "/api/sessions",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            session_id: resolvedSessionId,
+            title: topic || name || resolvedKey,
+          }),
+        },
+        2500
+      );
+      if (createRes.ok) {
+        const created = (await createRes.json().catch(() => null)) as {
+          session_id?: string;
+          id?: string;
+        } | null;
+        if (created?.session_id) resolvedSessionId = created.session_id;
+        else if (created?.id) resolvedSessionId = created.id;
+      }
+    } catch {
+      // keep local session identity if gateway unreachable
+    }
+
     const hadChannel = channels.some((c) => c.id === resolvedKey);
-    const channel = ensureChannel({
+    const channel = upsertLocalChannel({
       channelId: resolvedKey,
       name: name || resolvedKey,
-      sessionId,
-      topic,
+      sessionId: resolvedSessionId,
+      sessionKey,
+      topic: topic || name || resolvedKey,
       persona,
+      lastAt: Date.now(),
     });
-
-    let welcomeItem: HermesItem | null = null;
-    const hasItems = items.some((it) => (it.channel_id || "general") === channel.id);
-    if (!hasItems && !skipWelcome) {
-      welcomeItem = {
-        id: `init-welcome-${channel.id}-${Date.now()}`,
-        kind: "assistant",
-        created_at: Date.now(),
-        channel_id: channel.id,
-        text: `Isolated session ${channel.session_id} ready (#${channel.name}). ${channel.topic}`,
-      };
-      items.push(welcomeItem);
-    }
 
     const snapshot = buildSessionSnapshot(channel);
     if (!hadChannel) {
       broadcastEvent({ type: "channel", channel });
-    }
-    if (welcomeItem) {
-      broadcastEvent({ type: "item", item: welcomeItem });
     }
     broadcastEvent({ type: "session", session: snapshot });
     res.status(200).json({
       resolvedChannelId: channel.id,
       session: snapshot,
       channel,
-      item: welcomeItem,
+      item: null,
     });
   });
 
-  app.post("/api/hermes/sessions/:channelId/reset", (req, res) => {
+  app.post("/api/hermes/sessions/:channelId/reset", async (req, res) => {
     const slug = normalizeChannelKey(req.params.channelId) || "general";
     activeRunAborts.get(slug)?.abort();
-    const ch = ensureChannel({ channelId: slug });
+    const gwRun = activeGatewayRunIds.get(slug);
+    if (gwRun) {
+      activeGatewayRunIds.delete(slug);
+      void fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(gwRun)}/stop`,
+        { method: "POST" },
+        1500
+      ).catch(() => {});
+    }
+
+    const existing = channels.find((c) => c.id === slug);
+    const oldSessionId = existing?.session_id || `hermes-${slug}`;
+    let nextSessionId = `${oldSessionId}-r${Date.now().toString(36).slice(-4)}`;
+
+    // Rotate X-Hermes-Session-Id via POST /api/sessions while keeping channel.session_key stable
+    try {
+      const createRes = await fetchHermesGateway(
+        "/api/sessions",
+        {
+          method: "POST",
+          body: JSON.stringify({ title: existing?.topic || existing?.name || slug }),
+        },
+        2500
+      );
+      if (createRes.ok) {
+        const created = (await createRes.json().catch(() => null)) as {
+          session_id?: string;
+          id?: string;
+        } | null;
+        if (created?.session_id) nextSessionId = created.session_id;
+        else if (created?.id) nextSessionId = created.id;
+      }
+    } catch {
+      // keep generated rotated session ID offline
+    }
+
+    const ch = upsertLocalChannel({
+      channelId: slug,
+      name: existing?.name || slug,
+      sessionId: nextSessionId,
+      sessionKey: existing?.session_key || defaultSessionKeyForChannel(slug),
+      topic: existing?.topic,
+      persona: existing?.persona,
+    });
+
     for (let i = items.length - 1; i >= 0; i--) {
       if ((items[i].channel_id || "general") === ch.id) {
         items.splice(i, 1);
@@ -1396,40 +2324,47 @@ async function createServer() {
       }
     }
     sessionStatusMap.set(ch.id, "idle");
-    const resetItem: HermesItem = {
-      id: `reset-${ch.id}-${Date.now()}`,
-      kind: "assistant",
-      created_at: Date.now(),
-      channel_id: ch.id,
-      text: `Fresh context opened for ${ch.session_id} (#${ch.name}). Prior messages in this session were cleared.`,
-    };
-    items.push(resetItem);
     const snapshot = buildSessionSnapshot(ch);
     broadcastEvent({
       type: "session_reset",
       channelId: ch.id,
       session: snapshot,
-      item: resetItem,
+      item: null,
     });
-    res.status(200).json({ ok: true, session: snapshot, item: resetItem });
+    res.status(200).json({ ok: true, session: snapshot, item: null });
   });
 
-  app.delete("/api/hermes/sessions/:channelId", (req, res) => {
+  app.delete("/api/hermes/sessions/:channelId", async (req, res) => {
     const channelId = normalizeChannelKey(req.params.channelId);
-    if (channelId === "general") {
-      res.status(400).json({ error: "Cannot delete primary general session." });
-      return;
-    }
     activeRunAborts.get(channelId)?.abort();
+    const gwRun = activeGatewayRunIds.get(channelId);
+    if (gwRun) {
+      activeGatewayRunIds.delete(channelId);
+      void fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(gwRun)}/stop`,
+        { method: "POST" },
+        1500
+      ).catch(() => {});
+    }
+
     const idx = channels.findIndex((c) => c.id === channelId);
+    const targetSessionId = idx >= 0 ? channels[idx].session_id : undefined;
+    if (targetSessionId) {
+      await fetchHermesGateway(
+        `/api/sessions/${encodeURIComponent(targetSessionId)}`,
+        { method: "DELETE" },
+        2500
+      ).catch(() => {});
+    }
+
     if (idx >= 0) channels.splice(idx, 1);
     for (let i = items.length - 1; i >= 0; i--) {
-      if ((items[i].channel_id || "general") === channelId) {
+      if ((items[i].channel_id || "") === channelId) {
         items.splice(i, 1);
       }
     }
     for (let i = tasks.length - 1; i >= 0; i--) {
-      if ((tasks[i].channel_id || "general") === channelId) {
+      if ((tasks[i].channel_id || "") === channelId) {
         tasks.splice(i, 1);
       }
     }
@@ -1438,20 +2373,9 @@ async function createServer() {
     res.status(200).json({ ok: true, channelId });
   });
 
-  app.post("/api/hermes/cards/:cardId/act", (req, res) => {
-    const { action, value } = (req.body ?? {}) as { action?: string; value?: string };
-    const item = pendingCards.find((p) => p.id === req.params.cardId);
-    if (!item || !item.card) {
-      res.status(404).json({ error: "card not found" });
-      return;
-    }
-    item.card.status = action === "approve" ? "approved" : "declined";
-    if (typeof value === "string") item.card.draft = value;
-    item.updated_at = Date.now();
-    broadcastEvent({ type: "item", item });
-    res.status(200).json({ ok: true, item });
-  });
-
+  // -------------------------------------------------------------------------
+  // Turn Task Confirmation / Cancellation / Steering
+  // -------------------------------------------------------------------------
   app.post("/api/hermes/tasks/:taskId/confirm", (req, res) => {
     const task = tasks.find((t) => t.id === req.params.taskId);
     if (!task) {
@@ -1480,35 +2404,45 @@ async function createServer() {
     res.status(200).json({ ok: true, task });
   });
 
-  app.post("/api/hermes/tasks/:taskId/cancel", (req, res) => {
+  app.post("/api/hermes/tasks/:taskId/cancel", async (req, res) => {
     const task = tasks.find((t) => t.id === req.params.taskId);
     if (!task) {
       res.status(404).json({ error: "task not found" });
       return;
     }
     const chSlug = normalizeChannelKey(task.channel_id || "general") || "general";
-    if (task.id.startsWith("task-turn-")) {
-      const controller = activeRunAborts.get(chSlug);
-      if (controller) {
-        controller.abort();
-        activeRunAborts.delete(chSlug);
-      }
+    const gwRunId = task.run_id || activeGatewayRunIds.get(chSlug);
+    if (gwRunId) {
+      await fetchHermesGateway(
+        `/v1/runs/${encodeURIComponent(gwRunId)}/stop`,
+        { method: "POST" },
+        2500
+      ).catch(() => {});
+    }
+
+    const controller = activeRunAborts.get(chSlug);
+    if (controller && !gwRunId) {
+      controller.abort();
+      activeRunAborts.delete(chSlug);
+    }
+
+    if (!gwRunId) {
       sessionStatusMap.set(chSlug, "idle");
       const finalized = finalizeTurnTaskSteps(
         task.steps ?? [],
         "cancelled",
-        "Stopped by operator"
+        "Cancelled by operator"
       );
       task.steps = finalized.steps;
       task.progress = finalized.progress;
+      task.status = "cancelled";
+      task.updated_at = Date.now();
       const ch = channels.find((c) => c.id === chSlug);
       if (ch) {
         broadcastEvent({ type: "session", session: buildSessionSnapshot(ch) });
       }
+      broadcastEvent({ type: "task", task });
     }
-    task.status = "cancelled";
-    task.updated_at = Date.now();
-    broadcastEvent({ type: "task", task });
     res.status(200).json({ ok: true, task });
   });
 
@@ -1518,7 +2452,7 @@ async function createServer() {
     let removed = 0;
     for (let i = tasks.length - 1; i >= 0; i--) {
       const t = tasks[i];
-      if (chSlug && (t.channel_id || "general") !== chSlug) continue;
+      if (chSlug && (t.channel_id || "") !== chSlug) continue;
       if (t.confirmed_at || t.status === "cancelled") {
         tasks.splice(i, 1);
         removed += 1;
@@ -1527,7 +2461,7 @@ async function createServer() {
     res.status(200).json({ ok: true, removed });
   });
 
-  app.post("/api/hermes/tasks/:taskId/message", (req, res) => {
+  app.post("/api/hermes/tasks/:taskId/message", async (req, res) => {
     const { text } = (req.body ?? {}) as { text?: string };
     if (!text || typeof text !== "string" || !text.trim()) {
       res.status(400).json({ error: "text is required" });
@@ -1538,9 +2472,26 @@ async function createServer() {
       res.status(404).json({ error: "task not found" });
       return;
     }
-    if (task.status !== "running" && task.status !== "queued" && task.status !== "waiting") {
-      res.status(409).json({ error: "task is not active" });
-      return;
+    const chSlug = normalizeChannelKey(task.channel_id || "general") || "general";
+    const gwRunId = task.run_id || activeGatewayRunIds.get(chSlug);
+    if (gwRunId) {
+      try {
+        const steerRes = await fetchHermesGateway(
+          `/v1/runs/${encodeURIComponent(gwRunId)}/steer`,
+          { method: "POST", body: JSON.stringify({ text: text.trim() }) },
+          3000
+        );
+        if (!steerRes.ok) {
+          const err = await readGatewayErrorBody(steerRes);
+          res.status(steerRes.status).json({ error: err.message });
+          return;
+        }
+      } catch (err) {
+        res.status(503).json({
+          error: err instanceof Error ? err.message : "Gateway unreachable",
+        });
+        return;
+      }
     }
     const clean = text.trim();
     task.steps = [...(task.steps ?? []), { text: `Steer: ${clean}`, done: false }];
@@ -1551,6 +2502,9 @@ async function createServer() {
     res.status(200).json({ ok: true, task });
   });
 
+  // -------------------------------------------------------------------------
+  // SSE Event Stream to Browser UI
+  // -------------------------------------------------------------------------
   app.get("/api/hermes/events", (req, res) => {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",

@@ -98,3 +98,46 @@ test('groupThreadTimeline deduplicates tool pairs and respects includeLivePlaceh
     assert.equal(dedupedTrace[1].items[0].label, 'read_file');
   }
 });
+
+test('classifyTraceStep preserves multiline reasoning_content and commentary steps', () => {
+  const reasoning = classifyTraceStep({
+    ...makeEntry('r1', 'activity', 'Reasoning: Step 1\nStep 2'),
+    activityKind: 'reasoning',
+    reasoningDetail: 'Step 1\nStep 2',
+  });
+  assert.equal(reasoning.icon, 'reasoning');
+  assert.equal(reasoning.isReasoning, true);
+  assert.equal(reasoning.label, 'Reasoning');
+  assert.equal(reasoning.detail, 'Step 1\nStep 2');
+
+  const commentary = classifyTraceStep({
+    ...makeEntry('c1', 'activity', 'Checking git diff first'),
+    activityKind: 'commentary',
+  });
+  assert.equal(commentary.icon, 'commentary');
+  assert.equal(commentary.label, 'Commentary');
+  assert.equal(commentary.detail, 'Checking git diff first');
+});
+
+test('groupThreadTimeline renders terminal diagnostic failures as standalone entry blocks', () => {
+  const blocks = groupThreadTimeline(
+    [
+      makeEntry('u1', 'user', 'Check build status'),
+      {
+        ...makeEntry('e1', 'activity', 'Hermes Gateway offline at http://127.0.0.1:8642'),
+        activityKind: 'status',
+        activityStatus: 'error',
+        errorCode: 'gateway_offline',
+        terminalOutcome: 'failed',
+      },
+    ],
+    false,
+    false
+  );
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[1].kind, 'entry');
+  if (blocks[1].kind === 'entry') {
+    assert.equal(blocks[1].entry.errorCode, 'gateway_offline');
+  }
+});
+

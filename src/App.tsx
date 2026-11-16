@@ -23,8 +23,6 @@ import {
   arrangeSessionsFormation,
   autoArrangeSessions,
   createHermesSessionId,
-  createSeedCanvasPins,
-  createSeedCanvasSessions,
   findOpenCanvasSpot,
   normalizeCanvasPins,
   normalizeCanvasSessions,
@@ -33,7 +31,7 @@ import {
   type CanvasPin,
   type CanvasSession,
 } from './utils/canvasSessions';
-import { INITIAL_CHANNELS, executeCliInput } from './utils/cliEngine';
+import { executeCliInput } from './utils/cliEngine';
 import {
   deriveSessionFromPrompt,
   pickNextShapeAndTint,
@@ -59,53 +57,11 @@ function nowTime(): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-function buildLocalFallbackReply(
-  prompt: string,
-  approvals: ApprovalCard[],
-  tasks: BackgroundTask[],
-  brief: BriefDecision[]
-): { reply: string; mood: ExpressionMood } {
-  const lower = prompt.toLowerCase();
-  if (lower.includes('brief')) {
-    const open = brief.filter((b) => !b.resolved);
-    return {
-      reply: `Your morning brief has ${open.length} open items. Top priority: ${
-        open[0]?.title ?? 'all items resolved'
-      }.`,
-      mood: 'focused',
-    };
-  }
-  if (lower.includes('task') || lower.includes('status')) {
-    const running = tasks.filter((t) => t.status === 'running').length;
-    return {
-      reply: `Currently tracking ${tasks.length} background lanes, with ${running} actively running and zero faults.`,
-      mood: 'focused',
-    };
-  }
-  if (lower.includes('approve')) {
-    const nextPending = approvals.find((a) => a.status === 'pending');
-    if (nextPending) {
-      return {
-        reply: `${nextPending.title} is queued for your sign-off. Run /approve ${nextPending.id} or tap Approve to dispatch.`,
-        mood: 'happy',
-      };
-    }
-    return {
-      reply: 'All approval gates in this lane are currently clear.',
-      mood: 'happy',
-    };
-  }
-  return {
-    reply: `Hermes Agent active. Received: "${prompt}". Use /brief, /tasks, /skills, or /approve to drive your lanes.`,
-    mood: 'happy',
-  };
-}
-
 const CANVAS_STORAGE_KEY = 'duet.canvasSessions.v2';
 const CANVAS_PINS_STORAGE_KEY = 'duet.canvasPins.v1';
 
 export default function App() {
-  const [activeChannel, setActiveChannel] = useState<ChannelId>('general');
+  const [activeChannel, setActiveChannel] = useState<ChannelId>('');
   const [approvals, setApprovals] = useState<ApprovalCard[]>([]);
   const [brief, setBrief] = useState<BriefDecision[]>([]);
   const [tasks, setTasks] = useState<BackgroundTask[]>([]);
@@ -116,14 +72,13 @@ export default function App() {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<CanvasSession>[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const normalized = normalizeCanvasSessions(parsed);
-          if (normalized.length > 0) return normalized;
+          return normalizeCanvasSessions(parsed);
         }
       }
     } catch {
-      // fall back to seeded sessions
+      // ignore storage errors
     }
-    return createSeedCanvasSessions(INITIAL_CHANNELS);
+    return [];
   });
   const [canvasPins, setCanvasPins] = useState<CanvasPin[]>(() => {
     try {
@@ -135,9 +90,9 @@ export default function App() {
         }
       }
     } catch {
-      // fall back to seeded pins
+      // ignore storage errors
     }
-    return createSeedCanvasPins();
+    return [];
   });
   const [mood, setMood] = useState<ExpressionMood>('happy');
   const [panelView, setPanelView] = useState<WorkspacePanelView>(() => {
@@ -431,15 +386,23 @@ export default function App() {
     gatewayStatus,
     refreshGateway,
     skills,
-    memory,
+    toolsets,
     cronJobs,
+    transportMode,
+    setTransportMode,
     sendMessage: hermesSendMessage,
     abortRun,
     createHermesSession,
     loadChannelHistory,
     resetHermesSession,
     deleteHermesSession,
-    actOnCard: hermesActOnCard,
+    actOnRunApproval,
+    clarifyRun,
+    createJob,
+    pauseJob,
+    resumeJob,
+    runJob,
+    deleteJob,
     confirmTask: hermesConfirmTask,
     reopenTask: hermesReopenTask,
     cancelTask: hermesCancelTask,
@@ -452,7 +415,7 @@ export default function App() {
     void loadChannelHistory(activeChannel);
   }, [hermesConnected, activeChannel, homeSessionDraft, panelView, loadChannelHistory]);
 
-  // Persist Braille Canvas sessions & Berd workspace pins locally
+  // Persist Braille Canvas sessions & workspace pins locally
   useEffect(() => {
     try {
       localStorage.setItem(CANVAS_STORAGE_KEY, JSON.stringify(canvasSessions));
@@ -469,8 +432,43 @@ export default function App() {
     }
   }, [canvasPins]);
 
-  // Sync any custom canvas sessions to the server hermes-agent registry.
-  // Seeded core shapes register lazily on first message.
+  // Sync real gateway channels into canvasSessions so Braille canvas mirrors GET /api/sessions
+  useEffect(() => {
+    if (hermes.channels.length === 0) return;
+    setCanvasSessions((prev) => {
+      const existingIds = new Set(prev.map((s) => s.channelId));
+      const additions: CanvasSession[] = [];
+      for (const ch of hermes.channels) {
+        if (existingIds.has(ch.id)) continue;
+        existingIds.add(ch.id);
+        const visual = pickNextShapeAndTint([...prev, ...additions]);
+        const spot = findOpenCanvasSpot([...prev, ...additions]);
+        additions.push({
+          id: `session-${ch.id}`,
+          channelId: ch.id,
+          hermesSessionId: ch.sessionId || createHermesSessionId(ch.id),
+          agentPersona: ch.persona || 'Hermes Agent session synced from gateway.',
+          name: ch.name || ch.id,
+          topic: ch.description || ch.name || ch.id,
+          shape: visual.shape,
+          tint: visual.tint,
+          xPct: spot.xPct,
+          yPct: spot.yPct,
+          mood: 'happy',
+          eyeStyle: visual.eyeStyle,
+          isCore: false,
+          autonomyMode: 'manual',
+          scheduleLabel: 'On-demand',
+          sandboxEnv: 'cloud-sandbox',
+          workspaceDir: `~/hermes/dots/${ch.id}`,
+          skills: [],
+        });
+      }
+      return additions.length > 0 ? [...prev, ...additions] : prev;
+    });
+  }, [hermes.channels]);
+
+  // Sync any user-created custom canvas sessions to the server hermes-agent registry.
   const syncedSessionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!hermesConnected) return;
@@ -490,10 +488,9 @@ export default function App() {
     }
   }, [hermesConnected, canvasSessions, hermes.sessions, createHermesSession]);
 
-  // Mirror Hermes Agent state locally + merge custom canvas sessions so new Braille shapes act as real lanes.
+  // Mirror real Hermes Agent sessions/channels from gateway without hardcoded fallbacks
   useEffect(() => {
-    const baseChannels = hermes.channels.length > 0 ? hermes.channels : INITIAL_CHANNELS;
-    const merged: Channel[] = [...baseChannels];
+    const merged: Channel[] = [...hermes.channels];
     for (const cs of canvasSessions) {
       if (!merged.some((c) => c.id === cs.channelId)) {
         merged.push({
@@ -508,7 +505,9 @@ export default function App() {
     }
     setChannels(merged);
     if (merged.length > 0) {
-      setActiveChannel((prev) => (merged.some((c) => c.id === prev) ? prev : merged[0].id));
+      setActiveChannel((prev) => (prev && merged.some((c) => c.id === prev) ? prev : merged[0].id));
+    } else {
+      setActiveChannel('');
     }
   }, [hermes.channels, canvasSessions]);
   useEffect(() => setApprovals(hermes.approvals), [hermes.approvals]);
@@ -528,18 +527,6 @@ export default function App() {
     [tasks, entries, hermes.sessions, thinkingByChannel, channels, confirmedSyntheticTaskIds, dismissedTaskIds]
   );
   stateRef.current.tasks = effectiveTasks;
-
-  useEffect(() => {
-    if (!hermesConnected) return;
-    upsertEntry({
-      id: 'hermes-link',
-      channelId: 'general',
-      role: 'system',
-      source: 'ui',
-      text: 'HERMES AGENT LINK ACTIVE // isolated sessions & streaming tool trace ready.',
-      timestamp: nowTime(),
-    });
-  }, [hermesConnected, upsertEntry]);
 
   useEffect(() => {
     if (homeSessionDraft && panelView === 'home') {
@@ -576,9 +563,9 @@ export default function App() {
 
   const [showThinking, setShowThinking] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('duet.showInlineTrace') === '1';
+      return localStorage.getItem('duet.showInlineTrace') !== '0';
     } catch {
-      return false;
+      return true;
     }
   });
   const handleToggleThinking = useCallback(() => {
@@ -593,74 +580,82 @@ export default function App() {
   }, []);
 
   const handleApproveCard = useCallback(
-    (id: string, editedDraft?: string) => {
-      let approvedTitle = '';
-      setApprovals((prev) =>
-        prev.map((c) => {
-          if (c.id === id) {
-            approvedTitle = c.title;
-            return {
-              ...c,
-              status: 'approved',
-              draft: editedDraft ?? c.draft,
-            };
-          }
-          return c;
-        })
-      );
-      setBrief((prev) =>
-        prev.map((b) =>
-          b.suggestedCommand.includes(id) ? { ...b, resolved: true } : b
-        )
-      );
-      if (approvedTitle) {
-        void hermesActOnCard(id, 'approve', editedDraft).catch(() => {});
-
-        const msg = `Approved ${approvedTitle}. Resuming Hermes run with updated payload.`;
-        setMood('happy');
-        updateSpokenLine(msg);
+    async (id: string, choice: 'once' | 'always' | 'deny' = 'once') => {
+      const card = stateRef.current.approvals.find((a) => a.id === id || a.requestId === id);
+      if (!card) return;
+      const targetChannel = card.channelId || stateRef.current.activeChannel || 'general';
+      try {
+        await actOnRunApproval(card, choice);
+        const actionWord =
+          choice === 'deny' ? 'Denied' : choice === 'always' ? 'Always allowed' : 'Approved once';
+        const msg = `${actionWord}: ${card.title}${card.runId ? ` (run ${card.runId})` : ''}.`;
+        setMood(choice === 'deny' ? 'neutral' : 'happy');
+        updateSpokenLine(msg, targetChannel);
         appendEntry({
-          channelId: stateRef.current.activeChannel,
-          role: 'hermes',
+          channelId: targetChannel,
+          role: 'system',
           source: 'ui',
-          mood: 'happy',
           text: msg,
         });
-        voiceRef.current?.speakText(msg, 'happy');
+      } catch (err) {
+        const errMsg = `Run approval failed for ${card.title}: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        setMood('alert');
+        appendEntry({
+          channelId: targetChannel,
+          role: 'activity',
+          source: 'ui',
+          activityStatus: 'error',
+          errorCode: 'approval_failed',
+          terminalOutcome: 'failed',
+          text: errMsg,
+        });
       }
     },
-    [appendEntry, updateSpokenLine, hermesActOnCard]
+    [actOnRunApproval, appendEntry, updateSpokenLine]
   );
 
   const handleRejectCard = useCallback(
     (id: string) => {
-      let rejectedTitle = '';
-      setApprovals((prev) =>
-        prev.map((c) => {
-          if (c.id === id) {
-            rejectedTitle = c.title;
-            return { ...c, status: 'rejected' };
-          }
-          return c;
-        })
-      );
-      if (rejectedTitle) {
-        void hermesActOnCard(id, 'decline').catch(() => {});
+      void handleApproveCard(id, 'deny');
+    },
+    [handleApproveCard]
+  );
 
-        const msg = `Held ${rejectedTitle}. No outbound tool action was sent.`;
-        setMood('neutral');
-        updateSpokenLine(msg);
+  const handleClarifyCard = useCallback(
+    async (id: string, answer: string) => {
+      const card = stateRef.current.approvals.find((a) => a.id === id || a.requestId === id);
+      if (!card || !answer.trim()) return;
+      const targetChannel = card.channelId || stateRef.current.activeChannel || 'general';
+      try {
+        await clarifyRun(card, answer.trim());
+        const msg = `Submitted clarification for ${card.title}.`;
+        setMood('happy');
+        updateSpokenLine(msg, targetChannel);
         appendEntry({
-          channelId: stateRef.current.activeChannel,
-          role: 'hermes',
+          channelId: targetChannel,
+          role: 'system',
           source: 'ui',
-          mood: 'neutral',
           text: msg,
         });
-        voiceRef.current?.speakText(msg, 'neutral');
+      } catch (err) {
+        const errMsg = `Clarification failed for ${card.title}: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        setMood('alert');
+        appendEntry({
+          channelId: targetChannel,
+          role: 'activity',
+          source: 'ui',
+          activityStatus: 'error',
+          errorCode: 'clarify_failed',
+          terminalOutcome: 'failed',
+          text: errMsg,
+        });
       }
     },
-    [appendEntry, updateSpokenLine, hermesActOnCard]
+    [appendEntry, clarifyRun, updateSpokenLine]
   );
 
   const handleStartNewHomeSession = useCallback(() => {
@@ -685,13 +680,15 @@ export default function App() {
       meta?: { name?: string; topic?: string; sessionId?: string; persona?: string },
       echoUserIfOffline = true
     ) => {
-      const { approvals: appList, tasks: taskList, brief: briefList } = stateRef.current;
       const targetShape = stateRef.current.canvasSessions.find((s) => s.channelId === ch);
       const targetHermesSessionId =
         meta?.sessionId ?? targetShape?.hermesSessionId ?? createHermesSessionId(ch);
       const targetPersona = meta?.persona ?? targetShape?.agentPersona;
       const targetTopic = meta?.topic ?? targetShape?.topic;
       const targetName = meta?.name ?? targetShape?.name ?? ch;
+
+      // Client-side UI commands phrased in natural language still work without inventing an agent reply.
+      const localIntentPatch = parseNaturalUiIntent(promptText, stateRef.current.uiConfig);
 
       setChannelThinking(ch, true);
       if (ch === stateRef.current.activeChannel) {
@@ -705,7 +702,7 @@ export default function App() {
             topic: targetTopic,
             sessionId: targetHermesSessionId,
             persona: targetPersona,
-            uiConfig: stateRef.current.uiConfig,
+            transportMode,
           });
           if (item) {
             if (item.ui_patch) {
@@ -715,7 +712,8 @@ export default function App() {
             if (entry) upsertEntry(entry);
           }
           return;
-        } catch {
+        } catch (err) {
+          setChannelThinking(ch, false);
           if (echoUserIfOffline) {
             appendEntry({
               channelId: ch,
@@ -724,133 +722,70 @@ export default function App() {
               text: promptText,
             });
           }
-        }
-      }
-
-      // Offline fallback: direct gateway chat isolated per-channel so multiple sessions run concurrently.
-      chatAbortsRef.current.get(ch)?.abort();
-      const controller = new AbortController();
-      chatAbortsRef.current.set(ch, controller);
-      const timeoutId = window.setTimeout(() => controller.abort(), 300_000);
-
-      setChannelThinking(ch, true);
-      if (ch === stateRef.current.activeChannel) {
-        setMood('thinking');
-      }
-
-      try {
-        const res = await fetch('/api/hermes/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            message: promptText,
-            channelId: ch,
-            sessionId: targetHermesSessionId,
-            persona: targetPersona,
-            uiConfig: stateRef.current.uiConfig,
-            history: stateRef.current.entries
-              .filter(
-                (e) =>
-                  e.channelId === ch && (e.role === 'user' || e.role === 'hermes')
-              )
-              .slice(-6)
-              .map((e) => ({ role: e.role, text: e.text })),
-            pendingApprovals: appList
-              .filter((a) => a.status === 'pending')
-              .map((a) => ({ id: a.id, title: a.title, destination: a.destination, mcpTool: a.mcpTool })),
-            tasks: taskList
-              .filter((t) => t.channelId === ch)
-              .map((t) => ({ id: t.id, title: t.title, status: t.status, progress: t.progress })),
-          }),
-        });
-
-        window.clearTimeout(timeoutId);
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-
-        const data = (await res.json()) as {
-          reply?: string;
-          mood?: ExpressionMood;
-          suggestedCommand?: string;
-          uiPatch?: UiCustomizationPatch | null;
-        };
-
-        if (data.uiPatch) {
-          applyAgentUiPatch(data.uiPatch, 'hermes');
-        }
-
-        const reply = data.reply || 'Signal acknowledged.';
-        const nextMood = data.mood || 'speaking';
-        setChannelThinking(ch, false);
-        updateSpokenLine(reply, ch);
-
-        appendEntry({
-          channelId: ch,
-          role: 'hermes',
-          source,
-          mood: nextMood,
-          text: data.suggestedCommand ? `${reply}\n[Suggested: ${data.suggestedCommand}]` : reply,
-        });
-
-        if (ch === stateRef.current.activeChannel) {
-          setMood(nextMood);
-          setSpeakingChannel(ch);
-          await voiceRef.current?.speakText(reply, nextMood);
-        }
-      } catch (err) {
-        window.clearTimeout(timeoutId);
-        setChannelThinking(ch, false);
-        if (err instanceof DOMException && err.name === 'AbortError' && chatAbortsRef.current.get(ch) !== controller) {
-          return;
-        }
-        const localIntentPatch = parseNaturalUiIntent(promptText, stateRef.current.uiConfig);
-        if (localIntentPatch) {
-          const outcome = applyAgentUiPatch(localIntentPatch, 'hermes');
-          const msg = `Updated UI directly: ${outcome.summary}.`;
-          updateSpokenLine(msg, ch);
-          appendEntry({
-            channelId: ch,
-            role: 'hermes',
-            source,
-            mood: 'happy',
-            text: msg,
-          });
-          if (ch === stateRef.current.activeChannel) {
-            setMood('happy');
-            setSpeakingChannel(ch);
-            await voiceRef.current?.speakText(msg, 'happy');
+          if (localIntentPatch) {
+            const outcome = applyAgentUiPatch(localIntentPatch, 'hermes');
+            appendEntry({
+              channelId: ch,
+              role: 'system',
+              source,
+              text: `Applied client UI change (${outcome.summary}). Gateway request failed: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            });
+          } else {
+            const errMsg = `Hermes Gateway request failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`;
+            setMood('alert');
+            updateSpokenLine(errMsg, ch);
+            appendEntry({
+              channelId: ch,
+              role: 'activity',
+              source,
+              activityStatus: 'error',
+              errorCode: 'gateway_offline',
+              terminalOutcome: 'failed',
+              text: errMsg,
+            });
           }
           return;
         }
-        const fallback = buildLocalFallbackReply(promptText, appList, taskList, briefList);
-        updateSpokenLine(fallback.reply, ch);
+      }
+
+      // Express backend offline / disconnected: apply pure UI intent if present, never synthesize an agent reply.
+      setChannelThinking(ch, false);
+      if (localIntentPatch) {
+        const outcome = applyAgentUiPatch(localIntentPatch, 'hermes');
         appendEntry({
           channelId: ch,
-          role: 'hermes',
+          role: 'system',
           source,
-          mood: fallback.mood,
-          text: fallback.reply,
+          text: `Applied client UI change (${outcome.summary}). Backend server is offline — no agent reply generated.`,
         });
-        if (ch === stateRef.current.activeChannel) {
-          setMood(fallback.mood);
-          setSpeakingChannel(ch);
-          await voiceRef.current?.speakText(fallback.reply, fallback.mood);
-        }
-      } finally {
-        if (chatAbortsRef.current.get(ch) === controller) {
-          chatAbortsRef.current.delete(ch);
-        }
+        return;
       }
+
+      const offlineMsg = `Hermes backend unreachable (${gatewayStatus?.gatewayUrl || 'http://127.0.0.1:8642'}). Start the server and gateway to send turns.`;
+      setMood('alert');
+      updateSpokenLine(offlineMsg, ch);
+      appendEntry({
+        channelId: ch,
+        role: 'activity',
+        source,
+        activityStatus: 'error',
+        errorCode: 'gateway_offline',
+        terminalOutcome: 'failed',
+        text: offlineMsg,
+      });
     },
     [
       appendEntry,
       applyAgentUiPatch,
+      gatewayStatus?.gatewayUrl,
       hermesConnected,
       hermesSendMessage,
       setChannelThinking,
+      transportMode,
       updateSpokenLine,
       upsertEntry,
     ]
@@ -885,7 +820,7 @@ export default function App() {
         scheduleLabel: 'On-demand',
         sandboxEnv: 'cloud-sandbox',
         workspaceDir: `~/hermes-dots/${derived.slug}`,
-        skills: ['browser', 'files'],
+        skills: [],
       };
 
       syncedSessionsRef.current.add(derived.slug);
@@ -959,7 +894,7 @@ export default function App() {
             }
           }
         } catch {
-          // Proceed with local slug; hermesSendMessage will retry or fall back cleanly
+          // Proceed with local slug; sendDirectChannelPrompt will surface any gateway errors honestly
         }
       } else {
         appendEntry({
@@ -1038,11 +973,19 @@ export default function App() {
         brief: briefList,
         isMuted: voiceRef.current?.isMuted ?? false,
         skills,
-        memory,
+        toolsets,
         cronJobs,
         gatewayConnected: gatewayStatus?.connected,
         gatewayUrl: gatewayStatus?.gatewayUrl,
         activeModel: gatewayStatus?.activeModel,
+        gatewayProfile: gatewayStatus?.profile,
+        routePrefix: gatewayStatus?.routePrefix,
+        healthStatus: gatewayStatus?.healthStatus,
+        sessionKeyHeader: gatewayStatus?.sessionKeyHeader,
+        capabilities: gatewayStatus?.capabilities,
+        transportMode,
+        resolvedTransport: gatewayStatus?.resolvedTransport,
+        gatewayError: gatewayStatus?.error,
       });
 
       if (result.type === 'handled') {
@@ -1059,6 +1002,20 @@ export default function App() {
         if (result.uiPatch) {
           applyAgentUiPatch(result.uiPatch, 'cli');
         }
+        if (result.setTransportMode) {
+          setTransportMode(result.setTransportMode);
+        }
+        if (result.cancelActiveRun) {
+          const current = chatAbortsRef.current.get(ch);
+          chatAbortsRef.current.delete(ch);
+          current?.abort();
+          void abortRun(ch);
+          setChannelThinking(ch, false);
+          if (ch === stateRef.current.activeChannel) {
+            setSpeakingChannel(null);
+            voiceRef.current?.stopSpeaking();
+          }
+        }
         if (result.clearTerminal) {
           setEntries((prev) => prev.filter((e) => e.channelId !== ch));
           setMood('neutral');
@@ -1069,7 +1026,7 @@ export default function App() {
           setActiveChannel(result.switchChannel);
         }
         if (result.approveCardId) {
-          handleApproveCard(result.approveCardId);
+          void handleApproveCard(result.approveCardId, result.approveChoice ?? 'once');
           return;
         }
         if (result.rejectCardId) {
@@ -1113,6 +1070,7 @@ export default function App() {
       await sendDirectChannelPrompt(ch, result.prompt, source, undefined, true);
     },
     [
+      abortRun,
       appendEntry,
       applyAgentUiPatch,
       cronJobs,
@@ -1121,10 +1079,13 @@ export default function App() {
       handleRejectCard,
       handleStartNewHomeSession,
       hermesConnected,
-      memory,
       sendDirectChannelPrompt,
+      setChannelThinking,
+      setTransportMode,
       skills,
       startHomeSessionAndSend,
+      toolsets,
+      transportMode,
       updateSpokenLine,
     ]
   );
@@ -1720,10 +1681,22 @@ export default function App() {
             gatewayStatus={gatewayStatus}
             onRefreshGateway={refreshGateway}
             skills={skills}
-            memory={memory}
+            toolsets={toolsets}
             cronJobs={cronJobs}
-            onApproveCard={handleApproveCard}
+            transportMode={transportMode}
+            onChangeTransportMode={setTransportMode}
+            onCreateJob={createJob}
+            onPauseJob={pauseJob}
+            onResumeJob={resumeJob}
+            onRunJob={runJob}
+            onDeleteJob={deleteJob}
+            onApproveCard={(id, choice) => {
+              void handleApproveCard(id, choice ?? 'once');
+            }}
             onRejectCard={handleRejectCard}
+            onClarifyCard={(id, answer) => {
+              void handleClarifyCard(id, answer);
+            }}
             onRunBriefCommand={handleRunBriefCommand}
             onToggleTaskStatus={handleToggleTaskStatus}
             onConfirmTask={handleConfirmTask}
