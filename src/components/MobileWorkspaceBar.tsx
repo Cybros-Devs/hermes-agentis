@@ -134,19 +134,19 @@ export function MobileWorkspaceBar({
           <button
             type="button"
             onClick={() => onChangePanelView(panelView === 'home' ? 'voice' : 'home')}
-            className="flex-1 min-w-0 text-left cursor-pointer"
+            className="flex-1 min-w-0 overflow-hidden text-left cursor-pointer"
           >
             <div className="text-[12px] font-semibold text-white leading-tight truncate">
               {isHomeNewDraft ? 'new session' : `#${activeChannel}`}
             </div>
-            <div className="font-mono text-[10px] tracking-tight text-emerald-100/60 tabular-nums leading-tight mt-0.5 flex items-center gap-1 whitespace-nowrap">
+            <div className="font-mono text-[10px] tracking-tight text-emerald-100/60 tabular-nums leading-tight mt-0.5 flex items-center gap-1 whitespace-nowrap overflow-hidden">
               {isHomeNewDraft ? (
                 <span>ready for prompt</span>
               ) : (
                 <>
-                  <span>{activeSessionId}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{turnCount}t</span>
+                  <span className="truncate min-w-0">{activeSessionId}</span>
+                  <span aria-hidden="true" className="shrink-0">·</span>
+                  <span className="shrink-0">{turnCount}t</span>
                 </>
               )}
             </div>

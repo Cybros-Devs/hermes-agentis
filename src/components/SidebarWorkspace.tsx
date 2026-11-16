@@ -75,6 +75,17 @@ export function SidebarWorkspace({
     .slice()
     .reverse();
 
+  const customChannelIds = useMemo(
+    () => new Set(customSessions.map((s) => s.channelId)),
+    [customSessions]
+  );
+
+  // Keep footer strictly for core workspace channels so custom sessions above aren't duplicated
+  const footerChannels = useMemo(
+    () => channels.filter((ch) => !customChannelIds.has(ch.id)),
+    [channels, customChannelIds]
+  );
+
   const activityByChannel = useMemo(
     () => summarizeChannelTaskActivity(tasks, channels, thinkingByChannel),
     [tasks, channels, thinkingByChannel]
@@ -128,7 +139,7 @@ export function SidebarWorkspace({
         <button
           type="button"
           onClick={onOpenQueue}
-          className="ui-tactile w-full text-left rounded-xl border border-white/12 bg-white/[0.035] hover:border-[#34D399]/50 p-2.5 flex items-center gap-3 transition-colors cursor-pointer"
+          className="ui-tactile w-full text-left rounded-xl border border-white/10 bg-white/[0.03] hover:border-[#34D399]/40 p-2.5 flex items-center gap-3 transition-colors cursor-pointer"
         >
           <AsciiPortraitCanvas
             variant="thumb"
@@ -157,8 +168,8 @@ export function SidebarWorkspace({
         </button>
       </div>
 
-      {/* Calm Scannable Sessions & Approval Gates (Tasks live strictly inside their Thread) */}
-      <div className="flex-1 overflow-y-auto cyber-scroll px-3 py-3 space-y-1.5">
+      {/* Calm Scannable Sessions & Approval Gates */}
+      <div className="flex-1 overflow-y-auto cyber-scroll px-3 py-3 space-y-1">
         {!queueVisible ? (
           <div className="px-2.5 py-6 text-center text-[11px] text-emerald-100/40">
             Queue hidden in UI layout
@@ -166,7 +177,7 @@ export function SidebarWorkspace({
         ) : (
           <>
             {customSessions.length > 0 && (
-              <div className="px-2 pt-0.5 pb-1 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/45 tabular-nums">
+              <div className="px-2 pt-0.5 pb-1 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/40 tabular-nums">
                 <span>Sessions</span>
                 <span>{customSessions.length}</span>
               </div>
@@ -187,47 +198,46 @@ export function SidebarWorkspace({
                     data-has-task={String(hasActiveWork)}
                     title={
                       hasActiveWork
-                        ? `${session.topic} · task running in #${session.channelId}`
-                        : session.topic
+                        ? `${session.topic} · ${session.hermesSessionId} (working)`
+                        : `${session.topic} · ${session.hermesSessionId}`
                     }
                     onClick={() =>
                       onSelectSession
                         ? onSelectSession(session)
                         : onSelectChannel(session.channelId)
                     }
-                    className={`ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
+                    className={`ui-tactile w-full text-left flex items-center gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
                       active
-                        ? 'bg-[#34D399]/[0.09] border-[#34D399]/40'
-                        : hasActiveWork
-                        ? 'bg-amber-400/[0.05] border-amber-400/25 hover:bg-amber-400/[0.09]'
+                        ? 'bg-[#34D399]/[0.08] border-[#34D399]/35'
                         : 'border-transparent hover:bg-white/[0.04]'
                     }`}
                   >
                     <StatusPulse
                       state={hasActiveWork ? 'thinking' : active ? 'live' : 'idle'}
-                      className="mt-1.5"
+                      size="sm"
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-[13px] font-medium text-white truncate">
-                          {session.topic}
-                        </span>
-                        <span
-                          className={`font-mono text-[10px] tabular-nums shrink-0 ${
-                            hasActiveWork ? 'text-amber-300 font-semibold' : 'text-[#6EE7B7]/80'
-                          }`}
-                        >
-                          {hasActiveWork
-                            ? runningCount > 1
-                              ? `${runningCount} tasks`
-                              : 'working'
-                            : `#${session.channelId}`}
-                        </span>
-                      </div>
-                      <div className="font-mono text-[10.5px] text-emerald-100/45 truncate mt-0.5">
-                        {session.hermesSessionId}
-                      </div>
-                    </div>
+                    <span
+                      className={`text-[13px] font-medium truncate flex-1 min-w-0 ${
+                        active ? 'text-white' : 'text-emerald-50/85'
+                      }`}
+                    >
+                      {session.topic}
+                    </span>
+                    <span
+                      className={`font-mono text-[10px] tabular-nums shrink-0 ${
+                        hasActiveWork
+                          ? 'text-amber-300/90 font-medium'
+                          : active
+                          ? 'text-[#6EE7B7]/85'
+                          : 'text-emerald-100/35'
+                      }`}
+                    >
+                      {hasActiveWork
+                        ? runningCount > 1
+                          ? `${runningCount} active`
+                          : 'working'
+                        : `#${session.channelId}`}
+                    </span>
                   </button>
                 </StaggerItem>
               );
@@ -235,8 +245,8 @@ export function SidebarWorkspace({
 
             {(pendingApprovals.length > 0 || openBrief.length > 0) && (
               <div
-                className={`px-2 pb-0.5 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/45 tabular-nums ${
-                  customSessions.length > 0 ? 'mt-2 pt-2.5 border-t border-white/[0.06]' : 'pt-1.5'
+                className={`px-2 pb-0.5 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/40 tabular-nums ${
+                  customSessions.length > 0 ? 'mt-2.5 pt-2.5 border-t border-white/[0.06]' : 'pt-1.5'
                 }`}
               >
                 <span>Queue &amp; Lanes</span>
@@ -295,11 +305,11 @@ export function SidebarWorkspace({
         )}
       </div>
 
-      {/* Minimal Channel / Session Switcher Footer with Thread-Level Active-Task Indicator */}
+      {/* Single-Row Typographic Core Channel Switcher (no competing amber pills or duplicate session dumps) */}
       {channelsVisible && (
-        <div className="py-2.5 px-3 border-t border-white/8 flex items-end justify-between gap-1 font-mono text-[9.5px]">
-          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 min-w-0 max-h-[104px] overflow-y-auto cyber-scroll">
-            {channels.map((ch) => {
+        <div className="py-2.5 px-3 border-t border-white/[0.07] flex items-center justify-between gap-1.5 font-mono text-[9.5px]">
+          <div className="flex flex-nowrap items-center gap-x-1.5 min-w-0 overflow-x-auto cyber-scroll">
+            {footerChannels.map((ch) => {
               const active = !homeSessionDraft && ch.id === activeChannel;
               const label = ch.name.startsWith('#') ? ch.name : `#${ch.name}`;
               const channelActivity = activityByChannel[ch.id];
@@ -327,14 +337,12 @@ export function SidebarWorkspace({
                       : ch.description || label
                   }
                   onClick={() => onSelectChannel(ch.id)}
-                  className={`ui-tactile transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1 rounded-md py-0.5 ${
-                    active && hasActiveWork
-                      ? 'px-1.5 bg-amber-400/14 border border-amber-400/40 text-amber-200 font-semibold'
-                      : active
-                      ? 'px-0.5 text-[#4ADE80] font-semibold'
+                  className={`ui-tactile transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1 py-0.5 ${
+                    active
+                      ? 'text-[#6EE7B7] font-semibold'
                       : hasActiveWork
-                      ? 'px-1.5 bg-amber-400/10 border border-amber-400/30 text-amber-200 hover:bg-amber-400/18 hover:text-amber-100 font-medium'
-                      : 'px-0.5 text-emerald-100/50 hover:text-white'
+                      ? 'text-amber-200/90 hover:text-amber-100 font-medium'
+                      : 'text-emerald-100/45 hover:text-white'
                   }`}
                 >
                   {hasActiveWork ? (
