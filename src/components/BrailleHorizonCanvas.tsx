@@ -89,10 +89,10 @@ export function BrailleHorizonCanvas({
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     let width = 1280;
-    let height = 190;
+    let height = 260;
     let dpr = Math.min(2, window.devicePixelRatio || 1);
-    let rows = 15;
-    let cols = 190;
+    let rows = 28;
+    let cols = 220;
     let surface: BrailleRasterSurface | null = null;
 
     const resize = () => {
@@ -101,9 +101,9 @@ export function BrailleHorizonCanvas({
         width = Math.round(rect.width);
         height = Math.round(rect.height);
       }
-      rows = height < 64 ? 6 : 15;
-      const dotPitch = Math.max(2.2, height / (rows * 4));
-      cols = Math.max(72, Math.min(220, Math.round(width / (dotPitch * 2))));
+      rows = height < 64 ? 6 : Math.max(15, Math.min(34, Math.round(height / 8.8)));
+      const dotPitch = Math.max(2.05, height / (rows * 4));
+      cols = Math.max(72, Math.min(260, Math.round(width / (dotPitch * 2))));
       dpr = Math.min(2, window.devicePixelRatio || 1);
       canvas.width = width * dpr;
       canvas.height = height * dpr;
@@ -124,11 +124,11 @@ export function BrailleHorizonCanvas({
     let rafId = 0;
     let hiddenTimerId = 0;
     let lastReducedKey = '';
-    let b0XY = new Float32Array(220 * rows * 16);
-    let b1XY = new Float32Array(220 * rows * 16);
-    let b2XY = new Float32Array(220 * rows * 16);
-    let b3XY = new Float32Array(220 * rows * 16);
-    let b4XY = new Float32Array(220 * rows * 16);
+    let b0XY = new Float32Array(260 * rows * 16);
+    let b1XY = new Float32Array(260 * rows * 16);
+    let b2XY = new Float32Array(260 * rows * 16);
+    let b3XY = new Float32Array(260 * rows * 16);
+    let b4XY = new Float32Array(260 * rows * 16);
     const buckets: [
       TonalDotBucketSpec,
       TonalDotBucketSpec,

@@ -124,3 +124,41 @@ test('renderBrailleHorizon supports compact ribbon style with tapered edges for 
     assert.equal(frame.lines[r][frame.cols - 1], ' ', `Expected right edge taper on row ${r}`);
   }
 });
+
+test('renderBrailleHorizon sustains bathymetric wave dots to the bottom rows while keeping row 0 empty', () => {
+  const frame = renderBrailleHorizon({
+    cols: 120,
+    rows: 24,
+    time: 1.8,
+    energy: 0.42,
+    pointerX: 0.15,
+    pointerY: 0.1,
+    bands: new Array(12).fill(0.5),
+  });
+
+  assert.equal(frame.lines.length, 24);
+
+  let topLit = 0;
+  for (let c = 0; c < frame.cols; c++) {
+    if (frame.lines[0][c] !== ' ') topLit++;
+  }
+  assert.equal(topLit, 0, 'Row 0 must remain cleanly faded out');
+
+  let bottomRowsLit = 0;
+  for (let r = frame.rows - 2; r < frame.rows; r++) {
+    for (let c = 0; c < frame.cols; c++) {
+      if (frame.lines[r][c] !== ' ') bottomRowsLit++;
+    }
+  }
+  assert.ok(
+    bottomRowsLit >= 20,
+    `Expected sustained bathymetric Braille dots reaching bottom rows, got ${bottomRowsLit}`
+  );
+
+  let peakTierCount = 0;
+  for (let i = 0; i < frame.cells.length; i++) {
+    if (frame.cells[i] >= 3) peakTierCount++;
+  }
+  assert.ok(peakTierCount > 0, 'Expected peak-weighted specular wave crest cells (tier >= 3)');
+});
+

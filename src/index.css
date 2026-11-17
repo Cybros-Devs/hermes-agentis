@@ -79,7 +79,8 @@
 }
 
 .ui-composer-docked {
-  background-color: rgba(var(--ui-surface-rgb), 0.92);
+  background-color: rgba(var(--ui-surface-rgb), 0.76);
+  backdrop-filter: blur(12px);
   border-color: rgba(var(--ui-accent-rgb), clamp(0.14, var(--ui-border-alpha, 0.22), 0.5));
 }
 

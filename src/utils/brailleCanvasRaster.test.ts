@@ -138,3 +138,30 @@ test('resolvePortraitTonePalette and resolveShapeTonePalette shift tones dynamic
   });
   assert.notEqual(shapeIdle.hexes[2], shapeThink.hexes[2]);
 });
+
+test('rasterizeTonalDotBucketsToSurface uses source-over compositing so bright foreground dots stay luminous over dim halos', () => {
+  const surface = makeFakeSurface(12, 12);
+
+  rasterizeTonalDotBucketsToSurface(
+    surface,
+    [
+      // Dim dark-slate halo underneath covering center
+      { xy: new Float32Array([4.0, 4.0]), len: 2, hex: '#101418', alpha: 0.35, diameterScale: 1.5 },
+      // Bright highlight dot core overlapping on top
+      { xy: new Float32Array([4.2, 4.2]), len: 2, hex: '#FFFFFF', alpha: 0.95, diameterScale: 0.95 },
+    ],
+    1,
+    3.0
+  );
+
+  // Sample center pixel (5, 5)
+  const idx = (5 * 12 + 5) * 4;
+  const r = surface.bytes[idx];
+  const g = surface.bytes[idx + 1];
+  const b = surface.bytes[idx + 2];
+  const a = surface.bytes[idx + 3];
+
+  assert.ok(a > 230, `Expected high combined alpha at overlapped dot core, got ${a}`);
+  assert.ok(r > 235 && g > 235 && b > 235, `Expected bright white core to dominate over dim halo, got rgb(${r},${g},${b})`);
+});
+

@@ -813,11 +813,7 @@ export function VoiceWorkspacePane({
             ? 'px-4 sm:px-8 lg:px-10 pb-3.5 lg:pb-5 pt-1.5'
             : uiConfig.composerStyle === 'minimal'
             ? 'px-3 sm:px-6 lg:px-8 pb-2 lg:pb-3 pt-1'
-            : 'px-2.5 sm:px-6 lg:px-8 pb-2.5 lg:pb-3.5 pt-1.5 lg:pt-2'
-        } ${
-          isHomeOverview && uiConfig.composerStyle === 'docked'
-            ? 'bg-gradient-to-t from-black/45 via-black/25 to-transparent'
-            : ''
+            : 'px-2.5 sm:px-6 lg:px-8 pb-3 lg:pb-4 pt-1.5 lg:pt-2'
         }`}
       >
         <form
@@ -1149,7 +1145,7 @@ export function VoiceWorkspacePane({
           key="view-home"
           ref={portraitWrapRef}
           data-testid="home-character-overview"
-          className="ui-view-enter relative z-10 flex-1 min-h-0 overflow-y-auto cyber-scroll flex flex-col items-center px-5 sm:px-10 pt-2 pb-28 sm:pb-32 lg:pb-24"
+          className="ui-view-enter relative z-10 flex-1 min-h-0 overflow-y-auto cyber-scroll flex flex-col items-center px-5 sm:px-10 pt-2 pb-32 sm:pb-36 lg:pb-28"
         >
           <div className="my-auto w-full flex flex-col items-center">
           {uiConfig.portraitVisible && (
@@ -2121,11 +2117,11 @@ export function VoiceWorkspacePane({
         </div>
       )}
 
-      {/* Fluid Bottom Braille Wave Horizon inside the Main Window (Home Overview) */}
+      {/* Fluid Full-Bottom Braille Wave Horizon inside the Main Window (Home Overview) */}
       {isHomeOverview && uiConfig.horizonVisible && (
         <div
           data-testid="horizon-wave-container"
-          className="pointer-events-none absolute inset-x-0 bottom-[106px] lg:bottom-[68px] h-[124px] sm:h-[164px] z-0 overflow-hidden"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-[242px] sm:h-[272px] lg:h-[296px] z-0 overflow-hidden"
           style={{ opacity: uiConfig.horizonOpacity }}
         >
           <BrailleHorizonCanvas
@@ -2133,6 +2129,8 @@ export function VoiceWorkspacePane({
             isActive={activeIsSpeaking || voiceState.isListening}
             frequencyBands={voiceState.frequencyBands}
             lookTargetRef={lookTargetRef}
+            dotProfile={uiConfig.brailleDotProfile}
+            bloom={uiConfig.brailleBloom}
             horizonStyle={uiConfig.horizonStyle}
             speedScale={uiConfig.animationSpeed}
             reducedMotionOverride={uiConfig.reducedMotion}

@@ -438,14 +438,18 @@ export function rasterizeTonalDotBucketsToSurface(
               bytes[off + 3] = covA > 255 ? 255 : covA;
             }
           } else {
-            const sumA = prevA + covA;
-            const nextA = sumA > 255 ? 255 : sumA;
-            const wNew = covA / (prevA + covA);
-            const wOld = 1 - wNew;
-            bytes[off] = (bytes[off] * wOld + r * wNew + 0.5) | 0;
-            bytes[off + 1] = (bytes[off + 1] * wOld + g * wNew + 0.5) | 0;
-            bytes[off + 2] = (bytes[off + 2] * wOld + b * wNew + 0.5) | 0;
-            bytes[off + 3] = nextA;
+            const srcA = (covA > 255 ? 255 : covA) / 255;
+            const dstA = prevA / 255;
+            const invSrcA = 1 - srcA;
+            const outA = srcA + dstA * invSrcA;
+            if (outA > 0) {
+              const dstW = (dstA * invSrcA) / outA;
+              const srcW = srcA / outA;
+              bytes[off] = (bytes[off] * dstW + r * srcW + 0.5) | 0;
+              bytes[off + 1] = (bytes[off + 1] * dstW + g * srcW + 0.5) | 0;
+              bytes[off + 2] = (bytes[off + 2] * dstW + b * srcW + 0.5) | 0;
+              bytes[off + 3] = Math.min(255, (outA * 255 + 0.5) | 0);
+            }
           }
         }
       }
