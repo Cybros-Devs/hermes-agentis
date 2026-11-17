@@ -192,7 +192,7 @@ export function CharacterHost({
       <div className="relative flex items-center justify-center">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -inset-4 rounded-full bg-[radial-gradient(circle,rgba(52,211,153,0.14)_0%,transparent_68%)]"
+          className="pointer-events-none absolute -inset-4 rounded-full bg-[radial-gradient(circle,rgba(var(--ui-accent-rgb),0.14)_0%,transparent_68%)]"
         />
         <AsciiPortraitCanvas
           variant="hero"
@@ -214,7 +214,7 @@ export function CharacterHost({
         data-testid="onboarding-dialogue"
         data-mood={mood}
         aria-label={`${fullSpeechText}. Click to finish line immediately.`}
-        className="w-full max-w-md rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 text-center transition-colors hover:border-[#34D399]/35 cursor-pointer"
+        className="w-full max-w-md rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 text-center transition-colors hover:border-[rgba(var(--ui-accent-rgb),0.36)] cursor-pointer"
       >
         <div className="space-y-1">
           {lines.map((line, idx) => (
@@ -222,8 +222,8 @@ export function CharacterHost({
               key={`${speechKey}-${idx}`}
               className={
                 idx === 0
-                  ? 'text-[14px] leading-snug font-medium text-[#ECF3F0]'
-                  : 'text-[13px] leading-snug text-[#6EE7B7]/90'
+                  ? 'text-[14px] leading-snug font-medium text-[#F1F5F9]'
+                  : 'text-[13px] leading-snug text-[var(--ui-accent-soft)]'
               }
             >
               <DecodedText

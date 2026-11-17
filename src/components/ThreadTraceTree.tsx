@@ -151,15 +151,26 @@ export function ThreadTraceTree({
                   </>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
                       <span aria-hidden="true" className="shrink-0 flex items-center">
                         {renderStepIcon(step.icon)}
                       </span>
-                      <span className="font-medium text-zinc-200 shrink-0 truncate max-w-[160px] sm:max-w-none">
+                      <span
+                        title={step.label}
+                        className="font-medium text-zinc-200 min-w-0 truncate"
+                      >
                         {step.label}
                       </span>
                       {step.detail && (
-                        <span className="text-zinc-400 truncate text-[12px]">
+                        <span
+                          className={`text-zinc-400 text-[12px] ${
+                            /^(completed|complete|done|finished|running|started|failed|error|cancelled|interrupted)$/i.test(
+                              step.detail
+                            )
+                              ? 'shrink-0'
+                              : 'truncate min-w-0'
+                          }`}
+                        >
                           {step.detail}
                         </span>
                       )}

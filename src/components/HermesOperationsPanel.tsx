@@ -226,7 +226,7 @@ export function HermesOperationsPanel({
       <div className="flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2 border-b border-white/[0.06] bg-white/[0.015] min-w-0">
         <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto cyber-scroll pr-2">
           {channels.length === 0 ? (
-            <span className="font-mono text-[11px] text-emerald-100/45 truncate">
+            <span className="font-mono text-[11px] text-zinc-500 truncate">
               No active sessions synced from gateway
             </span>
           ) : (
@@ -251,8 +251,8 @@ export function HermesOperationsPanel({
                   onClick={() => onSelectChannel(ch.id)}
                   className={`ui-tactile px-2 py-1 rounded-md font-mono text-xs flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                     active
-                      ? 'bg-[#34D399]/14 text-[#6EE7B7] font-medium'
-                      : 'text-emerald-100/55 hover:text-white hover:bg-white/[0.05]'
+                      ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)] font-medium'
+                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.05]'
                   }`}
                 >
                   {!isOpaque && <Hash className="w-3 h-3 opacity-75 shrink-0" />}
@@ -262,7 +262,7 @@ export function HermesOperationsPanel({
             })
           )}
         </div>
-        <span className="hidden sm:inline shrink-0 pl-3 border-l border-white/[0.08] font-mono text-[10.5px] text-emerald-100/45 whitespace-nowrap">
+        <span className="hidden sm:inline shrink-0 pl-3 border-l border-white/[0.08] font-mono text-[10.5px] text-zinc-500 whitespace-nowrap">
           {gatewayStatus?.sessionKeyHeader || 'X-Hermes-Session-Key'}
         </span>
       </div>
@@ -303,7 +303,7 @@ export function HermesOperationsPanel({
                   >
                     <div className="flex items-start justify-between gap-2.5">
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-mono text-emerald-100/55">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-mono text-zinc-400">
                           <span className="max-w-[160px] truncate">run:{card.runId || card.id}</span>
                           {card.requestId && (
                             <>
@@ -322,7 +322,7 @@ export function HermesOperationsPanel({
                           {card.mcpTool && (
                             <>
                               <span aria-hidden="true">·</span>
-                              <span className="text-[#6EE7B7]/85">{card.mcpTool}</span>
+                              <span className="text-[var(--ui-accent-soft)]">{card.mcpTool}</span>
                             </>
                           )}
                         </div>
@@ -331,7 +331,7 @@ export function HermesOperationsPanel({
                       <span
                         className={`inline-flex items-center gap-1.5 font-mono text-[11px] uppercase font-semibold shrink-0 ${
                           card.status === 'approved'
-                            ? 'text-emerald-400'
+                            ? 'text-[var(--ui-accent-soft)]'
                             : card.status === 'rejected'
                             ? 'text-rose-400'
                             : 'text-amber-300'
@@ -343,11 +343,11 @@ export function HermesOperationsPanel({
                     </div>
 
                     {card.summary && (
-                      <p className="text-xs text-emerald-50/80 whitespace-pre-wrap">{card.summary}</p>
+                      <p className="text-xs text-zinc-200 whitespace-pre-wrap">{card.summary}</p>
                     )}
 
                     {(card.command || card.draft) && (
-                      <pre className="rounded-lg bg-black/45 border border-white/10 p-2 font-mono text-[11px] text-[#6EE7B7] overflow-x-auto whitespace-pre-wrap">
+                      <pre className="rounded-lg bg-black/45 border border-white/10 p-2 font-mono text-[11px] text-[var(--ui-accent-soft)] overflow-x-auto whitespace-pre-wrap">
                         {card.command || card.draft}
                       </pre>
                     )}
@@ -361,13 +361,13 @@ export function HermesOperationsPanel({
                             setClarifyInputs((prev) => ({ ...prev, [card.id]: e.target.value }))
                           }
                           placeholder="Enter clarification answer..."
-                          className="flex-1 min-w-0 rounded-lg bg-black/35 border border-white/12 px-2.5 py-2 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                          className="flex-1 min-w-0 rounded-lg bg-black/35 border border-white/12 px-2.5 py-2 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                         />
                         <button
                           type="button"
                           onClick={() => onClarifyCard(card.id, clarifyVal)}
                           disabled={!clarifyVal.trim()}
-                          className="min-h-[36px] px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs inline-flex items-center gap-1.5 hover:bg-[#6EE7B7] disabled:opacity-45 cursor-pointer"
+                          className="ui-accent-btn min-h-[36px] px-3 rounded-lg font-semibold text-xs inline-flex items-center gap-1.5 hover:opacity-90 disabled:opacity-45 cursor-pointer"
                         >
                           <Send className="w-3.5 h-3.5" />
                           <span>Reply</span>
@@ -379,7 +379,7 @@ export function HermesOperationsPanel({
                           type="button"
                           data-testid={`approve-once-${card.id}`}
                           onClick={() => onApproveCard(card.id, 'once')}
-                          className="flex-1 min-h-[38px] px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
+                          className="ui-accent-btn flex-1 min-h-[38px] px-3 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity cursor-pointer"
                         >
                           <Check className="w-4 h-4" />
                           <span>Approve Once</span>
@@ -388,7 +388,7 @@ export function HermesOperationsPanel({
                           type="button"
                           data-testid={`approve-always-${card.id}`}
                           onClick={() => onApproveCard(card.id, 'always')}
-                          className="min-h-[38px] px-3 rounded-lg bg-[#34D399]/18 text-[#6EE7B7] border border-[#34D399]/40 font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-[#34D399]/28 transition-colors cursor-pointer"
+                          className="min-h-[38px] px-3 rounded-lg bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)] border border-[rgba(var(--ui-accent-rgb),0.36)] font-semibold text-xs flex items-center justify-center gap-1.5 hover:bg-[rgba(var(--ui-accent-rgb),0.24)] transition-colors cursor-pointer"
                         >
                           <span>Always Allow</span>
                         </button>
@@ -420,7 +420,7 @@ export function HermesOperationsPanel({
                   <button
                     type="button"
                     onClick={() => void handleRefresh()}
-                    className="ui-tactile px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/10 text-[11px] font-mono text-emerald-100/75 hover:text-white cursor-pointer"
+                    className="ui-tactile px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/10 text-[11px] font-mono text-zinc-300 hover:text-white cursor-pointer"
                   >
                     Refresh
                   </button>
@@ -429,7 +429,7 @@ export function HermesOperationsPanel({
                   <button
                     type="button"
                     onClick={() => setShowNewJobForm((v) => !v)}
-                    className="ui-tactile px-2.5 py-1 rounded-md bg-[#34D399]/18 border border-[#34D399]/40 text-[11px] font-mono text-[#6EE7B7] hover:bg-[#34D399]/28 inline-flex items-center gap-1 cursor-pointer"
+                    className="ui-tactile px-2.5 py-1 rounded-md bg-[rgba(var(--ui-accent-rgb),0.16)] border border-[rgba(var(--ui-accent-rgb),0.36)] text-[11px] font-mono text-[var(--ui-accent-soft)] hover:bg-[rgba(var(--ui-accent-rgb),0.24)] inline-flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
                     <span>New Job</span>
@@ -447,7 +447,7 @@ export function HermesOperationsPanel({
             {showNewJobForm && onCreateJob && (
               <form
                 onSubmit={handleCreateJobSubmit}
-                className="rounded-xl bg-black/35 border border-[#34D399]/30 p-3 space-y-2"
+                className="rounded-xl bg-black/35 border border-white/15 p-3 space-y-2"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input
@@ -455,14 +455,14 @@ export function HermesOperationsPanel({
                     value={newJobName}
                     onChange={(e) => setNewJobName(e.target.value)}
                     placeholder="Name (optional)"
-                    className="rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                    className="rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                   />
                   <input
                     type="text"
                     value={newJobSchedule}
                     onChange={(e) => setNewJobSchedule(e.target.value)}
                     placeholder="Cron or schedule (e.g. 0 9 * * *)"
-                    className="rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                    className="rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                   />
                 </div>
                 <textarea
@@ -470,20 +470,20 @@ export function HermesOperationsPanel({
                   value={newJobPrompt}
                   onChange={(e) => setNewJobPrompt(e.target.value)}
                   placeholder="Job prompt to execute on gateway..."
-                  className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                  className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                 />
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setShowNewJobForm(false)}
-                    className="px-3 py-1 rounded-md text-xs text-emerald-100/65 hover:text-white cursor-pointer"
+                    className="px-3 py-1 rounded-md text-xs text-zinc-400 hover:text-white cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={jobBusyId === 'create' || !newJobPrompt.trim()}
-                    className="px-3 py-1 rounded-md bg-[#34D399] text-[#05140E] font-semibold text-xs hover:bg-[#6EE7B7] disabled:opacity-45 cursor-pointer"
+                    className="ui-accent-btn px-3 py-1 rounded-md font-semibold text-xs hover:opacity-90 disabled:opacity-45 cursor-pointer"
                   >
                     Create Job
                   </button>
@@ -514,13 +514,13 @@ export function HermesOperationsPanel({
                       <div className="flex flex-wrap sm:flex-nowrap items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
-                            <span className="text-[#6EE7B7] font-semibold">{job.schedule}</span>
-                            <span className="text-emerald-100/40">·</span>
-                            <span className={isPaused ? 'text-amber-300' : 'text-emerald-300'}>
+                            <span className="text-[var(--ui-accent-soft)] font-semibold">{job.schedule}</span>
+                            <span className="text-zinc-600">·</span>
+                            <span className={isPaused ? 'text-amber-300' : 'text-[var(--ui-accent-soft)]'}>
                               {job.status || (isPaused ? 'paused' : 'active')}
                             </span>
-                            <span className="text-emerald-100/40">·</span>
-                            <span className="text-emerald-100/50 truncate">{job.id}</span>
+                            <span className="text-zinc-600">·</span>
+                            <span className="text-zinc-400 truncate">{job.id}</span>
                           </div>
                           <p className="text-xs text-white mt-1 break-words">{job.summary}</p>
                         </div>
@@ -532,7 +532,7 @@ export function HermesOperationsPanel({
                               disabled={busy}
                               onClick={() => void runJobAction(job.id, onRunJob)}
                               title="Trigger job now (POST /api/jobs/{id}/run)"
-                              className="px-2 py-1 rounded-md bg-white/[0.06] border border-white/10 text-[11px] font-mono text-[#6EE7B7] hover:bg-white/12 cursor-pointer"
+                              className="px-2 py-1 rounded-md bg-white/[0.06] border border-white/10 text-[11px] font-mono text-[var(--ui-accent-soft)] hover:bg-white/12 cursor-pointer"
                             >
                               Run
                             </button>
@@ -544,7 +544,7 @@ export function HermesOperationsPanel({
                                   disabled={busy}
                                   onClick={() => void runJobAction(job.id, onResumeJob)}
                                   title="Resume job"
-                                  className="p-1.5 rounded-md bg-white/[0.06] border border-white/10 text-emerald-200 hover:text-white cursor-pointer"
+                                  className="p-1.5 rounded-md bg-white/[0.06] border border-white/10 text-zinc-200 hover:text-white cursor-pointer"
                                 >
                                   <Play className="w-3 h-3" />
                                 </button>
@@ -593,7 +593,7 @@ export function HermesOperationsPanel({
                 <div className="flex items-center gap-2">
                   <span
                     data-testid="ops-gateway-status"
-                    className={isConnected ? 'text-[#4ADE80] font-semibold' : 'text-rose-300 font-semibold'}
+                    className={isConnected ? 'text-[var(--ui-accent-soft)] font-semibold' : 'text-rose-300 font-semibold'}
                   >
                     {isConnected ? 'CONNECTED' : 'OFFLINE'}
                   </span>
@@ -603,7 +603,7 @@ export function HermesOperationsPanel({
                       onClick={() => void handleRefresh()}
                       aria-label="Probe Hermes Gateway"
                       title="Probe Hermes Gateway"
-                      className="ui-tactile w-7 h-7 rounded-md bg-white/[0.05] border border-white/10 text-emerald-100/75 hover:text-white hover:border-white/20 flex items-center justify-center cursor-pointer"
+                      className="ui-tactile w-7 h-7 rounded-md bg-white/[0.05] border border-white/10 text-zinc-300 hover:text-white hover:border-white/20 flex items-center justify-center cursor-pointer"
                     >
                       <RefreshCw
                         className={`w-3.5 h-3.5 ${refreshing ? 'motion-safe:animate-spin motion-safe-only' : ''}`}
@@ -615,26 +615,26 @@ export function HermesOperationsPanel({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 font-mono text-[11.5px] py-1">
                 <div className="flex items-center justify-between gap-2 truncate">
-                  <span className="text-emerald-100/45 shrink-0">Endpoint</span>
-                  <span className="text-emerald-50/90 truncate" title={routeDisplay}>
+                  <span className="text-zinc-500 shrink-0">Endpoint</span>
+                  <span className="text-zinc-200 truncate" title={routeDisplay}>
                     {routeDisplay}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-emerald-100/45 shrink-0">Model</span>
-                  <span className="text-[#6EE7B7] truncate">
+                  <span className="text-zinc-500 shrink-0">Model</span>
+                  <span className="text-[var(--ui-accent-soft)] truncate">
                     {gatewayStatus?.activeModel || 'hermes-agent'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-emerald-100/45 shrink-0">Profile</span>
-                  <span className="text-emerald-50/90 truncate">
+                  <span className="text-zinc-500 shrink-0">Profile</span>
+                  <span className="text-zinc-200 truncate">
                     {gatewayStatus?.profile || 'default'} ({gatewayStatus?.healthStatus || (isConnected ? 'ok' : 'unreachable')})
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-emerald-100/45 shrink-0">Transport</span>
-                  <span className="text-emerald-50/90 truncate">
+                  <span className="text-zinc-500 shrink-0">Transport</span>
+                  <span className="text-zinc-200 truncate">
                     {gatewayStatus?.resolvedTransport || 'chat_completions'}
                   </span>
                 </div>
@@ -642,7 +642,7 @@ export function HermesOperationsPanel({
 
               {onChangeTransportMode && (
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <span className="font-mono text-[11px] text-emerald-100/50">
+                  <span className="font-mono text-[11px] text-zinc-400">
                     Turn transport
                   </span>
                   <div className="inline-flex flex-wrap items-center gap-1 p-0.5 rounded-lg bg-white/[0.035]">
@@ -660,8 +660,8 @@ export function HermesOperationsPanel({
                         onClick={() => onChangeTransportMode(mode)}
                         className={`px-2.5 py-1 rounded-md font-mono text-[10.5px] transition-colors cursor-pointer whitespace-nowrap ${
                           transportMode === mode
-                            ? 'bg-[#34D399]/18 text-[#6EE7B7] font-medium'
-                            : 'text-emerald-100/55 hover:text-white'
+                            ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)] font-medium'
+                            : 'text-zinc-400 hover:text-white'
                         }`}
                       >
                         {label}
@@ -672,22 +672,22 @@ export function HermesOperationsPanel({
               )}
 
               {capabilities && (
-                <div className="font-mono text-[10.5px] text-emerald-100/55 flex flex-wrap items-center gap-2 pt-0.5">
+                <div className="font-mono text-[10.5px] text-zinc-400 flex flex-wrap items-center gap-2 pt-0.5">
                   <span>/v1/capabilities:</span>
                   {capabilities.features?.run_submission && (
-                    <span className="text-[#6EE7B7]">runs</span>
+                    <span className="text-[var(--ui-accent-soft)]">runs</span>
                   )}
                   {capabilities.features?.run_approval && (
-                    <span className="text-[#6EE7B7]">approvals</span>
+                    <span className="text-[var(--ui-accent-soft)]">approvals</span>
                   )}
                   {capabilities.features?.session_chat_stream && (
-                    <span className="text-[#6EE7B7]">session_stream</span>
+                    <span className="text-[var(--ui-accent-soft)]">session_stream</span>
                   )}
                   {capabilities.features?.reasoning_streaming && (
-                    <span className="text-[#6EE7B7]">reasoning</span>
+                    <span className="text-[var(--ui-accent-soft)]">reasoning</span>
                   )}
                   {capabilities.sessionKeyHeader && (
-                    <span className="text-[#6EE7B7]">{capabilities.sessionKeyHeader}</span>
+                    <span className="text-[var(--ui-accent-soft)]">{capabilities.sessionKeyHeader}</span>
                   )}
                 </div>
               )}
@@ -699,7 +699,7 @@ export function HermesOperationsPanel({
                     <button
                       type="button"
                       onClick={() => void handleRefresh()}
-                      className="shrink-0 text-[#6EE7B7] hover:text-white underline underline-offset-4 decoration-[#34D399]/45 transition-colors cursor-pointer"
+                      className="shrink-0 text-[var(--ui-accent-soft)] hover:text-white underline underline-offset-4 decoration-white/30 transition-colors cursor-pointer"
                     >
                       Retry
                     </button>
@@ -715,7 +715,7 @@ export function HermesOperationsPanel({
                   <h3 className="text-xs font-semibold text-white">
                     Parallel Profiles
                   </h3>
-                  <p className="font-mono text-[10.5px] text-emerald-100/45 mt-0.5">
+                  <p className="font-mono text-[10.5px] text-zinc-400 mt-0.5">
                     Isolated ~/.hermes/profiles/&lt;name&gt; memories &amp; tools runnable side-by-side
                   </p>
                 </div>
@@ -727,7 +727,7 @@ export function HermesOperationsPanel({
                       setProfileError(null);
                       setShowAddProfileForm((v) => !v);
                     }}
-                    className="ui-tactile px-2.5 py-1 rounded-md bg-[#34D399]/16 border border-[#34D399]/35 text-[11px] font-mono text-[#6EE7B7] hover:bg-[#34D399]/24 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                    className="ui-tactile px-2.5 py-1 rounded-md bg-[rgba(var(--ui-accent-rgb),0.16)] border border-[rgba(var(--ui-accent-rgb),0.36)] text-[11px] font-mono text-[var(--ui-accent-soft)] hover:bg-[rgba(var(--ui-accent-rgb),0.24)] inline-flex items-center gap-1 cursor-pointer shrink-0"
                   >
                     <Plus className="w-3 h-3" />
                     <span>Add Profile</span>
@@ -745,11 +745,11 @@ export function HermesOperationsPanel({
                 <form
                   data-testid="ops-add-profile-form"
                   onSubmit={(e) => void handleSaveProfileSubmit(e)}
-                  className="rounded-xl bg-black/35 border border-[#34D399]/30 p-3 space-y-2.5"
+                  className="rounded-xl bg-black/35 border border-white/15 p-3 space-y-2.5"
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <label htmlFor="profile-id-input" className="block font-mono text-[10.5px] text-emerald-100/65">
+                      <label htmlFor="profile-id-input" className="block font-mono text-[10.5px] text-zinc-300">
                         Profile Slug
                       </label>
                       <input
@@ -759,11 +759,11 @@ export function HermesOperationsPanel({
                         value={profileIdInput}
                         onChange={(e) => setProfileIdInput(e.target.value)}
                         placeholder="e.g. coder, research"
-                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label htmlFor="profile-mode-select" className="block font-mono text-[10.5px] text-emerald-100/65">
+                      <label htmlFor="profile-mode-select" className="block font-mono text-[10.5px] text-zinc-300">
                         Gateway Mode
                       </label>
                       <select
@@ -771,7 +771,7 @@ export function HermesOperationsPanel({
                         data-testid="ops-profile-mode-select"
                         value={profileModeInput}
                         onChange={(e) => setProfileModeInput(e.target.value as HermesProfileMode)}
-                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                       >
                         <option value="multiplexed">Multiplexed (/p/&lt;name&gt;)</option>
                         <option value="standalone">Standalone Gateway Port</option>
@@ -781,7 +781,7 @@ export function HermesOperationsPanel({
 
                   {profileModeInput === 'standalone' && (
                     <div className="space-y-1">
-                      <label htmlFor="profile-baseurl-input" className="block font-mono text-[10.5px] text-emerald-100/65">
+                      <label htmlFor="profile-baseurl-input" className="block font-mono text-[10.5px] text-zinc-300">
                         Standalone Gateway URL (hermes -p &lt;name&gt; gateway start)
                       </label>
                       <input
@@ -791,13 +791,13 @@ export function HermesOperationsPanel({
                         value={profileBaseUrlInput}
                         onChange={(e) => setProfileBaseUrlInput(e.target.value)}
                         placeholder="http://127.0.0.1:8643"
-                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                       />
                     </div>
                   )}
 
                   <div className="space-y-1">
-                    <label htmlFor="profile-apikey-input" className="block font-mono text-[10.5px] text-emerald-100/65">
+                    <label htmlFor="profile-apikey-input" className="block font-mono text-[10.5px] text-zinc-300">
                       Profile API Key (optional, stored server-side only)
                     </label>
                     <input
@@ -807,7 +807,7 @@ export function HermesOperationsPanel({
                       value={profileApiKeyInput}
                       onChange={(e) => setProfileApiKeyInput(e.target.value)}
                       placeholder="Leave empty to inherit primary or env key"
-                      className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                      className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                     />
                   </div>
 
@@ -818,7 +818,7 @@ export function HermesOperationsPanel({
                         setShowAddProfileForm(false);
                         setProfileError(null);
                       }}
-                      className="px-3 py-1 rounded-md text-xs text-emerald-100/65 hover:text-white cursor-pointer"
+                      className="px-3 py-1 rounded-md text-xs text-zinc-400 hover:text-white cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -826,7 +826,7 @@ export function HermesOperationsPanel({
                       type="submit"
                       data-testid="ops-profile-save-btn"
                       disabled={profileBusy}
-                      className="px-3 py-1 rounded-md bg-[#34D399] text-[#05140E] font-semibold text-xs hover:bg-[#6EE7B7] disabled:opacity-45 cursor-pointer"
+                      className="ui-accent-btn px-3 py-1 rounded-md font-semibold text-xs hover:opacity-90 disabled:opacity-45 cursor-pointer"
                     >
                       {profileBusy ? 'Saving…' : 'Save Profile'}
                     </button>
@@ -867,21 +867,21 @@ export function HermesOperationsPanel({
                         <div className="flex items-center gap-2 font-mono">
                           <StatusPulse state={p.connected ? 'live' : 'idle'} size="sm" />
                           <span className="text-white font-semibold truncate">@{p.id}</span>
-                          <span className="text-[10.5px] text-emerald-100/45 shrink-0">
+                          <span className="text-[10.5px] text-zinc-500 shrink-0">
                             {p.mode === 'standalone' ? 'standalone' : p.routePrefix || '/'}
                           </span>
                           {p.activeModel && (
-                            <span className="hidden sm:inline text-[10.5px] text-[#6EE7B7]/85 truncate">
+                            <span className="hidden sm:inline text-[10.5px] text-[var(--ui-accent-soft)] truncate">
                               · {p.activeModel}
                             </span>
                           )}
                           {count > 0 && (
-                            <span className="text-[10.5px] text-emerald-100/55 shrink-0 tabular-nums">
+                            <span className="text-[10.5px] text-zinc-400 shrink-0 tabular-nums">
                               · {count} {count === 1 ? 'lane' : 'lanes'}
                             </span>
                           )}
                         </div>
-                        <div className="font-mono text-[10.5px] text-emerald-100/45 truncate">
+                        <div className="font-mono text-[10.5px] text-zinc-500 truncate">
                           {routeLabel} · {p.source}
                         </div>
                       </div>
@@ -893,8 +893,8 @@ export function HermesOperationsPanel({
                             onClick={() => onSelectDefaultProfile(p.id)}
                             className={`px-2 py-1 rounded-md font-mono text-[10.5px] transition-colors cursor-pointer ${
                               isDefault
-                                ? 'bg-[#34D399]/16 text-[#6EE7B7] font-medium'
-                                : 'bg-white/[0.04] text-emerald-100/60 hover:text-white hover:bg-white/[0.08]'
+                                ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)] font-medium'
+                                : 'bg-white/[0.04] text-zinc-400 hover:text-white hover:bg-white/[0.08]'
                             }`}
                           >
                             {isDefault ? 'Default' : 'Use default'}
@@ -924,12 +924,12 @@ export function HermesOperationsPanel({
                 <h3 className="text-xs font-semibold text-white">
                   Toolsets
                 </h3>
-                <span className="font-mono text-[10.5px] text-emerald-100/45 tabular-nums">
+                <span className="font-mono text-[10.5px] text-zinc-500 tabular-nums">
                   {toolsets.length} reported · GET /v1/toolsets
                 </span>
               </div>
               {toolsets.length === 0 ? (
-                <p className="font-mono text-[11.5px] text-emerald-100/50">
+                <p className="font-mono text-[11.5px] text-zinc-400">
                   {isConnected ? '0 toolsets returned by gateway.' : 'Offline — start hermes gateway to inspect toolsets.'}
                 </p>
               ) : (
@@ -946,18 +946,18 @@ export function HermesOperationsPanel({
                           onClick={() => setExpandedToolset(isOpen ? null : ts.name)}
                           className="w-full text-left flex items-center justify-between gap-2 font-mono text-[11px] cursor-pointer hover:text-white min-w-0"
                         >
-                          <span className={`truncate ${ts.enabled ? 'text-[#6EE7B7] font-semibold' : 'text-emerald-100/45'}`}>
+                          <span className={`truncate ${ts.enabled ? 'text-[var(--ui-accent-soft)] font-semibold' : 'text-zinc-500'}`}>
                             {ts.label}
                           </span>
-                          <span className="text-emerald-100/50 shrink-0 whitespace-nowrap">
+                          <span className="text-zinc-400 shrink-0 whitespace-nowrap">
                             {ts.enabled ? (ts.configured === false ? 'unconfigured' : 'enabled') : 'disabled'} · {ts.tools.length} tools
                           </span>
                         </button>
                         {ts.description && (
-                          <p className="text-emerald-100/60 text-[11px] mt-0.5 break-words">{ts.description}</p>
+                          <p className="text-zinc-400 text-[11px] mt-0.5 break-words">{ts.description}</p>
                         )}
                         {isOpen && ts.tools.length > 0 && (
-                          <div className="mt-1 font-mono text-[10.5px] text-emerald-100/75 bg-black/30 rounded p-2 break-words">
+                          <div className="mt-1 font-mono text-[10.5px] text-zinc-300 bg-black/30 rounded p-2 break-words">
                             {ts.tools.join(', ')}
                           </div>
                         )}
@@ -974,12 +974,12 @@ export function HermesOperationsPanel({
                 <h3 className="text-xs font-semibold text-white">
                   Skills
                 </h3>
-                <span className="font-mono text-[10.5px] text-emerald-100/45 tabular-nums">
+                <span className="font-mono text-[10.5px] text-zinc-500 tabular-nums">
                   {skills.length} loaded · GET /v1/skills
                 </span>
               </div>
               {skills.length === 0 ? (
-                <p className="font-mono text-[11.5px] text-emerald-100/50">
+                <p className="font-mono text-[11.5px] text-zinc-400">
                   {isConnected ? '0 skills returned by gateway.' : 'Offline — start hermes gateway to inspect /v1/skills.'}
                 </p>
               ) : (
@@ -990,13 +990,13 @@ export function HermesOperationsPanel({
                       className="text-xs border-b border-white/[0.06] last:border-0 pb-1.5 last:pb-0"
                     >
                       <div className="flex items-center justify-between font-mono text-[11px]">
-                        <span className="text-[#6EE7B7] font-semibold">{skill.name}</span>
-                        <span className="text-emerald-100/45 truncate max-w-[55%]">
+                        <span className="text-[var(--ui-accent-soft)] font-semibold">{skill.name}</span>
+                        <span className="text-zinc-500 truncate max-w-[55%]">
                           {skill.source}
                         </span>
                       </div>
                       {skill.summary && (
-                        <p className="text-emerald-100/65 mt-0.5">{skill.summary}</p>
+                        <p className="text-zinc-400 mt-0.5">{skill.summary}</p>
                       )}
                     </div>
                   ))}
@@ -1009,9 +1009,9 @@ export function HermesOperationsPanel({
               <h3 className="text-xs font-semibold text-white">
                 Memory &amp; Session Continuity
               </h3>
-              <p className="font-mono text-[11px] text-emerald-100/50 leading-relaxed">
-                Transcript continuity uses <span className="text-[#6EE7B7]">X-Hermes-Session-Id</span>; isolated Honcho/long-term memory scoping sends{' '}
-                <span className="text-[#6EE7B7]">{gatewayStatus?.sessionKeyHeader || 'X-Hermes-Session-Key'}</span> per lane. Hermes API Server does not expose a separate /v1/memory endpoint.
+              <p className="font-mono text-[11px] text-zinc-400 leading-relaxed">
+                Transcript continuity uses <span className="text-[var(--ui-accent-soft)]">X-Hermes-Session-Id</span>; isolated Honcho/long-term memory scoping sends{' '}
+                <span className="text-[var(--ui-accent-soft)]">{gatewayStatus?.sessionKeyHeader || 'X-Hermes-Session-Key'}</span> per lane. Hermes API Server does not expose a separate /v1/memory endpoint.
               </p>
             </div>
           </div>

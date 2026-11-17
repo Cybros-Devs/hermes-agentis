@@ -344,14 +344,14 @@ export function GuidedOnboarding() {
       <div
         ref={modalCardRef}
         tabIndex={-1}
-        className={`onboarding-modal-card relative flex flex-col w-full max-w-[540px] max-h-[92dvh] rounded-2xl border border-[#34D399]/35 bg-[#081310]/86 backdrop-blur-xl shadow-[0_24px_72px_rgba(0,0,0,0.62)] p-4 sm:p-5 text-[#ECF3F0] focus:outline-none ${
+        className={`onboarding-modal-card relative flex flex-col w-full max-w-[540px] max-h-[92dvh] rounded-2xl border border-white/15 bg-[#11141B]/90 backdrop-blur-xl shadow-[0_24px_72px_rgba(0,0,0,0.62)] p-4 sm:p-5 text-[#F1F5F9] focus:outline-none ${
           visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-2 scale-[0.98]'
         }`}
       >
         {/* Top bar: step indicator + progress + sound toggle + Skip */}
         <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/8 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <span className="font-mono text-[11px] tracking-wide text-[#6EE7B7] uppercase shrink-0">
+            <span className="font-mono text-[11px] tracking-wide text-[var(--ui-accent-soft)] uppercase shrink-0">
               {currentStep.label}
             </span>
             <div className="flex items-center gap-1" aria-hidden="true">
@@ -360,9 +360,9 @@ export function GuidedOnboarding() {
                   key={s.id}
                   className={`h-1 rounded-full transition-all ${
                     idx === stepIndex
-                      ? 'w-5 bg-[#34D399]'
+                      ? 'w-5 bg-[var(--ui-accent)]'
                       : idx < stepIndex
-                      ? 'w-2.5 bg-[#34D399]/55'
+                      ? 'w-2.5 bg-[var(--ui-accent)]/55'
                       : 'w-2.5 bg-white/15'
                   }`}
                 />
@@ -380,7 +380,7 @@ export function GuidedOnboarding() {
               aria-pressed={soundEnabled}
               aria-label={soundEnabled ? 'Mute onboarding voice' : 'Unmute onboarding voice'}
               data-testid="onboarding-mute-toggle"
-              className="p-1.5 rounded-lg text-emerald-100/60 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
             >
               {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
             </button>
@@ -389,7 +389,7 @@ export function GuidedOnboarding() {
               type="button"
               onClick={() => closeModal(true)}
               data-testid="onboarding-skip"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11.5px] text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11.5px] text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
             >
               <span>Skip</span>
               <X className="w-3 h-3" />
@@ -419,9 +419,9 @@ export function GuidedOnboarding() {
           {/* Step body — one decision per step, reuses BackgroundControls */}
           <div className="pt-2.5 space-y-3">
             {currentStep.id === 'welcome' && (
-              <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-100/70">
+              <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-300">
                 <span className="min-w-0">Live glass backdrop &amp; contrast setup</span>
-                <span className="font-mono text-[11px] text-[#6EE7B7] whitespace-nowrap shrink-0">
+                <span className="font-mono text-[11px] text-[var(--ui-accent-soft)] whitespace-nowrap shrink-0">
                   4 quick steps
                 </span>
               </div>
@@ -458,12 +458,12 @@ export function GuidedOnboarding() {
             )}
 
             {currentStep.id === 'done' && (
-              <div className="rounded-xl border border-[#34D399]/30 bg-[#34D399]/8 px-3.5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="rounded-xl border border-white/15 bg-white/[0.04] px-3.5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div>
-                  <div className="text-[11px] text-emerald-100/60">Active atmosphere</div>
+                  <div className="text-[11px] text-zinc-400">Active atmosphere</div>
                   <div className="font-medium text-white">{activeName}</div>
                 </div>
-                <div className="flex items-center gap-3 font-mono text-[11px] text-[#6EE7B7]">
+                <div className="flex items-center gap-3 font-mono text-[11px] text-[var(--ui-accent-soft)]">
                   <span>{Math.round(bgSettings.opacity * 100)}% opacity</span>
                   <span>·</span>
                   <span>{bgSettings.blurPx}px blur</span>
@@ -480,13 +480,13 @@ export function GuidedOnboarding() {
               type="button"
               onClick={handleStepBack}
               data-testid="onboarding-back"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/12 bg-white/[0.03] hover:border-white/25 text-xs text-emerald-50/85 hover:text-white transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/12 bg-white/[0.03] hover:border-white/25 text-xs text-zinc-200 hover:text-white transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Back</span>
             </button>
           ) : (
-            <span className="text-[11px] font-mono text-emerald-100/45">
+            <span className="text-[11px] font-mono text-zinc-500">
               Esc to skip
             </span>
           )}
@@ -495,7 +495,7 @@ export function GuidedOnboarding() {
             type="button"
             onClick={handleStepNext}
             data-testid="onboarding-next"
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] font-medium text-xs transition-colors cursor-pointer"
+            className="ui-accent-btn inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl font-medium text-xs transition-colors cursor-pointer"
           >
             <span>{currentStep.primaryCta}</span>
             {stepIndex >= activeSteps.length - 1 ? (

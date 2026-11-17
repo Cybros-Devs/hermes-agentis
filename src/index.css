@@ -7,17 +7,17 @@
     --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 
-    /* Dynamic Hermes Agent UI Customization Tokens */
-    --ui-accent: #34d399;
-    --ui-accent-rgb: 52, 211, 153;
-    --ui-accent-soft: #6ee7b7;
-    --ui-accent-soft-rgb: 110, 231, 183;
-    --ui-accent-bright: #4ade80;
-    --ui-surface-rgb: 10, 22, 19;
-    --ui-text: #ecf3f0;
-    --ui-panel-alpha: 0.76;
-    --ui-border-alpha: 0.42;
-    --ui-glow-alpha: 0.09;
+    /* Dynamic Hermes Agent UI Customization Tokens (Slate Monochrome default) */
+    --ui-accent: #94a3b8;
+    --ui-accent-rgb: 148, 163, 184;
+    --ui-accent-soft: #cbd5e1;
+    --ui-accent-soft-rgb: 203, 213, 225;
+    --ui-accent-bright: #e2e8f0;
+    --ui-surface-rgb: 17, 20, 27;
+    --ui-text: #f1f5f9;
+    --ui-panel-alpha: 0.80;
+    --ui-border-alpha: 0.22;
+    --ui-glow-alpha: 0.03;
     --ui-radius-card: 16px;
     --ui-radius-control: 12px;
     --ui-font-scale: 1;
@@ -31,8 +31,8 @@
 
   body {
     font-family: var(--ui-font-active, var(--font-sans));
-    background-color: #050c0a;
-    color: var(--ui-text, #ecf3f0);
+    background-color: #0b0d12;
+    color: var(--ui-text, #f1f5f9);
     overflow-x: hidden;
   }
 
@@ -46,16 +46,16 @@
   }
 }
 
-/* Deep organic smoked-emerald & warm ochre atmospheric canvas matching reference */
+/* Deep modern charcoal-slate atmospheric canvas */
 .emerald-ambient-bg {
-  background-color: #050c0a;
-  color: var(--ui-text, #ecf3f0);
+  background-color: #0b0d12;
+  color: var(--ui-text, #f1f5f9);
   background-image:
-    radial-gradient(ellipse 68% 58% at 14% 28%, rgba(16, 86, 66, 0.58) 0%, transparent 64%),
-    radial-gradient(ellipse 52% 48% at 38% 78%, rgba(120, 74, 24, 0.36) 0%, transparent 62%),
-    radial-gradient(ellipse 64% 62% at 80% 42%, rgba(18, 96, 74, 0.52) 0%, transparent 68%),
-    radial-gradient(ellipse 46% 42% at 62% 16%, rgba(8, 52, 42, 0.65) 0%, transparent 60%),
-    radial-gradient(ellipse 55% 45% at 88% 88%, rgba(13, 68, 54, 0.5) 0%, transparent 65%);
+    radial-gradient(ellipse 68% 58% at 14% 28%, rgba(71, 85, 105, 0.28) 0%, transparent 64%),
+    radial-gradient(ellipse 52% 48% at 38% 78%, rgba(51, 65, 85, 0.24) 0%, transparent 62%),
+    radial-gradient(ellipse 64% 62% at 80% 42%, rgba(71, 85, 105, 0.24) 0%, transparent 68%),
+    radial-gradient(ellipse 46% 42% at 62% 16%, rgba(30, 41, 59, 0.45) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 45% at 88% 88%, rgba(51, 65, 85, 0.30) 0%, transparent 65%);
 }
 
 /* Dynamic shell panels driven by --ui-* tokens */
@@ -80,7 +80,7 @@
 
 .ui-composer-docked {
   background-color: rgba(var(--ui-surface-rgb), 0.92);
-  border-color: rgba(var(--ui-accent-rgb), var(--ui-border-alpha, 0.45));
+  border-color: rgba(var(--ui-accent-rgb), clamp(0.14, var(--ui-border-alpha, 0.22), 0.5));
 }
 
 .ui-composer-docked:focus-within {
@@ -101,11 +101,11 @@
 
 .ui-accent-btn {
   background-color: var(--ui-accent) !important;
-  color: #05110c !important;
+  color: #0b0d12 !important;
 }
 
 input[type="range"] {
-  accent-color: var(--ui-accent, #34d399);
+  accent-color: var(--ui-accent, #94a3b8);
 }
 
 /* Typography & Geometry Modes */
@@ -193,7 +193,7 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
   mask-image: linear-gradient(to bottom, transparent 0%, black 2.2%, black 100%);
 }
 
-/* Custom thin smoked-emerald scrollbar */
+/* Custom thin slate scrollbar */
 .cyber-scroll::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -202,11 +202,11 @@ html[data-ui-themed="custom"] .decoration-\[\#34D399\]\/35 {
   background: transparent;
 }
 .cyber-scroll::-webkit-scrollbar-thumb {
-  background: rgba(var(--ui-accent-soft-rgb, 167, 243, 208), 0.18);
+  background: rgba(var(--ui-accent-soft-rgb, 203, 213, 225), 0.18);
   border-radius: 9999px;
 }
 .cyber-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(var(--ui-accent-rgb, 52, 211, 153), 0.48);
+  background: rgba(var(--ui-accent-rgb, 148, 163, 184), 0.48);
 }
 
 /* Speed-scaled GPU-composited UI choreography animations (--ui-anim-speed driven by Studio) */

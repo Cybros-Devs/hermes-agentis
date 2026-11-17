@@ -262,7 +262,7 @@ export function CanvasSessionNode({
         onKeyDown={onKeyDown}
         aria-label={`Dot ${dotLabel.primaryLabel} (${session.hermesSessionId}), ${meta.label} anime character, ${formatAutonomyLabel(session.autonomyMode, session.scheduleLabel, session.autonomyPaused)}, ${turnCount} turns. Click to open workspace or drag to move.`}
         aria-expanded={isChatOpen}
-        className={`group relative flex flex-col items-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] rounded-2xl transition-transform duration-200 ease-out ${
+        className={`group relative flex flex-col items-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--ui-accent)] rounded-2xl transition-transform duration-200 ease-out ${
           isDragged
             ? 'scale-110 -translate-y-1.5 cursor-grabbing'
             : isSelected || isChatOpen
@@ -369,7 +369,7 @@ export function CanvasSessionNode({
               className={`font-mono font-semibold truncate max-w-[144px] ${
                 isSelected || isChatOpen
                   ? 'text-white'
-                  : 'text-emerald-50/85 group-hover:text-white'
+                  : 'text-zinc-200 group-hover:text-white'
               }`}
             >
               {dotLabel.primaryLabel}
@@ -382,7 +382,7 @@ export function CanvasSessionNode({
           </div>
           <span
             title={session.hermesSessionId}
-            className="font-mono text-[10px] text-emerald-100/50 tabular-nums truncate max-w-[172px]"
+            className="font-mono text-[10px] text-zinc-400 tabular-nums truncate max-w-[172px]"
           >
             {dotLabel.secondaryLabel}
             {pendingApprovalCount > 0 ? ` · ${pendingApprovalCount} gate` : ''}
@@ -398,7 +398,7 @@ export function CanvasSessionNode({
           onWheelCapture={(e) => e.stopPropagation()}
           className={`ui-chat-pop relative mt-2 w-full sm:mt-0 sm:w-[min(308px,calc(100cqw-2rem))] sm:absolute ${popoverHorizontalClass} ${
             livePos.yPct > 56 ? 'sm:bottom-[calc(100%+8px)]' : 'sm:top-[calc(100%+8px)]'
-          } rounded-xl bg-[#07120F]/96 border border-[#34D399]/35 shadow-[0_14px_34px_rgba(0,0,0,0.62)] overflow-hidden flex flex-col z-40`}
+          } rounded-xl bg-[#11141B]/96 border border-[rgba(var(--ui-accent-rgb),0.36)] shadow-[0_14px_34px_rgba(0,0,0,0.62)] overflow-hidden flex flex-col z-40`}
         >
           {/* Dot Window Header */}
           <div className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 border-b border-white/8 bg-white/[0.02]">
@@ -408,11 +408,11 @@ export function CanvasSessionNode({
               />
               <span
                 title={session.hermesSessionId}
-                className="font-mono text-[10.5px] font-medium text-emerald-50/90 truncate"
+                className="font-mono text-[10.5px] font-medium text-zinc-100 truncate"
               >
                 {dotLabel.primaryLabel}
               </span>
-              <span className="text-[10px] text-emerald-100/45 truncate hidden sm:inline shrink-0">
+              <span className="text-[10px] text-zinc-400 truncate hidden sm:inline shrink-0">
                 · {meta.label}
                 {session.profile && session.profile !== 'default' ? ` · @${session.profile}` : ''}
               </span>
@@ -424,7 +424,7 @@ export function CanvasSessionNode({
                 onClick={onCycleMood}
                 aria-label={`Cycle mood for #${session.name}`}
                 title="Cycle expression"
-                className="p-1 rounded text-emerald-100/55 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
+                className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
               >
                 <Sparkles className="w-3 h-3" />
               </button>
@@ -433,7 +433,7 @@ export function CanvasSessionNode({
                 onClick={onResetSession}
                 aria-label={`Reset session #${session.name}`}
                 title="Reset session context"
-                className="p-1 rounded text-emerald-100/55 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
+                className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-3 h-3" />
               </button>
@@ -442,7 +442,7 @@ export function CanvasSessionNode({
                 onClick={onOpenThread}
                 aria-label={`Expand #${session.name} to full thread`}
                 title="Expand full thread"
-                className="p-1 rounded text-emerald-100/55 hover:text-[#6EE7B7] hover:bg-white/8 transition-colors cursor-pointer"
+                className="p-1 rounded text-zinc-400 hover:text-[var(--ui-accent-soft)] hover:bg-white/8 transition-colors cursor-pointer"
               >
                 <Maximize2 className="w-3 h-3" />
               </button>
@@ -456,7 +456,7 @@ export function CanvasSessionNode({
                       ? 'Unpin from Canvas'
                       : 'Remove session'
                   }
-                  className="p-1 rounded text-emerald-100/45 hover:text-rose-300 hover:bg-rose-500/12 transition-colors cursor-pointer"
+                  className="p-1 rounded text-zinc-400 hover:text-rose-300 hover:bg-rose-500/12 transition-colors cursor-pointer"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -466,7 +466,7 @@ export function CanvasSessionNode({
                 onClick={onToggleChat}
                 aria-label={`Minimize chat for #${session.name}`}
                 title="Minimize workspace"
-                className="p-1 rounded text-emerald-100/55 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
+                className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -483,8 +483,8 @@ export function CanvasSessionNode({
                 onClick={() => setPopoverTab('chat')}
                 className={`px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   popoverTab === 'chat'
-                    ? 'bg-[#34D399]/18 text-[#6EE7B7]'
-                    : 'text-emerald-100/55 hover:text-white'
+                    ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)]'
+                    : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 Thread
@@ -497,15 +497,15 @@ export function CanvasSessionNode({
                 onClick={() => setPopoverTab('config')}
                 className={`px-2 py-0.5 rounded text-[10.5px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap ${
                   popoverTab === 'config'
-                    ? 'bg-[#34D399]/18 text-[#6EE7B7]'
-                    : 'text-emerald-100/55 hover:text-white'
+                    ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)]'
+                    : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 <SlidersHorizontal className="w-2.5 h-2.5" />
                 <span>Sandbox &amp; Trigger</span>
               </button>
             </div>
-            <span className="font-mono text-[9.5px] text-emerald-100/45 truncate tabular-nums">
+            <span className="font-mono text-[9.5px] text-zinc-500 truncate tabular-nums">
               {session.skills.length} skills
             </span>
           </div>
@@ -523,7 +523,7 @@ export function CanvasSessionNode({
                 className="max-h-[168px] min-h-[78px] overflow-y-auto cyber-scroll px-2.5 py-2 space-y-2 text-[11.5px] leading-relaxed select-text"
               >
                 {visibleMessages.length === 0 ? (
-                  <p className="text-emerald-100/55 text-[11px] leading-snug">
+                  <p className="text-zinc-400 text-[11px] leading-snug">
                     {session.topic}
                   </p>
                 ) : (
@@ -533,7 +533,7 @@ export function CanvasSessionNode({
                       return (
                         <div
                           key={entry.id}
-                          className="font-mono text-[10px] text-emerald-100/45 truncate"
+                          className="font-mono text-[10px] text-zinc-500 truncate"
                         >
                           ▸ {entry.text}
                         </div>
@@ -552,7 +552,7 @@ export function CanvasSessionNode({
                     return (
                       <div
                         key={entry.id}
-                        className="ui-msg-enter max-w-[94%] text-emerald-50/90 whitespace-pre-wrap break-words"
+                        className="ui-msg-enter max-w-[94%] text-zinc-200 whitespace-pre-wrap break-words"
                       >
                         <DecodedText
                           text={entry.text}
@@ -596,10 +596,10 @@ export function CanvasSessionNode({
               <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/8">
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 text-white font-medium">
-                    <Cpu className="w-3 h-3 text-[#6EE7B7] shrink-0" />
+                    <Cpu className="w-3 h-3 text-[var(--ui-accent-soft)] shrink-0" />
                     <span className="truncate">{formatSandboxLabel(session.sandboxEnv)}</span>
                   </div>
-                  <div className="flex items-center gap-1 font-mono text-[10px] text-emerald-100/50 truncate mt-0.5">
+                  <div className="flex items-center gap-1 font-mono text-[10px] text-zinc-400 truncate mt-0.5">
                     <FolderGit2 className="w-2.5 h-2.5 shrink-0" />
                     <span className="truncate">{session.workspaceDir}</span>
                   </div>
@@ -611,7 +611,7 @@ export function CanvasSessionNode({
                     onSendMessage(`/status`);
                     setPopoverTab('chat');
                   }}
-                  className="px-2 py-1 rounded-md border border-[#34D399]/35 bg-[#34D399]/12 hover:bg-[#34D399]/22 text-[10px] font-semibold text-[#6EE7B7] whitespace-nowrap shrink-0 cursor-pointer"
+                  className="px-2 py-1 rounded-md border border-[rgba(var(--ui-accent-rgb),0.36)] bg-[rgba(var(--ui-accent-rgb),0.14)] hover:bg-[rgba(var(--ui-accent-rgb),0.22)] text-[10px] font-semibold text-[var(--ui-accent-soft)] whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   Run check
                 </button>
@@ -623,7 +623,7 @@ export function CanvasSessionNode({
                   <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/8">
                     <label
                       htmlFor={`dot-profile-${session.channelId}`}
-                      className="text-[10.5px] font-medium text-emerald-100/75 shrink-0"
+                      className="text-[10.5px] font-medium text-zinc-300 shrink-0"
                     >
                       Hermes Profile
                     </label>
@@ -634,7 +634,7 @@ export function CanvasSessionNode({
                       onChange={(e) =>
                         onUpdateDotConfig(session.id, { profile: e.target.value })
                       }
-                      className="rounded-md bg-black/45 border border-white/15 focus:border-[#34D399] px-2 py-0.5 font-mono text-[10.5px] text-[#6EE7B7] focus:outline-none max-w-[140px]"
+                      className="rounded-md bg-black/45 border border-white/15 focus:border-[var(--ui-accent)] px-2 py-0.5 font-mono text-[10.5px] text-[var(--ui-accent-soft)] focus:outline-none max-w-[140px]"
                     >
                       {(profiles.length > 0
                         ? profiles
@@ -651,8 +651,8 @@ export function CanvasSessionNode({
               {/* Always-On Autonomy & Cadence Controls */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1 text-[10.5px] font-medium text-emerald-100/75">
-                    <Clock className="w-3 h-3 text-emerald-100/55" />
+                  <span className="flex items-center gap-1 text-[10.5px] font-medium text-zinc-300">
+                    <Clock className="w-3 h-3 text-zinc-400" />
                     <span>Trigger Mode</span>
                   </span>
                   {session.autonomyMode !== 'manual' && onUpdateDotConfig && (
@@ -663,11 +663,11 @@ export function CanvasSessionNode({
                           autonomyPaused: !session.autonomyPaused,
                         })
                       }
-                      className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-100/75 hover:text-white cursor-pointer whitespace-nowrap"
+                      className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-300 hover:text-white cursor-pointer whitespace-nowrap"
                     >
                       {session.autonomyPaused ? (
                         <>
-                          <Play className="w-2.5 h-2.5 text-[#34D399]" />
+                          <Play className="w-2.5 h-2.5 text-[var(--ui-accent)]" />
                           <span>Resume</span>
                         </>
                       ) : (
@@ -696,8 +696,8 @@ export function CanvasSessionNode({
                         onClick={() => handleSetAutonomyMode(opt.id)}
                         className={`py-1 px-1.5 rounded-md text-[10px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
                           active
-                            ? 'bg-[#34D399] text-[#05140E] font-semibold'
-                            : 'text-emerald-100/65 hover:text-white'
+                            ? 'ui-accent-btn font-semibold'
+                            : 'text-zinc-400 hover:text-white'
                         }`}
                       >
                         {opt.label}
@@ -709,7 +709,7 @@ export function CanvasSessionNode({
 
               {/* Portable Berd-Style Skills */}
               <div className="space-y-1.5 pt-1 border-t border-white/8">
-                <div className="text-[10.5px] font-medium text-emerald-100/75">
+                <div className="text-[10.5px] font-medium text-zinc-300">
                   Attached Skills
                 </div>
                 <div className="flex flex-wrap gap-1">
@@ -724,8 +724,8 @@ export function CanvasSessionNode({
                         title={skill.summary}
                         className={`px-2 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer whitespace-nowrap ${
                           active
-                            ? 'border-[#34D399]/50 bg-[#34D399]/14 text-[#6EE7B7]'
-                            : 'border-white/10 bg-white/[0.03] text-emerald-100/50 hover:text-white hover:border-white/20'
+                            ? 'ui-active-tab'
+                            : 'border-white/10 bg-white/[0.03] text-zinc-400 hover:text-white hover:border-white/20'
                         }`}
                       >
                         {skill.label}
@@ -750,10 +750,10 @@ export function CanvasSessionNode({
             : compact
             ? 'w-full max-w-[196px] sm:w-[200px] sm:max-w-none'
             : 'w-full max-w-[196px] sm:w-[216px] sm:max-w-none'
-        } flex items-center gap-1 rounded-xl border px-1.5 py-1 bg-[#07120F]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow,width] duration-150 ${
+        } flex items-center gap-1 rounded-xl border px-1.5 py-1 bg-[#11141B]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow,width] duration-150 ${
           isChatOpen || isSelected
-            ? 'border-[#34D399]/65 shadow-[0_0_20px_rgba(52,211,153,0.16)]'
-            : 'border-white/18 hover:border-[#34D399]/45 focus-within:border-[#4ADE80]'
+            ? 'border-[rgba(var(--ui-accent-rgb),0.55)] shadow-[0_0_16px_rgba(var(--ui-accent-rgb),0.14)]'
+            : 'border-white/18 hover:border-[rgba(var(--ui-accent-rgb),0.40)] focus-within:border-[var(--ui-accent)]'
         }`}
       >
         <button
@@ -772,8 +772,8 @@ export function CanvasSessionNode({
           title={isChatOpen ? 'Hide workspace window' : 'Open workspace window'}
           className={`ui-tactile w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
             isChatOpen
-              ? 'bg-white/10 text-[#6EE7B7]'
-              : 'bg-white/[0.05] text-emerald-100/75 hover:text-white hover:bg-white/10'
+              ? 'bg-white/10 text-[var(--ui-accent-soft)]'
+              : 'bg-white/[0.05] text-zinc-300 hover:text-white hover:bg-white/10'
           }`}
         >
           {isChatOpen ? (
@@ -796,7 +796,7 @@ export function CanvasSessionNode({
               ? 'Thinking…'
               : `Ask ${dotLabel.promptTarget}…`
           }
-          className="flex-1 min-w-0 bg-transparent text-xs text-white placeholder:text-emerald-100/45 text-ellipsis focus:outline-none px-1.5 py-1"
+          className="flex-1 min-w-0 bg-transparent text-xs text-white placeholder:text-zinc-500 text-ellipsis focus:outline-none px-1.5 py-1"
         />
 
         {draft.trim() ? (
@@ -804,7 +804,7 @@ export function CanvasSessionNode({
             type="submit"
             data-testid={`session-send-${session.channelId}`}
             aria-label={`Send message to #${session.name}`}
-            className="ui-pop-in ui-tactile w-7 h-7 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+            className="ui-pop-in ui-tactile ui-accent-btn w-7 h-7 rounded-lg flex items-center justify-center hover:opacity-90 transition-opacity shrink-0 cursor-pointer"
           >
             <ArrowUp className="w-3.5 h-3.5" />
           </button>
@@ -820,8 +820,8 @@ export function CanvasSessionNode({
             }
             className={`ui-tactile w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
               isListeningHere || isSpeaking
-                ? 'bg-[#4ADE80] text-[#05140E] shadow-[0_0_12px_rgba(74,222,128,0.45)]'
-                : 'bg-[#227D5A]/80 hover:bg-[#34D399] text-emerald-50 hover:text-[#05140E]'
+                ? 'bg-[var(--ui-accent-bright)] text-[#0B0D12] shadow-[0_0_12px_rgba(var(--ui-accent-rgb),0.40)]'
+                : 'bg-white/[0.08] hover:bg-[var(--ui-accent)] text-zinc-200 hover:text-[#0B0D12]'
             }`}
           >
             <AudioLines className="w-3.5 h-3.5" />

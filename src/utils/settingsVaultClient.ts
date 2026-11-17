@@ -119,6 +119,7 @@ export function collectSnapshotFromBrowser(
   const capturedAt = Date.now();
   return {
     schemaVersion: 1,
+    themeEpoch: 'slate-v1',
     capturedAt,
     appVersion: base.appVersion || '0.1.0',
     sourceOrigin: typeof window !== 'undefined' ? window.location.origin : undefined,

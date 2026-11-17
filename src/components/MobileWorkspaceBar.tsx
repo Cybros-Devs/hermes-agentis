@@ -155,12 +155,12 @@ export function MobileWorkspaceBar({
       {/* Row 1: Dual Floating Glass Pills inspired by reference mobile bar */}
       <div className="flex items-center justify-between gap-1.5">
         {/* Left Pill: Animated Halftone Character + Active Lane + Tasks Drawer */}
-        <div className="flex-1 min-w-0 flex items-center gap-1.5 rounded-full bg-[#0B1714]/90 border border-white/14 px-1 py-1 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 rounded-full bg-[#11141B]/92 border border-white/[0.12] px-1 py-1 shadow-[0_6px_20px_rgba(0,0,0,0.35)]">
           <button
             type="button"
             onClick={onCycleMood}
             aria-label={`Cycle Hermes mood (current: ${mood})`}
-            className="w-8 h-8 rounded-full overflow-hidden border border-[#34D399]/40 bg-black/50 flex items-center justify-center shrink-0 cursor-pointer"
+            className="w-8 h-8 rounded-full overflow-hidden border border-white/20 bg-black/50 flex items-center justify-center shrink-0 cursor-pointer"
           >
             <span className="w-8 h-8 overflow-hidden flex items-center justify-center pointer-events-none">
               <span className="scale-[0.76] origin-center shrink-0">
@@ -185,7 +185,7 @@ export function MobileWorkspaceBar({
             <div className="text-[12px] font-semibold text-white leading-tight truncate">
               {isHomeNewDraft ? 'new session' : activeTitle}
             </div>
-            <div className="font-mono text-[10px] tracking-tight text-emerald-100/60 tabular-nums leading-tight mt-0.5 flex items-center gap-1 whitespace-nowrap overflow-hidden">
+            <div className="font-mono text-[10px] tracking-tight text-zinc-400 tabular-nums leading-tight mt-0.5 flex items-center gap-1 whitespace-nowrap overflow-hidden">
               {isHomeNewDraft ? (
                 <span>ready for prompt</span>
               ) : (
@@ -200,7 +200,7 @@ export function MobileWorkspaceBar({
               onClick={onOpenMobileSidebar}
               aria-label="Open tasks and lanes"
               title="Tasks & lanes"
-              className="ui-tactile w-7 h-7 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/80 hover:text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              className="ui-tactile w-7 h-7 rounded-full bg-white/[0.06] border border-white/10 text-zinc-300 hover:text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer"
             >
               <PanelLeft className="w-3.5 h-3.5" />
             </button>
@@ -208,7 +208,7 @@ export function MobileWorkspaceBar({
         </div>
 
         {/* Right Pill: View Switcher + Mute + Actions Menu */}
-        <div className="relative flex items-center gap-1 rounded-full bg-[#0B1714]/90 border border-white/14 px-1.5 py-1 shadow-[0_6px_20px_rgba(0,0,0,0.35)] shrink-0">
+        <div className="relative flex items-center gap-1 rounded-full bg-[#11141B]/92 border border-white/[0.12] px-1.5 py-1 shadow-[0_6px_20px_rgba(0,0,0,0.35)] shrink-0">
           <button
             type="button"
             onClick={() => setViewMenuOpen((v) => !v)}
@@ -232,11 +232,11 @@ export function MobileWorkspaceBar({
             />
             <div className="leading-tight">
               <div className="text-[11.5px] font-semibold text-white">{VIEW_LABELS[panelView]}</div>
-              <div className="font-mono text-[9.5px] text-emerald-100/55">
+              <div className="font-mono text-[9.5px] text-zinc-400">
                 {pendingCount > 0 ? `${pendingCount} gate${pendingCount === 1 ? '' : 's'}` : 'view'}
               </div>
             </div>
-            <ChevronDown className={`w-3 h-3 text-emerald-100/60 transition-transform duration-150 ${viewMenuOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform duration-150 ${viewMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
           <button
@@ -246,7 +246,7 @@ export function MobileWorkspaceBar({
             className={`ui-tactile w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
               isMuted
                 ? 'bg-rose-500/20 text-rose-200'
-                : 'bg-white/[0.05] text-emerald-100/75 hover:text-white'
+                : 'bg-white/[0.05] text-zinc-300 hover:text-white'
             }`}
           >
             {isMuted ? (
@@ -266,7 +266,7 @@ export function MobileWorkspaceBar({
               <div
                 role="menu"
                 aria-label="Workspace views"
-                className="ui-menu-pop absolute right-0 top-[calc(100%+8px)] w-48 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-5.5rem)] overflow-y-auto cyber-scroll rounded-2xl bg-[#091512]/96 backdrop-blur-xl border border-white/15 shadow-[0_18px_40px_rgba(0,0,0,0.65)] p-1.5 space-y-1 z-50"
+                className="ui-menu-pop absolute right-0 top-[calc(100%+8px)] w-48 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-5.5rem)] overflow-y-auto cyber-scroll rounded-2xl bg-[#13161F]/96 backdrop-blur-xl border border-white/14 shadow-[0_18px_40px_rgba(0,0,0,0.65)] p-1.5 space-y-1 z-50"
               >
               {views.map((tab) => {
                 const active = panelView === tab.id;
@@ -281,8 +281,8 @@ export function MobileWorkspaceBar({
                     }}
                     className={`w-full min-h-[40px] px-3 rounded-xl text-left text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
                       active
-                        ? 'bg-[#34D399]/16 text-[#6EE7B7]'
-                        : 'text-emerald-50/85 hover:bg-white/[0.06]'
+                        ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)]'
+                        : 'text-zinc-200 hover:bg-white/[0.06]'
                     }`}
                   >
                     <span>{tab.label}</span>
@@ -299,13 +299,13 @@ export function MobileWorkspaceBar({
                     onToggleThinking();
                     setViewMenuOpen(false);
                   }}
-                  className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/80 hover:bg-white/[0.06] flex items-center justify-between cursor-pointer"
+                  className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-zinc-200 hover:bg-white/[0.06] flex items-center justify-between cursor-pointer"
                 >
                   <span className="flex items-center gap-2">
-                    <Brain className="w-3.5 h-3.5 text-[#6EE7B7]" />
+                    <Brain className="w-3.5 h-3.5 text-[var(--ui-accent-soft)]" />
                     <span>Agent Trace</span>
                   </span>
-                  <span className="font-mono text-[10px] text-emerald-100/55">
+                  <span className="font-mono text-[10px] text-zinc-400">
                     {showThinking ? 'on' : 'off'}
                   </span>
                 </button>
@@ -317,10 +317,10 @@ export function MobileWorkspaceBar({
                       setViewMenuOpen(false);
                       onOpenStudio();
                     }}
-                    className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/85 hover:bg-white/[0.06] flex items-center justify-between cursor-pointer"
+                    className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-zinc-200 hover:bg-white/[0.06] flex items-center justify-between cursor-pointer"
                   >
                     <span className="flex items-center gap-2">
-                      <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
+                      <Settings className="w-3.5 h-3.5 text-[var(--ui-accent-soft)]" />
                       <span>Settings</span>
                     </span>
                     {updateAvailable && (
@@ -338,9 +338,9 @@ export function MobileWorkspaceBar({
                     onResetSession(activeChannel);
                     setViewMenuOpen(false);
                   }}
-                  className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/80 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
+                  className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-zinc-200 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
                 >
-                  <RotateCcw className="w-3.5 h-3.5 text-emerald-100/65 shrink-0" />
+                  <RotateCcw className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                   <span className="truncate">
                     {hasChannel
                       ? `Reset ${dotLabel?.isOpaque ? dotLabel.promptTarget : `#${dotLabel?.promptTarget ?? activeChannel}`}`
@@ -357,7 +357,7 @@ export function MobileWorkspaceBar({
       {/* Row 2: Overlapping Subagent / Parallel Braille Session Avatar Cluster (shown when dots exist) */}
       {canvasSessions.length > 0 && (
         <div className="flex items-center justify-between gap-2">
-        <div className="inline-flex items-center gap-2 rounded-full bg-[#0B1714]/86 border border-white/12 pl-1.5 pr-3 py-1 max-w-full overflow-hidden">
+        <div className="inline-flex items-center gap-2 rounded-full bg-[#11141B]/88 border border-white/12 pl-1.5 pr-3 py-1 max-w-full overflow-hidden">
           <div className="flex items-center -space-x-2 shrink-0">
             {visibleSessions.map((session) => {
               const isActive = session.channelId === activeChannel;
@@ -371,10 +371,10 @@ export function MobileWorkspaceBar({
                   title={`#${session.name} (${session.hermesSessionId})`}
                   className={`relative w-7 h-7 rounded-full overflow-hidden flex items-center justify-center border transition-transform cursor-pointer ${
                     isActive
-                      ? 'z-20 scale-110 border-[#34D399] bg-[#071410]'
+                      ? 'z-20 scale-110 border-[var(--ui-accent)] bg-[#141822]'
                       : isThinkingHere
-                      ? 'z-10 border-amber-300/75 bg-[#091512]'
-                      : 'border-white/20 bg-[#08120F]'
+                      ? 'z-10 border-amber-300/75 bg-[#161922]'
+                      : 'border-white/20 bg-[#12151D]'
                   }`}
                 >
                   <span className="w-7 h-7 overflow-hidden flex items-center justify-center pointer-events-none">
@@ -397,7 +397,7 @@ export function MobileWorkspaceBar({
                 type="button"
                 onClick={() => onChangePanelView('canvas')}
                 aria-label={`View ${extraCount} more sessions on canvas`}
-                className="relative z-20 w-7 h-7 rounded-full bg-[#132620] border border-white/25 text-[10px] font-mono font-semibold text-white flex items-center justify-center cursor-pointer"
+                className="relative z-20 w-7 h-7 rounded-full bg-[#1B202B] border border-white/25 text-[10px] font-mono font-semibold text-white flex items-center justify-center cursor-pointer"
               >
                 +{extraCount}
               </button>
@@ -407,7 +407,7 @@ export function MobileWorkspaceBar({
           <button
             type="button"
             onClick={() => onChangePanelView(panelView === 'canvas' ? 'voice' : 'canvas')}
-            className="text-[11px] font-medium text-emerald-100/75 hover:text-white whitespace-nowrap cursor-pointer tabular-nums"
+            className="text-[11px] font-medium text-zinc-300 hover:text-white whitespace-nowrap cursor-pointer tabular-nums"
           >
             {canvasSessions.length} {canvasSessions.length === 1 ? 'session' : 'sessions'}
             {runningCount > 0 ? ` · ${runningCount} live` : ''}
@@ -420,8 +420,8 @@ export function MobileWorkspaceBar({
           aria-label="Open parallel sessions canvas"
           className={`ui-tactile min-h-[34px] px-2.5 rounded-full border text-[11px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
             panelView === 'canvas'
-              ? 'bg-[#34D399]/16 border-[#34D399]/50 text-[#6EE7B7]'
-              : 'bg-white/[0.045] border-white/12 text-emerald-100/75 hover:text-white'
+              ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] border-[rgba(var(--ui-accent-rgb),0.45)] text-[var(--ui-accent-soft)]'
+              : 'bg-white/[0.045] border-white/12 text-zinc-300 hover:text-white'
           }`}
         >
           <LayoutGrid className="w-3 h-3" />

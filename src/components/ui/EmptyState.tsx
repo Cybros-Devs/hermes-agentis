@@ -22,7 +22,7 @@ export function EmptyState({
       {icon && (
         <div
           aria-hidden="true"
-          className="w-9 h-9 rounded-full border border-white/12 bg-white/[0.04] flex items-center justify-center text-[#6EE7B7]"
+          className="w-9 h-9 rounded-full border border-white/12 bg-white/[0.04] flex items-center justify-center text-[var(--ui-accent-soft)]"
         >
           {icon}
         </div>
@@ -30,7 +30,7 @@ export function EmptyState({
       <div className="space-y-1 max-w-[38ch]">
         <p className="text-xs sm:text-sm font-medium text-white">{title}</p>
         {description && (
-          <p className="text-[11.5px] text-emerald-100/55 leading-relaxed">{description}</p>
+          <p className="text-[11.5px] text-zinc-400 leading-relaxed">{description}</p>
         )}
       </div>
       {action && <div className="pt-1">{action}</div>}

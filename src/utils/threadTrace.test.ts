@@ -36,6 +36,11 @@ test('classifyTraceStep categorizes spawn, tool, link, and status steps cleanly'
   assert.equal(tool.icon, 'tool');
   assert.equal(tool.label, 'Tool run');
   assert.equal(tool.detail, 'brief summary');
+
+  const toolDone = classifyTraceStep(makeEntry('4', 'activity', 'tool_describe completed'));
+  assert.equal(toolDone.icon, 'tool');
+  assert.equal(toolDone.label, 'tool_describe');
+  assert.equal(toolDone.detail, 'completed');
 });
 
 test('groupThreadTimeline collapses adjacent activity entries into a single trace tree', () => {

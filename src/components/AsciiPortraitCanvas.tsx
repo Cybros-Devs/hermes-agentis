@@ -357,10 +357,10 @@ export function AsciiPortraitCanvas({
       TonalDotBucketSpec,
       TonalDotBucketSpec,
     ] = [
-      { xy: b0XY, len: 0, hex: '#8FA69E', alpha: 0.48, diameterScale: 0.72 },
-      { xy: b1XY, len: 0, hex: '#B9CCC5', alpha: 0.68, diameterScale: 0.85 },
-      { xy: b2XY, len: 0, hex: '#DCE8E3', alpha: 0.84, diameterScale: 0.96 },
-      { xy: b3XY, len: 0, hex: '#F1F7F4', alpha: 0.94, diameterScale: 1.07 },
+      { xy: b0XY, len: 0, hex: '#94A3B8', alpha: 0.48, diameterScale: 0.72 },
+      { xy: b1XY, len: 0, hex: '#CBD5E1', alpha: 0.68, diameterScale: 0.85 },
+      { xy: b2XY, len: 0, hex: '#E2E8F0', alpha: 0.84, diameterScale: 0.96 },
+      { xy: b3XY, len: 0, hex: '#F1F5F9', alpha: 0.94, diameterScale: 1.07 },
       { xy: b4XY, len: 0, hex: '#FFFFFF', alpha: 0.99, diameterScale: 1.18 },
     ];
 
@@ -697,8 +697,8 @@ export function AsciiPortraitCanvas({
         }
         className={
           isSidebar
-            ? 'ui-tactile group relative flex items-center justify-center rounded-lg overflow-hidden bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#34D399] cursor-pointer'
-            : 'group relative flex items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] transition-transform duration-200 ease-out active:scale-[0.97] hover:scale-[1.015] cursor-pointer'
+            ? 'ui-tactile group relative flex items-center justify-center rounded-lg overflow-hidden bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ui-accent)] cursor-pointer'
+            : 'group relative flex items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--ui-accent)] transition-transform duration-200 ease-out active:scale-[0.97] hover:scale-[1.015] cursor-pointer'
         }
       >
         <canvas
@@ -721,11 +721,11 @@ export function AsciiPortraitCanvas({
         <div
           data-testid="portrait-loading-indicator"
           aria-live="polite"
-          className="pointer-events-none -mt-2 mb-1 inline-flex items-center gap-2 rounded-lg border border-white/12 bg-[#06110D]/92 px-3 py-1 font-mono text-[10.5px] text-[#6EE7B7] shadow-[0_6px_20px_rgba(0,0,0,0.45)]"
+          className="pointer-events-none -mt-2 mb-1 inline-flex items-center gap-2 rounded-lg border border-white/12 bg-[#0D1016]/92 px-3 py-1 font-mono text-[10.5px] text-zinc-200 shadow-[0_6px_20px_rgba(0,0,0,0.45)]"
         >
           <span
             aria-hidden="true"
-            className="inline-block w-1.5 h-1.5 rounded-full bg-[#34D399] animate-pulse motion-safe-only"
+            className="inline-block w-1.5 h-1.5 rounded-full bg-slate-300 animate-pulse motion-safe-only"
           />
           <span>Calibrating halftone rig…</span>
         </div>

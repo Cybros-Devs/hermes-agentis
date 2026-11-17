@@ -89,6 +89,14 @@ export function classifyTraceStep(entry: TerminalEntry): ClassifiedTraceStep {
   } else if (dashIdx > 2 && dashIdx < 28) {
     label = raw.slice(0, dashIdx).trim();
     detail = raw.slice(dashIdx + 3).trim();
+  } else {
+    const statusMatch = raw.match(
+      /^(.+?)\s+(completed|complete|done|finished|running|started|failed|error|cancelled|interrupted)$/i
+    );
+    if (statusMatch) {
+      label = statusMatch[1].trim();
+      detail = statusMatch[2].toLowerCase();
+    }
   }
 
   return {

@@ -36,6 +36,7 @@ export interface CanvasPreferences {
 
 export interface UserPreferencesSnapshot {
   schemaVersion: 1;
+  themeEpoch?: 'slate-v1';
   snapshotId?: string;
   capturedAt: number;
   appVersion: string;
@@ -221,14 +222,43 @@ export function normalizePreferencesSnapshot(
       ? (candidate.reason as SnapshotReason)
       : 'sync';
 
+  const themeEpoch = candidate.themeEpoch === 'slate-v1' ? 'slate-v1' : undefined;
+  const isLegacyUntouchedEmerald =
+    !themeEpoch &&
+    reason === 'sync' &&
+    uiConfig.accentPreset === 'emerald' &&
+    uiConfig.accentHex === '#34D399' &&
+    uiConfig.surfaceHex === '#0A1613' &&
+    uiConfig.textHex === '#ECF3F0' &&
+    uiConfig.panelAlpha === 0.76 &&
+    uiConfig.borderOpacity === 0.42 &&
+    uiConfig.glowIntensity === 1 &&
+    !uiConfig.portraitTintHex;
+
+  const migratedUiConfig: UiCustomizationConfig = isLegacyUntouchedEmerald
+    ? {
+        ...uiConfig,
+        accentPreset: DEFAULT_UI_CONFIG.accentPreset,
+        accentHex: DEFAULT_UI_CONFIG.accentHex,
+        accentSoftHex: DEFAULT_UI_CONFIG.accentSoftHex,
+        accentBrightHex: DEFAULT_UI_CONFIG.accentBrightHex,
+        surfaceHex: DEFAULT_UI_CONFIG.surfaceHex,
+        textHex: DEFAULT_UI_CONFIG.textHex,
+        panelAlpha: DEFAULT_UI_CONFIG.panelAlpha,
+        borderOpacity: DEFAULT_UI_CONFIG.borderOpacity,
+        glowIntensity: DEFAULT_UI_CONFIG.glowIntensity,
+      }
+    : uiConfig;
+
   return {
     schemaVersion: 1,
+    ...(themeEpoch ? { themeEpoch } : {}),
     ...(snapshotId ? { snapshotId } : {}),
     capturedAt,
     appVersion,
     ...(sourceOrigin ? { sourceOrigin } : {}),
     reason,
-    uiConfig,
+    uiConfig: migratedUiConfig,
     background,
     workspace,
     canvas: {

@@ -175,7 +175,7 @@ export function AddSessionShapeModal({
           >
             Dot &amp; Character Studio
           </h2>
-          <p className="text-xs text-emerald-100/60 mt-0.5">
+          <p className="text-xs text-zinc-400 mt-0.5">
             Design an autonomous hermes-agent Dot with isolated sandbox, trigger cadence, and anime silhouette
           </p>
         </div>
@@ -184,7 +184,7 @@ export function AddSessionShapeModal({
           type="button"
           onClick={onClose}
           aria-label="Close add session dialog"
-          className="ui-tactile w-8 h-8 rounded-lg border border-white/12 bg-white/[0.04] text-emerald-100/70 hover:text-white hover:border-white/25 flex items-center justify-center cursor-pointer"
+          className="ui-tactile w-8 h-8 rounded-lg border border-white/12 bg-white/[0.04] text-zinc-300 hover:text-white hover:border-white/25 flex items-center justify-center cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
@@ -194,10 +194,10 @@ export function AddSessionShapeModal({
         <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 cyber-scroll">
           <div className="grid grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)] gap-4 sm:gap-5 items-start">
             {/* Left Column: Large Interactive Character Audition Stage + Tint & Eyes */}
-            <div className="min-w-0 rounded-xl border border-white/10 bg-[#050E0B]/85 p-3.5 sm:p-4 flex flex-col items-center space-y-3.5">
+            <div className="min-w-0 rounded-xl border border-white/10 bg-[#0B0D12]/85 p-3.5 sm:p-4 flex flex-col items-center space-y-3.5">
               <div className="w-full flex items-center justify-between text-[11px]">
                 <span className="font-mono font-medium text-white">{activeMeta.label}</span>
-                <span className="font-mono text-emerald-100/50">{activeMeta.animeTitle}</span>
+                <span className="font-mono text-zinc-400">{activeMeta.animeTitle}</span>
               </div>
 
               <div className="relative py-2 flex items-center justify-center">
@@ -225,7 +225,7 @@ export function AddSessionShapeModal({
 
               {/* Audition Live Motion States */}
               <div className="w-full space-y-1.5">
-                <span className="block text-[11px] font-medium text-emerald-100/70">
+                <span className="block text-[11px] font-medium text-zinc-300">
                   Audition State
                 </span>
                 <div className="grid grid-cols-4 gap-1 p-1 rounded-lg bg-white/[0.04] border border-white/10">
@@ -238,8 +238,8 @@ export function AddSessionShapeModal({
                         onClick={() => setAuditionState(opt.id)}
                         className={`py-1 rounded-md text-[11px] font-medium cursor-pointer whitespace-nowrap ${
                           active
-                            ? 'bg-[#34D399] text-[#05140E] font-semibold'
-                            : 'text-emerald-100/65 hover:text-white'
+                            ? 'ui-accent-btn font-semibold'
+                            : 'text-zinc-400 hover:text-white'
                         }`}
                       >
                         {opt.label}
@@ -251,7 +251,7 @@ export function AddSessionShapeModal({
 
               {/* Phosphor Tint */}
               <div className="w-full space-y-1.5">
-                <span className="block text-[11px] font-medium text-emerald-100/70">
+                <span className="block text-[11px] font-medium text-zinc-300">
                   Phosphor Tint · {activePalette.label}
                 </span>
                 <div className="flex items-center justify-between gap-1 py-0.5">
@@ -278,7 +278,7 @@ export function AddSessionShapeModal({
 
               {/* Resting Eyes */}
               <div className="w-full space-y-1.5">
-                <span className="block text-[11px] font-medium text-emerald-100/70">
+                <span className="block text-[11px] font-medium text-zinc-300">
                   Resting Eyes
                 </span>
                 <div className="flex items-center gap-1 p-1 rounded-lg bg-white/[0.04] border border-white/10">
@@ -287,8 +287,8 @@ export function AddSessionShapeModal({
                     onClick={() => setEyeStyle('open')}
                     className={`flex-1 py-1 px-2 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
                       eyeStyle === 'open'
-                        ? 'bg-[#34D399] text-[#05140E] font-semibold'
-                        : 'text-emerald-100/70 hover:text-white'
+                        ? 'ui-accent-btn font-semibold'
+                        : 'text-zinc-400 hover:text-white'
                     }`}
                   >
                     Bright Eyes
@@ -298,8 +298,8 @@ export function AddSessionShapeModal({
                     onClick={() => setEyeStyle('sleepy')}
                     className={`flex-1 py-1 px-2 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
                       eyeStyle === 'sleepy'
-                        ? 'bg-[#34D399] text-[#05140E] font-semibold'
-                        : 'text-emerald-100/70 hover:text-white'
+                        ? 'ui-accent-btn font-semibold'
+                        : 'text-zinc-400 hover:text-white'
                     }`}
                   >
                     Calm Sleepy
@@ -307,7 +307,7 @@ export function AddSessionShapeModal({
                 </div>
               </div>
 
-              <div className="w-full pt-2 border-t border-white/8 text-[11px] font-mono text-emerald-100/55 space-y-0.5 tabular-nums">
+              <div className="w-full pt-2 border-t border-white/8 text-[11px] font-mono text-zinc-400 space-y-0.5 tabular-nums">
                 <div>{formatSandboxLabel(sandboxEnv)}</div>
                 <div>
                   {formatAutonomyLabel(autonomyMode, scheduleLabel)} · {skills.length} skills
@@ -319,7 +319,7 @@ export function AddSessionShapeModal({
             <div className="min-w-0 space-y-3.5">
               {/* Starter Templates */}
               <div className="space-y-1.5">
-                <span className="block text-xs font-medium text-emerald-50/85">
+                <span className="block text-xs font-medium text-zinc-200">
                   Dot Starter Template
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -332,14 +332,14 @@ export function AddSessionShapeModal({
                         onClick={() => handleApplyTemplate(tpl.id)}
                         className={`min-w-0 px-3 py-1.5 rounded-lg border text-left cursor-pointer ${
                           active
-                            ? 'border-[#34D399] bg-[#34D399]/14'
+                            ? 'ui-active-card'
                             : 'border-white/10 bg-white/[0.03] hover:border-white/25'
                         }`}
                       >
                         <div className="text-[11.5px] font-semibold text-white truncate">
                           {tpl.label}
                         </div>
-                        <div className="text-[10px] text-emerald-100/55 truncate">
+                        <div className="text-[10px] text-zinc-400 truncate">
                           {tpl.scheduleLabel} · {tpl.subtitle}
                         </div>
                       </button>
@@ -350,7 +350,7 @@ export function AddSessionShapeModal({
 
               {/* 9 Anime Character Braille Picker */}
               <div className="space-y-1.5">
-                <span className="block text-xs font-medium text-emerald-50/85">
+                <span className="block text-xs font-medium text-zinc-200">
                   Anime Character Silhouette
                 </span>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -366,7 +366,7 @@ export function AddSessionShapeModal({
                         aria-label={`Select ${meta.label} (${meta.animeTitle})`}
                         className={`min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-xl border px-2 py-1.5 cursor-pointer ${
                           isSelected
-                            ? 'border-[#34D399] bg-[#34D399]/14'
+                            ? 'ui-active-card'
                             : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]'
                         }`}
                       >
@@ -382,7 +382,7 @@ export function AddSessionShapeModal({
                         />
                         <div className="w-full text-center leading-tight">
                           <div className="text-xs font-semibold text-white truncate">{meta.label}</div>
-                          <div className="text-[10.5px] text-emerald-100/55 leading-snug line-clamp-1">
+                          <div className="text-[10.5px] text-zinc-400 leading-snug line-clamp-1">
                             {meta.tagline}
                           </div>
                         </div>
@@ -395,7 +395,7 @@ export function AddSessionShapeModal({
               {/* Session Identity */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label htmlFor="canvas-session-name" className="block text-xs font-medium text-emerald-50/85">
+                  <label htmlFor="canvas-session-name" className="block text-xs font-medium text-zinc-200">
                     Dot Name
                   </label>
                   <input
@@ -408,12 +408,12 @@ export function AddSessionShapeModal({
                     }}
                     placeholder="e.g. kitsune-lab"
                     autoFocus
-                    className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-1.5 text-sm text-white placeholder:text-emerald-100/35 focus:outline-none"
+                    className="w-full rounded-lg bg-[#0D1016] border border-white/15 focus:border-[var(--ui-accent)] px-3 py-1.5 text-sm text-white placeholder:text-zinc-500 focus:outline-none"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label htmlFor="canvas-session-topic" className="block text-xs font-medium text-emerald-50/85">
+                  <label htmlFor="canvas-session-topic" className="block text-xs font-medium text-zinc-200">
                     Focus or Role (optional)
                   </label>
                   <input
@@ -422,7 +422,7 @@ export function AddSessionShapeModal({
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     placeholder={activeMeta.tagline}
-                    className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-1.5 text-sm text-white placeholder:text-emerald-100/35 focus:outline-none"
+                    className="w-full rounded-lg bg-[#0D1016] border border-white/15 focus:border-[var(--ui-accent)] px-3 py-1.5 text-sm text-white placeholder:text-zinc-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -430,7 +430,7 @@ export function AddSessionShapeModal({
               {/* Autonomy Cadence & Portable Skills */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <span className="block text-xs font-medium text-emerald-50/85">
+                  <span className="block text-xs font-medium text-zinc-200">
                     Autonomy &amp; Sandbox
                   </span>
                   <div className="flex items-center gap-1 p-1 rounded-lg bg-white/[0.04] border border-white/10">
@@ -447,8 +447,8 @@ export function AddSessionShapeModal({
                         onClick={() => handleSetAutonomy(opt.id)}
                         className={`flex-1 py-1 px-2 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
                           autonomyMode === opt.id
-                            ? 'bg-[#34D399] text-[#05140E] font-semibold'
-                            : 'text-emerald-100/70 hover:text-white'
+                            ? 'ui-accent-btn font-semibold'
+                            : 'text-zinc-400 hover:text-white'
                         }`}
                       >
                         {opt.label}
@@ -458,7 +458,7 @@ export function AddSessionShapeModal({
                 </div>
 
                 <div className="space-y-1">
-                  <span className="block text-xs font-medium text-emerald-50/85">
+                  <span className="block text-xs font-medium text-zinc-200">
                     Portable Skills
                   </span>
                   <div className="flex flex-wrap gap-1">
@@ -472,8 +472,8 @@ export function AddSessionShapeModal({
                           aria-pressed={active}
                           className={`px-2 py-1 rounded-md border text-[10.5px] transition-colors cursor-pointer whitespace-nowrap ${
                             active
-                              ? 'border-[#34D399]/50 bg-[#34D399]/14 text-[#6EE7B7]'
-                              : 'border-white/10 bg-white/[0.03] text-emerald-100/55 hover:text-white'
+                              ? 'ui-active-tab'
+                              : 'border-white/10 bg-white/[0.03] text-zinc-400 hover:text-white'
                           }`}
                         >
                           {sk.label}
@@ -486,7 +486,7 @@ export function AddSessionShapeModal({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label htmlFor="canvas-session-profile" className="block text-xs font-medium text-emerald-50/85">
+                  <label htmlFor="canvas-session-profile" className="block text-xs font-medium text-zinc-200">
                     Hermes Profile
                   </label>
                   <select
@@ -494,7 +494,7 @@ export function AddSessionShapeModal({
                     data-testid="add-dot-profile-select"
                     value={profile}
                     onChange={(e) => setProfile(e.target.value)}
-                    className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-1.5 text-xs font-mono text-white focus:outline-none"
+                    className="w-full rounded-lg bg-[#0D1016] border border-white/15 focus:border-[var(--ui-accent)] px-3 py-1.5 text-xs font-mono text-white focus:outline-none"
                   >
                     {(profiles.length > 0
                       ? profiles
@@ -508,7 +508,7 @@ export function AddSessionShapeModal({
                 </div>
 
                 <div className="space-y-1">
-                  <label htmlFor="canvas-session-persona" className="block text-xs font-medium text-emerald-50/85">
+                  <label htmlFor="canvas-session-persona" className="block text-xs font-medium text-zinc-200">
                     hermes-agent System Persona
                   </label>
                   <input
@@ -520,7 +520,7 @@ export function AddSessionShapeModal({
                       setPersonaEdited(true);
                     }}
                     placeholder={activeMeta.defaultAgentPersona}
-                    className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-1.5 text-xs font-mono text-emerald-50/90 placeholder:text-emerald-100/35 focus:outline-none"
+                    className="w-full rounded-lg bg-[#0D1016] border border-white/15 focus:border-[var(--ui-accent)] px-3 py-1.5 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -534,17 +534,17 @@ export function AddSessionShapeModal({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2.5 px-4 sm:px-5 py-3.5 border-t border-white/10 bg-[#0A1613] shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2.5 px-4 sm:px-5 py-3.5 border-t border-white/10 bg-[#11141B] shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-lg border border-white/12 bg-white/[0.04] text-xs font-medium text-emerald-100/80 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+            className="px-4 py-2 rounded-lg border border-white/12 bg-white/[0.04] text-xs font-medium text-zinc-300 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="px-4 py-2 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+            className="ui-accent-btn ui-tactile px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 hover:opacity-90 transition-opacity cursor-pointer whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Spawn Dot</span>

@@ -2133,7 +2133,7 @@ export default function App() {
               reducedMotion={uiConfig.reducedMotion}
               portraitTintHex={
                 uiConfig.portraitTintHex ??
-                (uiConfig.accentPreset === 'emerald' ? null : uiConfig.accentSoftHex)
+                (uiConfig.accentPreset === 'slate' ? null : uiConfig.accentSoftHex)
               }
               selectedItemId={selectedItemId}
               onSelectApproval={(card) => {
@@ -2303,7 +2303,7 @@ export default function App() {
                 setCustomizerTab('updates');
                 setCustomizerOpen(true);
               }}
-              className="text-[11px] font-medium text-emerald-300 hover:text-white px-2 py-1 rounded-md hover:bg-white/[0.06] cursor-pointer"
+              className="text-[11px] font-medium text-[var(--ui-accent-soft)] hover:text-white px-2 py-1 rounded-md hover:bg-white/[0.06] cursor-pointer"
             >
               Details
             </button>

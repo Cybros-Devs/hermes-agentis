@@ -605,7 +605,7 @@ export function ThreadTaskBanner({
                           statusDisplay.tone === 'amber'
                             ? 'text-amber-300 font-medium'
                             : statusDisplay.tone === 'emerald'
-                            ? 'text-emerald-300 font-medium'
+                            ? 'text-zinc-200 font-medium'
                             : 'text-zinc-300'
                         }`}
                       >
@@ -799,14 +799,14 @@ export function ThreadTaskBanner({
                             aria-hidden="true"
                             className={`relative z-10 mt-0.5 shrink-0 w-3 h-3 rounded-full flex items-center justify-center ${
                               isStepDone
-                                ? 'bg-white/[0.08] text-emerald-400'
+                                ? 'bg-white/[0.08] text-zinc-200'
                                 : isStepActive
                                 ? 'bg-amber-400/20'
                                 : 'bg-white/[0.06]'
                             }`}
                           >
                             {isStepDone ? (
-                              <Check className="w-2 h-2 text-emerald-400" />
+                              <Check className="w-2 h-2 text-zinc-200" />
                             ) : isStepActive ? (
                               <StatusPulse
                                 state={isRunning ? 'thinking' : 'idle'}
@@ -1019,14 +1019,14 @@ export function ThreadTaskBanner({
                                     aria-hidden="true"
                                     className={`relative z-10 mt-0.5 shrink-0 w-3 h-3 rounded-full flex items-center justify-center ${
                                       stepDone
-                                        ? 'bg-white/[0.08] text-emerald-400'
+                                        ? 'bg-white/[0.08] text-zinc-200'
                                         : isFailed
                                         ? 'bg-rose-500/20 text-rose-300'
                                         : 'bg-white/[0.08] text-zinc-400'
                                     }`}
                                   >
                                     {stepDone ? (
-                                      <Check className="w-2 h-2 text-emerald-400" />
+                                      <Check className="w-2 h-2 text-zinc-200" />
                                     ) : isFailed ? (
                                       <X className="w-2 h-2 text-rose-300" />
                                     ) : isCancelled ? (
@@ -1075,7 +1075,7 @@ export function ThreadTaskBanner({
                               onClick={() => onConfirmTask(task.id)}
                               className="ui-tactile inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.14] hover:border-white/[0.24] text-zinc-100 font-medium text-[11.5px] transition-colors cursor-pointer whitespace-nowrap"
                             >
-                              <Check className="w-3 h-3 text-emerald-400" />
+                              <Check className="w-3 h-3 text-zinc-200" />
                               <span>Mark done</span>
                             </button>
                           )}

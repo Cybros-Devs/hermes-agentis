@@ -88,7 +88,9 @@ test('parseNaturalUiIntent parses multi-element UI requests without false-trigge
 });
 
 test('all curated UI presets have unique ids and valid sanitized configs', () => {
-  assert.equal(CURATED_UI_PRESETS.length, 6);
+  assert.equal(DEFAULT_UI_CONFIG.accentPreset, 'slate');
+  assert.equal(DEFAULT_UI_CONFIG.accentHex, '#94A3B8');
+  assert.equal(CURATED_UI_PRESETS.length, 7);
   const ids = new Set<string>();
   for (const preset of CURATED_UI_PRESETS) {
     assert.ok(!ids.has(preset.id), `duplicate preset id: ${preset.id}`);
@@ -97,4 +99,9 @@ test('all curated UI presets have unique ids and valid sanitized configs', () =>
     assert.ok(normalizeHex(next.accentHex));
     assert.ok(normalizeHex(next.surfaceHex));
   }
+
+  // Opt-in emerald preset remains cleanly selectable
+  const { next: emerald } = applyUiPatch(DEFAULT_UI_CONFIG, { presetId: 'emerald-terminal' });
+  assert.equal(emerald.accentPreset, 'emerald');
+  assert.equal(emerald.accentHex, '#34D399');
 });

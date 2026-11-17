@@ -14,7 +14,7 @@ export function DecodedText({
   text,
   animate = true,
   className,
-  frontierClassName = 'text-[#6EE7B7]',
+  frontierClassName = 'text-[var(--ui-accent-soft)]',
   speedMultiplier = 1,
   durationMs,
 }: DecodedTextProps) {

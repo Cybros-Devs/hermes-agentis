@@ -213,3 +213,42 @@ test('parseImportedPreferencesJson parses valid JSON backups and rejects malform
   assert.equal(parsed.uiConfig.accentHex, '#38BDF8');
   assert.equal(parsed.uiConfig.cornerRadius, 'sharp');
 });
+
+test('normalizePreferencesSnapshot upgrades legacy untouched sync emerald defaults to Slate Monochrome while preserving explicit emerald choices', () => {
+  const legacyUntouched = normalizePreferencesSnapshot({
+    schemaVersion: 1,
+    capturedAt: 1_750_000_000_000,
+    appVersion: '0.1.0',
+    reason: 'sync',
+    uiConfig: {
+      accentPreset: 'emerald',
+      accentHex: '#34D399',
+      accentSoftHex: '#6EE7B7',
+      accentBrightHex: '#4ADE80',
+      surfaceHex: '#0A1613',
+      textHex: '#ECF3F0',
+      panelAlpha: 0.76,
+      borderOpacity: 0.42,
+      glowIntensity: 1,
+      sidebarPosition: 'right',
+    },
+    workspace: { onboardingCompleted: true },
+  });
+  assert.ok(legacyUntouched);
+  assert.equal(legacyUntouched.uiConfig.accentPreset, 'slate');
+  assert.equal(legacyUntouched.uiConfig.accentHex, '#94A3B8');
+  assert.equal(legacyUntouched.uiConfig.sidebarPosition, 'right');
+  assert.equal(legacyUntouched.workspace.onboardingCompleted, true);
+
+  const explicitEmerald = normalizePreferencesSnapshot({
+    schemaVersion: 1,
+    themeEpoch: 'slate-v1',
+    capturedAt: 1_760_000_000_000,
+    appVersion: '0.1.0',
+    reason: 'sync',
+    uiConfig: applyUiPatch(DEFAULT_UI_CONFIG, { presetId: 'emerald-terminal' }).next,
+  });
+  assert.ok(explicitEmerald);
+  assert.equal(explicitEmerald.uiConfig.accentPreset, 'emerald');
+  assert.equal(explicitEmerald.uiConfig.accentHex, '#34D399');
+});

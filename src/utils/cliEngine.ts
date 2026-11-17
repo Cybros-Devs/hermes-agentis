@@ -704,8 +704,8 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
           type: 'handled',
           mood: 'happy',
           uiPatch: { resetAll: true },
-          spokenText: 'Restored default Emerald Terminal layout and backdrop.',
-          output: 'UI RESET // Restored default Emerald Terminal theme, layout, character & backdrop.',
+          spokenText: 'Restored default Slate Monochrome layout and backdrop.',
+          output: 'UI RESET // Restored default Slate Monochrome theme, layout, character & backdrop.',
         };
       }
       const preset = getCuratedPreset(lowerArg);

@@ -90,8 +90,8 @@ export function MorphTabs<T extends string>({
           aria-hidden="true"
           className={`ui-tab-glide pointer-events-none absolute top-0 left-0 ${
             variant === 'underline'
-              ? 'h-[2px] rounded-full bg-[var(--ui-accent,#34d399)] shadow-[0_0_10px_rgba(var(--ui-accent-rgb,52,211,153),0.45)]'
-              : 'rounded-lg bg-[rgba(var(--ui-accent-rgb,52,211,153),0.15)] border border-[rgba(var(--ui-accent-rgb,52,211,153),0.42)]'
+              ? 'h-[2px] rounded-full bg-[var(--ui-accent,#94a3b8)] shadow-[0_0_10px_rgba(var(--ui-accent-rgb,148,163,184),0.38)]'
+              : 'rounded-lg bg-[rgba(var(--ui-accent-rgb,148,163,184),0.15)] border border-[rgba(var(--ui-accent-rgb,148,163,184),0.38)]'
           }`}
           style={{
             width: `${indicator.width}px`,
@@ -118,23 +118,23 @@ export function MorphTabs<T extends string>({
             aria-current={variant === 'underline' && active ? 'page' : undefined}
             data-testid={item.testId}
             onClick={() => onChange(item.id)}
-            className={`ui-tactile relative z-10 inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#34D399] transition-colors duration-150 ${
+            className={`ui-tactile relative z-10 inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ui-accent)] transition-colors duration-150 ${
               fullWidth ? 'flex-1 justify-center' : ''
             } ${
               variant === 'underline'
                 ? `py-2 text-xs ${
-                    active ? 'text-white font-semibold' : 'text-emerald-100/60 hover:text-white font-medium'
+                    active ? 'text-white font-semibold' : 'text-zinc-400 hover:text-white font-medium'
                   }`
                 : variant === 'rail'
                 ? `sm:justify-start justify-center px-3 py-2 rounded-xl text-xs font-medium ${
                     active
-                      ? 'text-[var(--ui-accent-soft,#6ee7b7)]'
-                      : 'text-emerald-100/65 hover:text-white hover:bg-white/[0.04]'
+                      ? 'text-[var(--ui-accent-soft,#cbd5e1)]'
+                      : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                   }`
                 : `py-2 px-3 rounded-lg text-xs font-medium ${
                     active
-                      ? 'text-[var(--ui-accent-soft,#6ee7b7)]'
-                      : 'text-emerald-100/55 hover:text-white'
+                      ? 'text-[var(--ui-accent-soft,#cbd5e1)]'
+                      : 'text-zinc-400 hover:text-white'
                   }`
             }`}
           >

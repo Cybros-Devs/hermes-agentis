@@ -800,7 +800,7 @@ export function VoiceWorkspacePane({
 
   const effectivePortraitTint =
     uiConfig.portraitTintHex ??
-    (uiConfig.accentPreset === 'emerald' ? null : uiConfig.accentSoftHex);
+    (uiConfig.accentPreset === 'slate' ? null : uiConfig.accentSoftHex);
 
   const isThreadSplitLayout = panelView === 'voice' && threadTasksDockMode === 'split';
   const showDesktopThreadSidebar = panelView === 'voice' && isDesktopLg;
@@ -824,16 +824,16 @@ export function VoiceWorkspacePane({
           onSubmit={handleSubmit}
           className={`lg:max-w-[740px] lg:mx-auto w-full flex flex-col lg:flex-row lg:items-center gap-1.5 lg:gap-2.5 rounded-[22px] lg:rounded-xl border px-3 py-2.5 lg:px-3.5 lg:py-1.5 transition-colors duration-150 ${
             uiConfig.composerStyle === 'minimal'
-              ? 'border-white/10 bg-[#081310]/82 shadow-none'
+              ? 'border-white/10 bg-[#11141B]/85 shadow-none'
               : uiConfig.composerStyle === 'floating'
-              ? 'border-white/18 bg-[#081310]/92 shadow-[0_14px_38px_rgba(0,0,0,0.52)]'
+              ? 'border-white/16 bg-[#11141B]/94 shadow-[0_14px_38px_rgba(0,0,0,0.52)]'
               : 'shadow-[0_-6px_28px_rgba(0,0,0,0.42)] lg:shadow-none'
           } ${
             voiceState.isListening
-              ? 'border-[#4ADE80] bg-[#071410]/94'
+              ? 'border-[var(--ui-accent)] bg-[#131722]/96'
               : uiConfig.composerStyle === 'docked'
               ? 'ui-composer-docked'
-              : 'focus-within:border-[#4ADE80]'
+              : 'focus-within:border-[var(--ui-accent)]'
           }`}
         >
           {/* Row 1 (Mobile) / Flex Input (Desktop) */}
@@ -841,7 +841,7 @@ export function VoiceWorkspacePane({
             <span
               aria-hidden="true"
               className={`hidden lg:inline font-mono text-sm select-none ${
-                voiceState.isListening ? 'text-[#4ADE80]' : 'text-emerald-100/50'
+                voiceState.isListening ? 'text-[var(--ui-accent-soft)]' : 'text-zinc-500'
               }`}
             >
               &gt;
@@ -867,7 +867,7 @@ export function VoiceWorkspacePane({
                   ? 'Listening...'
                   : `Steer ${activePromptSlug} or type /help`
               }
-              className="flex-1 min-w-0 bg-transparent text-[14px] lg:text-sm text-white placeholder:text-emerald-100/45 focus:outline-none py-1.5 px-1 lg:px-0"
+              className="flex-1 min-w-0 bg-transparent text-[14px] lg:text-sm text-white placeholder:text-zinc-500 focus:outline-none py-1.5 px-1 lg:px-0"
             />
           </div>
 
@@ -882,8 +882,8 @@ export function VoiceWorkspacePane({
                 title="CLI"
                 className={`w-10 h-10 rounded-full border flex items-center justify-center transition-colors cursor-pointer ${
                   panelView === 'cli'
-                    ? 'bg-[#34D399]/18 border-[#34D399]/55 text-[#6EE7B7]'
-                    : 'bg-white/[0.06] border-white/10 text-emerald-100/75 hover:text-white'
+                    ? 'bg-[rgba(var(--ui-accent-rgb),0.20)] border-[rgba(var(--ui-accent-rgb),0.55)] text-[var(--ui-accent-soft)]'
+                    : 'bg-white/[0.06] border-white/10 text-zinc-300 hover:text-white'
                 }`}
               >
                 <Terminal className="w-4 h-4" />
@@ -896,13 +896,13 @@ export function VoiceWorkspacePane({
                 title="Queue"
                 className={`relative w-10 h-10 rounded-full border flex items-center justify-center transition-colors cursor-pointer ${
                   panelView === 'queue'
-                    ? 'bg-[#34D399]/18 border-[#34D399]/55 text-[#6EE7B7]'
-                    : 'bg-white/[0.06] border-white/10 text-emerald-100/75 hover:text-white'
+                    ? 'bg-[rgba(var(--ui-accent-rgb),0.20)] border-[rgba(var(--ui-accent-rgb),0.55)] text-[var(--ui-accent-soft)]'
+                    : 'bg-white/[0.06] border-white/10 text-zinc-300 hover:text-white'
                 }`}
               >
                 <ListChecks className="w-4 h-4" />
                 {pendingApprovals.length > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-[#34D399] text-[#05140E] font-mono text-[9.5px] font-bold flex items-center justify-center tabular-nums">
+                  <span className="ui-accent-btn absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full font-mono text-[9.5px] font-bold flex items-center justify-center tabular-nums">
                     {pendingApprovals.length}
                   </span>
                 )}
@@ -913,7 +913,7 @@ export function VoiceWorkspacePane({
                 onClick={() => onChangePanelView('canvas')}
                 aria-label="Switch to Canvas"
                 title="Canvas"
-                className="w-10 h-10 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/75 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                className="w-10 h-10 rounded-full bg-white/[0.06] border border-white/10 text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
               >
                 <LayoutGrid className="w-4 h-4" />
               </button>
@@ -926,7 +926,7 @@ export function VoiceWorkspacePane({
                 onClick={() => onResetSession(activeChannel)}
                 aria-label="Clear or reset active session"
                 title="Reset session"
-                className="lg:hidden w-10 h-10 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/75 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                className="lg:hidden w-10 h-10 rounded-full bg-white/[0.06] border border-white/10 text-zinc-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
               </button>
@@ -951,8 +951,8 @@ export function VoiceWorkspacePane({
                 aria-label={voiceState.isListening ? 'Stop voice input' : 'Start voice input'}
                 className={`w-10 h-10 lg:w-8 lg:h-8 rounded-full lg:rounded-lg flex items-center justify-center transition-colors cursor-pointer shrink-0 border lg:border-0 ${
                   voiceState.isListening
-                    ? 'bg-[#34D399]/22 text-[#4ADE80] border-[#4ADE80]/60'
-                    : 'bg-white/[0.06] lg:bg-transparent border-white/10 text-[#34D399] hover:text-[#6EE7B7] hover:bg-white/10'
+                    ? 'bg-[rgba(var(--ui-accent-rgb),0.22)] text-[var(--ui-accent-bright)] border-[var(--ui-accent)]'
+                    : 'bg-white/[0.06] lg:bg-transparent border-white/10 text-[var(--ui-accent-soft)] hover:text-white hover:bg-white/10'
                 }`}
               >
                 {voiceState.isListening ? (
@@ -966,7 +966,7 @@ export function VoiceWorkspacePane({
                 <button
                   type="submit"
                   aria-label="Send message or command"
-                  className="ui-pop-in w-10 h-10 lg:w-8 lg:h-8 rounded-full lg:rounded-lg bg-[#34D399] text-[#05140E] flex items-center justify-center hover:bg-[#6EE7B7] active:scale-95 transition-all duration-150 cursor-pointer shrink-0"
+                  className="ui-pop-in ui-accent-btn w-10 h-10 lg:w-8 lg:h-8 rounded-full lg:rounded-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-[opacity,transform] duration-150 cursor-pointer shrink-0"
                 >
                   <ArrowUp className="w-4 h-4" />
                 </button>
@@ -1043,7 +1043,7 @@ export function VoiceWorkspacePane({
                 type="button"
                 onClick={onOpenMobileSidebar}
                 aria-label="Open tasks and lanes"
-                className="lg:hidden inline-flex items-center gap-1.5 text-xs text-emerald-100/75 hover:text-white transition-colors shrink-0 cursor-pointer"
+                className="lg:hidden inline-flex items-center gap-1.5 text-xs text-zinc-300 hover:text-white transition-colors shrink-0 cursor-pointer"
               >
                 <PanelLeft className="w-3.5 h-3.5" />
                 <span>Tasks</span>
@@ -1077,8 +1077,8 @@ export function VoiceWorkspacePane({
                 }
                 className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
                   showThinking
-                    ? 'bg-[#34D399]/14 text-[#6EE7B7]'
-                    : 'text-emerald-100/50 hover:text-white hover:bg-white/[0.06]'
+                    ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)]'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/[0.06]'
                 }`}
               >
                 <Brain className="w-3.5 h-3.5" />
@@ -1093,7 +1093,7 @@ export function VoiceWorkspacePane({
               className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
                 voiceState.isMuted
                   ? 'bg-rose-500/15 text-rose-200'
-                  : 'text-emerald-100/60 hover:text-white hover:bg-white/[0.06]'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.06]'
               }`}
             >
               {voiceState.isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
@@ -1106,9 +1106,9 @@ export function VoiceWorkspacePane({
                 data-testid="ui-studio-trigger"
                 aria-label="Open Settings"
                 title={updateAvailable ? 'Settings (Update available)' : 'Settings'}
-                className="ui-tactile h-8 px-2.5 rounded-lg border border-white/10 bg-white/[0.03] text-xs font-medium text-emerald-100/75 hover:text-white hover:border-white/25 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="ui-tactile h-8 px-2.5 rounded-lg border border-white/10 bg-white/[0.03] text-xs font-medium text-zinc-300 hover:text-white hover:border-white/25 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
+                <Settings className="w-3.5 h-3.5 text-[var(--ui-accent-soft)]" />
                 <span>Settings</span>
                 {updateAvailable && (
                   <span
@@ -1128,9 +1128,9 @@ export function VoiceWorkspacePane({
               onClick={onOpenStudio}
               data-testid="ui-studio-trigger"
               aria-label="Open Settings"
-              className="h-8 px-2.5 rounded-lg border border-white/12 bg-[#07130F]/92 text-xs font-medium text-emerald-100/80 hover:text-white flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+              className="h-8 px-2.5 rounded-lg border border-white/12 bg-[#11141B]/92 text-xs font-medium text-zinc-300 hover:text-white flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
             >
-              <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
+              <Settings className="w-3.5 h-3.5 text-[var(--ui-accent-soft)]" />
               <span>Settings</span>
               {updateAvailable && (
                 <span
@@ -1206,10 +1206,10 @@ export function VoiceWorkspacePane({
                   <span className="font-mono text-rose-200/90">
                     Gateway offline · {gatewayStatus.gatewayUrl.replace(/^https?:\/\//, '')}
                   </span>
-                  <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                  <span aria-hidden="true" className="text-zinc-600">·</span>
                   <span
                     data-testid="home-session-badge"
-                    className="font-mono text-[11px] text-[#6EE7B7]/85"
+                    className="font-mono text-[11px] text-[var(--ui-accent-soft)]"
                   >
                     {isHomeNewDraft || !activeChannel
                       ? 'new session'
@@ -1221,7 +1221,7 @@ export function VoiceWorkspacePane({
                       aria-label="Hermes profile for new session"
                       value={draftProfile}
                       onChange={(e) => onChangeDraftProfile(e.target.value)}
-                      className="rounded-md bg-black/40 border border-white/15 px-1.5 py-0.5 font-mono text-[10.5px] text-[#6EE7B7] focus:outline-none focus:border-[#34D399]"
+                      className="rounded-md bg-black/40 border border-white/15 px-1.5 py-0.5 font-mono text-[10.5px] text-[var(--ui-accent-soft)] focus:outline-none focus:border-[var(--ui-accent)]"
                     >
                       {profiles.map((p) => (
                         <option key={p.id} value={p.id}>
@@ -1235,7 +1235,7 @@ export function VoiceWorkspacePane({
                         type="button"
                         data-testid="home-add-profile-btn"
                         onClick={() => onChangePanelView('queue')}
-                        className="font-mono text-[10.5px] text-emerald-100/50 hover:text-[#6EE7B7] transition-colors cursor-pointer"
+                        className="font-mono text-[10.5px] text-zinc-400 hover:text-white transition-colors cursor-pointer"
                       >
                         @{draftProfile} · + profile
                       </button>
@@ -1243,7 +1243,7 @@ export function VoiceWorkspacePane({
                   )}
                   {onRefreshGateway && (
                     <>
-                      <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                      <span aria-hidden="true" className="text-zinc-600">·</span>
                       <button
                         type="button"
                         onClick={() => void onRefreshGateway()}
@@ -1255,14 +1255,14 @@ export function VoiceWorkspacePane({
                   )}
                 </div>
               ) : (
-                <div className="relative z-10 flex flex-wrap items-center justify-center gap-2 mt-2.5 text-xs text-emerald-100/70">
+                <div className="relative z-10 flex flex-wrap items-center justify-center gap-2 mt-2.5 text-xs text-zinc-300">
                   <StatusPulse state={statusPulseState} />
                   <span>{statusText}</span>
-                  <span aria-hidden="true" className="text-emerald-100/30">·</span>
+                  <span aria-hidden="true" className="text-zinc-600">·</span>
                   <span
                     data-testid="home-session-badge"
                     title={activeHermesSessionId}
-                    className="font-mono text-[11px] text-[#6EE7B7]/85 max-w-[230px] truncate"
+                    className="font-mono text-[11px] text-[var(--ui-accent-soft)] max-w-[230px] truncate"
                   >
                     {isHomeNewDraft || !activeChannel
                       ? 'new session'
@@ -1274,7 +1274,7 @@ export function VoiceWorkspacePane({
                       aria-label="Hermes profile for new session"
                       value={draftProfile}
                       onChange={(e) => onChangeDraftProfile(e.target.value)}
-                      className="rounded-md bg-black/40 border border-white/15 px-1.5 py-0.5 font-mono text-[10.5px] text-[#6EE7B7] focus:outline-none focus:border-[#34D399]"
+                      className="rounded-md bg-black/40 border border-white/15 px-1.5 py-0.5 font-mono text-[10.5px] text-[var(--ui-accent-soft)] focus:outline-none focus:border-[var(--ui-accent)]"
                     >
                       {profiles.map((p) => (
                         <option key={p.id} value={p.id}>
@@ -1288,7 +1288,7 @@ export function VoiceWorkspacePane({
                         type="button"
                         data-testid="home-add-profile-btn"
                         onClick={() => onChangePanelView('queue')}
-                        className="font-mono text-[10.5px] text-emerald-100/50 hover:text-[#6EE7B7] transition-colors cursor-pointer"
+                        className="font-mono text-[10.5px] text-zinc-400 hover:text-white transition-colors cursor-pointer"
                       >
                         @{draftProfile} · + profile
                       </button>
@@ -1323,12 +1323,12 @@ export function VoiceWorkspacePane({
                   (!isHomeNewDraft && visibleMessages.length > 0) ||
                   (!isHomeNewDraft && onStartNewSession) ||
                   pendingApprovals.length > 0) && (
-                  <div className="flex flex-wrap items-center justify-center gap-5 text-xs text-emerald-100/55">
+                  <div className="flex flex-wrap items-center justify-center gap-5 text-xs text-zinc-400">
                     {(activeIsThinking || activeIsSpeaking) && (
                       <button
                         type="button"
                         onClick={onStopSpeaking}
-                        className="ui-tactile inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/15 text-emerald-50 hover:bg-white/12 transition-colors cursor-pointer"
+                        className="ui-tactile inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.06] border border-white/15 text-zinc-100 hover:bg-white/12 transition-colors cursor-pointer"
                       >
                         <Square className="w-2.5 h-2.5 fill-current" />
                         <span>Stop</span>
@@ -1338,7 +1338,7 @@ export function VoiceWorkspacePane({
                       <button
                         type="button"
                         onClick={() => onChangePanelView('voice')}
-                        className="ui-tactile text-[#6EE7B7]/90 hover:text-white underline underline-offset-4 decoration-[#34D399]/35 transition-colors cursor-pointer"
+                        className="ui-tactile text-[var(--ui-accent-soft)] hover:text-white underline underline-offset-4 decoration-white/25 transition-colors cursor-pointer"
                       >
                         Open thread ({visibleMessages.length})
                       </button>
@@ -1451,12 +1451,12 @@ export function VoiceWorkspacePane({
                   </div>
                 </div>
 
-                <div className="relative z-10 flex flex-wrap items-center justify-center gap-2 mt-0.5 px-4 text-[11.5px] font-medium text-emerald-50/75">
+                <div className="relative z-10 flex flex-wrap items-center justify-center gap-2 mt-0.5 px-4 text-[11.5px] font-medium text-zinc-300">
                   <StatusPulse size="sm" state={statusPulseState} />
                   <span className="text-white/90">{statusText}</span>
-                  <span aria-hidden="true" className="text-emerald-100/30">·</span>
+                  <span aria-hidden="true" className="text-zinc-600">·</span>
                   <span
-                    className="font-mono text-[11px] text-[#6EE7B7]/90 max-w-[230px] truncate"
+                    className="font-mono text-[11px] text-[var(--ui-accent-soft)] max-w-[230px] truncate"
                     title={activeHermesSessionId}
                     data-testid="active-hermes-session-id"
                   >
@@ -1464,10 +1464,10 @@ export function VoiceWorkspacePane({
                   </span>
                   {activeProfile && activeProfile !== 'default' && (
                     <>
-                      <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                      <span aria-hidden="true" className="text-zinc-600">·</span>
                       <span
                         data-testid="active-thread-profile"
-                        className="font-mono text-[11px] text-emerald-200/75"
+                        className="font-mono text-[11px] text-zinc-400"
                       >
                         @{activeProfile}
                       </span>
@@ -1475,7 +1475,7 @@ export function VoiceWorkspacePane({
                   )}
                   {panelView === 'voice' && (
                     <>
-                      <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                      <span aria-hidden="true" className="text-zinc-600">·</span>
                       <ThreadTaskBanner
                         variant="thread-trigger"
                         sidebarMode={isDesktopLg}
@@ -1488,12 +1488,12 @@ export function VoiceWorkspacePane({
                         onToggleOpen={toggleThreadTasksOpen}
                         onHide={hideThreadTasks}
                       />
-                      <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                      <span aria-hidden="true" className="text-zinc-600">·</span>
                       <button
                         type="button"
                         onClick={() => onResetSession(activeChannel)}
                         title="Reset isolated hermes-agent session context"
-                        className="inline-flex items-center gap-1 text-[11px] text-emerald-100/45 hover:text-white transition-colors cursor-pointer"
+                        className="inline-flex items-center gap-1 text-[11px] text-zinc-400 hover:text-white transition-colors cursor-pointer"
                       >
                         <RotateCcw className="w-3 h-3" />
                         <span>Reset</span>
@@ -1538,20 +1538,20 @@ export function VoiceWorkspacePane({
             ) : (
               panelView === 'voice' && (
                 <div className="hidden lg:block shrink-0">
-                  <div className="max-w-[740px] mx-auto w-full px-8 py-2 flex items-center justify-between gap-3 text-xs text-emerald-100/75 border-b border-white/[0.06]">
+                  <div className="max-w-[740px] mx-auto w-full px-8 py-2 flex items-center justify-between gap-3 text-xs text-zinc-300 border-b border-white/[0.06]">
                     <div className="flex items-center gap-2 min-w-0">
                       <StatusPulse size="sm" state={statusPulseState} />
                       <span
                         data-testid="active-hermes-session-id"
                         title={activeHermesSessionId}
-                        className="font-mono text-[11px] text-[#6EE7B7] max-w-[260px] truncate"
+                        className="font-mono text-[11px] text-[var(--ui-accent-soft)] max-w-[260px] truncate"
                       >
                         {activeHermesSessionId}
                       </span>
                       {activeProfile && activeProfile !== 'default' && (
                         <span
                           data-testid="active-thread-profile"
-                          className="font-mono text-[11px] text-emerald-200/75 shrink-0"
+                          className="font-mono text-[11px] text-zinc-400 shrink-0"
                         >
                           @{activeProfile}
                         </span>
@@ -1577,15 +1577,15 @@ export function VoiceWorkspacePane({
             {/* Mobile Integrated Braille Character Stage & Flowing Acoustic Wave Divider (< lg) */}
             {panelView === 'voice' ? (
               <>
-                {uiConfig.portraitVisible && viewportHeight >= 560 && (
-                  <div
-                    data-testid="mobile-braille-stage"
-                    className="relative flex lg:hidden flex-col items-center justify-center pt-1 pb-0.5 shrink-0"
-                  >
-                    <div className="relative flex items-center justify-center">
+                <div
+                  data-testid="mobile-braille-stage"
+                  className="mx-3 mt-1 mb-0.5 rounded-xl border border-white/[0.08] bg-[#11141B]/72 px-2.5 py-2 flex lg:hidden items-center gap-2.5 shrink-0"
+                >
+                  {uiConfig.portraitVisible && viewportHeight >= 520 && (
+                    <div className="relative w-[64px] h-[56px] rounded-lg border border-white/[0.07] bg-[#0B0D12]/80 flex items-center justify-center overflow-hidden shrink-0">
                       <div
                         aria-hidden="true"
-                        className={`absolute inset-0 -m-6 rounded-full pointer-events-none transition-opacity duration-300 ${
+                        className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${
                           activeIsSpeaking || voiceState.isListening || activeIsThinking
                             ? 'opacity-100'
                             : 'opacity-70'
@@ -1593,13 +1593,13 @@ export function VoiceWorkspacePane({
                         style={{
                           background:
                             effectiveMood === 'thinking'
-                              ? 'radial-gradient(ellipse 68% 60% at 50% 48%, rgba(245, 158, 11, 0.18) 0%, rgba(245, 158, 11, 0.05) 48%, transparent 74%)'
+                              ? 'radial-gradient(circle at 50% 48%, rgba(245, 158, 11, 0.20) 0%, rgba(245, 158, 11, 0.05) 54%, transparent 78%)'
                               : effectiveMood === 'alert'
-                              ? 'radial-gradient(ellipse 68% 60% at 50% 48%, rgba(244, 63, 94, 0.17) 0%, rgba(244, 63, 94, 0.05) 48%, transparent 74%)'
-                              : 'radial-gradient(ellipse 68% 60% at 50% 48%, rgba(var(--ui-accent-rgb), 0.15) 0%, rgba(var(--ui-accent-rgb), 0.04) 48%, transparent 74%)',
+                              ? 'radial-gradient(circle at 50% 48%, rgba(244, 63, 94, 0.18) 0%, rgba(244, 63, 94, 0.05) 54%, transparent 78%)'
+                              : 'radial-gradient(circle at 50% 48%, rgba(var(--ui-accent-rgb), 0.16) 0%, rgba(var(--ui-accent-rgb), 0.04) 54%, transparent 78%)',
                         }}
                       />
-                      <div className="relative z-10">
+                      <div className="relative z-10 scale-[0.54] origin-center">
                         <AsciiPortraitCanvas
                           variant="compact"
                           mood={effectiveMood}
@@ -1619,55 +1619,57 @@ export function VoiceWorkspacePane({
                         />
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                <div
-                  className={`flex lg:hidden items-center justify-between gap-2 mx-3 px-1 py-1.5 shrink-0 ${
-                    uiConfig.horizonVisible ? '' : 'border-b border-white/[0.07]'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 min-w-0 text-[11.5px]">
-                    <StatusPulse state={statusPulseState} size="sm" />
-                    <span className="font-medium text-white shrink-0">{statusText}</span>
-                    <span aria-hidden="true" className="text-emerald-100/25">·</span>
-                    <span
-                      title={activeHermesSessionId}
-                      className="font-mono text-[11px] text-[#6EE7B7]/85 truncate"
-                    >
-                      {activeChannel ? activeDotLabel?.primaryLabel ?? `#${activeChannel}` : 'new-session'}
-                      {activeProfile && activeProfile !== 'default' ? ` · @${activeProfile}` : ''}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <ThreadTaskBanner
-                      variant="mobile-trigger"
-                      activeChannel={activeChannel}
-                      activeSessionId={activeHermesSessionId}
-                      tasks={tasks}
-                      activeIsThinking={activeIsThinking}
-                      workingSeconds={workingSeconds}
-                      isOpen={threadTasksOpen}
-                      onToggleOpen={toggleThreadTasksOpen}
-                      onHide={hideThreadTasks}
-                    />
-                    <button
-                      type="button"
-                      onClick={onToggleThinking}
-                      aria-pressed={showThinking}
-                      aria-label={
-                        showThinking
-                          ? 'Hide inline activity trace in chat'
-                          : 'Show inline activity trace in chat'
-                      }
-                      className={`shrink-0 px-2 py-1 rounded-lg text-[10.5px] font-mono transition-colors cursor-pointer ${
-                        showThinking
-                          ? 'bg-[#34D399]/14 text-[#6EE7B7]'
-                          : 'text-emerald-100/55 hover:text-white'
-                      }`}
-                    >
-                      {showThinking ? 'Trace' : 'Clean'}
-                    </button>
+                  <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0 text-[11.5px]">
+                      <StatusPulse state={statusPulseState} size="sm" />
+                      <span className="font-medium text-white shrink-0">{statusText}</span>
+                      <span aria-hidden="true" className="text-zinc-500 shrink-0">·</span>
+                      <span
+                        title={activeHermesSessionId}
+                        className="font-mono text-[11px] text-[var(--ui-accent-soft)] truncate"
+                      >
+                        {activeChannel ? activeDotLabel?.primaryLabel ?? `#${activeChannel}` : 'new-session'}
+                        {activeProfile && activeProfile !== 'default' ? ` · @${activeProfile}` : ''}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <span className="font-mono text-[10px] text-zinc-400 truncate">
+                        {effectiveMood} · {uiConfig.horizonStyle}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <ThreadTaskBanner
+                          variant="mobile-trigger"
+                          activeChannel={activeChannel}
+                          activeSessionId={activeHermesSessionId}
+                          tasks={tasks}
+                          activeIsThinking={activeIsThinking}
+                          workingSeconds={workingSeconds}
+                          isOpen={threadTasksOpen}
+                          onToggleOpen={toggleThreadTasksOpen}
+                          onHide={hideThreadTasks}
+                        />
+                        <button
+                          type="button"
+                          onClick={onToggleThinking}
+                          aria-pressed={showThinking}
+                          aria-label={
+                            showThinking
+                              ? 'Hide inline activity trace in chat'
+                              : 'Show inline activity trace in chat'
+                          }
+                          className={`shrink-0 px-2 py-1 rounded-lg text-[10.5px] font-mono border transition-colors cursor-pointer ${
+                            showThinking
+                              ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] border-[rgba(var(--ui-accent-rgb),0.32)] text-[var(--ui-accent-soft)]'
+                              : 'bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          {showThinking ? 'Trace' : 'Clean'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1913,7 +1915,7 @@ export function VoiceWorkspacePane({
                             key={entry.id}
                             ref={setAnchorRef}
                             data-turn-anchor={isMinimapAnchor ? entry.id : undefined}
-                            className={`ui-msg-enter ml-auto max-w-[85%] sm:max-w-[72%] rounded-2xl bg-[#34D399]/[0.085] border border-[#34D399]/20 px-3.5 sm:px-4 py-2 sm:py-2.5 text-[13.5px] leading-relaxed text-white ${
+                            className={`ui-msg-enter ml-auto max-w-[85%] sm:max-w-[72%] rounded-2xl bg-white/[0.07] border border-white/[0.14] px-3.5 sm:px-4 py-2 sm:py-2.5 text-[13.5px] leading-relaxed text-white ${
                               isJumpHighlighted ? 'ui-turn-jump' : ''
                             }`}
                           >
@@ -1952,7 +1954,7 @@ export function VoiceWorkspacePane({
                         >
                           <p
                             className={`text-[14.5px] sm:text-[15px] leading-[1.68] font-normal whitespace-pre-wrap break-words ${
-                              isErrorDiagnostic ? 'text-rose-100/95' : 'text-[#ECF3F0]'
+                              isErrorDiagnostic ? 'text-rose-100/95' : 'text-[#F1F5F9]'
                             }`}
                           >
                             <DecodedText
@@ -1961,7 +1963,7 @@ export function VoiceWorkspacePane({
                             />
                           </p>
                           {(idx > 0 || outcomeLabel) && (
-                            <div className="flex items-center gap-2 font-mono text-[10.5px] text-emerald-100/45 tabular-nums">
+                            <div className="flex items-center gap-2 font-mono text-[10.5px] text-zinc-500 tabular-nums">
                               {idx > 0 && <span>{entry.timestamp}</span>}
                               {outcomeLabel && (
                                 <span
@@ -1970,7 +1972,7 @@ export function VoiceWorkspacePane({
                                     entry.terminalOutcome === 'iteration_budget_exhausted'
                                       ? 'border-amber-400/35 bg-amber-500/12 text-amber-200'
                                       : entry.terminalOutcome === 'cancelled' || entry.terminalOutcome === 'interrupted'
-                                      ? 'border-white/20 bg-white/[0.06] text-emerald-100/75'
+                                      ? 'border-white/20 bg-white/[0.06] text-zinc-300'
                                       : 'border-rose-400/35 bg-rose-500/12 text-rose-200'
                                   }`}
                                 >
@@ -1984,7 +1986,7 @@ export function VoiceWorkspacePane({
                     })}
 
                     {voiceState.interimTranscript && (
-                      <div className="ml-auto max-w-[85%] sm:max-w-[72%] rounded-2xl bg-[#34D399]/14 border border-[#34D399]/40 px-3.5 sm:px-4 py-2 sm:py-2.5 text-[13.5px] leading-relaxed text-emerald-50">
+                      <div className="ml-auto max-w-[85%] sm:max-w-[72%] rounded-2xl bg-[rgba(var(--ui-accent-rgb),0.14)] border border-[rgba(var(--ui-accent-rgb),0.36)] px-3.5 sm:px-4 py-2 sm:py-2.5 text-[13.5px] leading-relaxed text-zinc-100">
                         <p className="whitespace-pre-wrap break-words">{voiceState.interimTranscript}</p>
                       </div>
                     )}
@@ -2003,7 +2005,7 @@ export function VoiceWorkspacePane({
                             <button
                               type="button"
                               onClick={() => onChangePanelView('queue')}
-                              className="flex items-center gap-2 min-w-0 text-left hover:text-[#6EE7B7] transition-colors cursor-pointer"
+                              className="flex items-center gap-2 min-w-0 text-left hover:text-[var(--ui-accent-soft)] transition-colors cursor-pointer"
                             >
                               <RefreshCw className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
                               <span className="text-xs sm:text-[13px] font-medium text-white truncate">
@@ -2016,7 +2018,7 @@ export function VoiceWorkspacePane({
                           </div>
 
                           {(card.command || card.summary) && (
-                            <pre className="rounded-lg bg-black/40 border border-white/10 px-2.5 py-1.5 font-mono text-[11px] text-[#6EE7B7] whitespace-pre-wrap break-all">
+                            <pre className="rounded-lg bg-black/40 border border-white/10 px-2.5 py-1.5 font-mono text-[11px] text-[var(--ui-accent-soft)] whitespace-pre-wrap break-all">
                               {card.command || card.summary}
                             </pre>
                           )}
@@ -2030,13 +2032,13 @@ export function VoiceWorkspacePane({
                                   setClarifyDraft((prev) => ({ ...prev, [card.id]: e.target.value }))
                                 }
                                 placeholder="Provide answer to continue run..."
-                                className="flex-1 min-w-0 rounded-lg bg-black/40 border border-white/15 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]"
+                                className="flex-1 min-w-0 rounded-lg bg-black/40 border border-white/15 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                               />
                               <button
                                 type="button"
                                 disabled={!draftVal.trim()}
                                 onClick={() => onClarifyCard(card.id, draftVal)}
-                                className="h-8 px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs hover:bg-[#6EE7B7] disabled:opacity-45 cursor-pointer"
+                                className="ui-accent-btn h-8 px-3 rounded-lg font-semibold text-xs hover:opacity-90 disabled:opacity-45 cursor-pointer"
                               >
                                 Send
                               </button>
@@ -2047,7 +2049,7 @@ export function VoiceWorkspacePane({
                                 type="button"
                                 data-testid={`thread-approve-once-${card.id}`}
                                 onClick={() => onApproveCard(card.id, 'once')}
-                                className="h-8 px-3 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-xs inline-flex items-center gap-1 hover:bg-[#6EE7B7] transition-colors cursor-pointer"
+                                className="ui-accent-btn h-8 px-3 rounded-lg font-semibold text-xs inline-flex items-center gap-1 hover:opacity-90 transition-opacity cursor-pointer"
                               >
                                 <Check className="w-3.5 h-3.5" />
                                 <span>Once</span>
@@ -2056,7 +2058,7 @@ export function VoiceWorkspacePane({
                                 type="button"
                                 data-testid={`thread-approve-always-${card.id}`}
                                 onClick={() => onApproveCard(card.id, 'always')}
-                                className="h-8 px-3 rounded-lg bg-[#34D399]/18 border border-[#34D399]/40 text-[#6EE7B7] font-semibold text-xs inline-flex items-center gap-1 hover:bg-[#34D399]/28 transition-colors cursor-pointer"
+                                className="h-8 px-3 rounded-lg bg-[rgba(var(--ui-accent-rgb),0.16)] border border-[rgba(var(--ui-accent-rgb),0.36)] text-[var(--ui-accent-soft)] font-semibold text-xs inline-flex items-center gap-1 hover:bg-[rgba(var(--ui-accent-rgb),0.24)] transition-colors cursor-pointer"
                               >
                                 <span>Always</span>
                               </button>

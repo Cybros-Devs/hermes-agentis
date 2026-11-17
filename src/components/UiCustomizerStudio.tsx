@@ -111,15 +111,15 @@ function ToggleRow({
     >
       <div className="min-w-0">
         <div className="text-xs font-medium text-white">{label}</div>
-        {hint && <div className="text-[10.5px] text-emerald-100/50 truncate">{hint}</div>}
+        {hint && <div className="text-[10.5px] text-zinc-400 truncate">{hint}</div>}
       </div>
       <span
         className={`w-9 h-5 rounded-full p-0.5 transition-colors flex items-center shrink-0 ${
-          checked ? 'bg-[#34D399]' : 'bg-white/15'
+          checked ? 'bg-[var(--ui-accent)]' : 'bg-white/15'
         }`}
       >
         <span
-          className={`w-4 h-4 rounded-full bg-[#06130F] shadow transition-transform ${
+          className={`w-4 h-4 rounded-full bg-[#0B0D12] shadow transition-transform ${
             checked ? 'translate-x-4' : 'translate-x-0'
           }`}
         />
@@ -150,8 +150,8 @@ function SliderRow({
   return (
     <label className="block space-y-1.5">
       <div className="flex items-center justify-between text-[11px]">
-        <span className="text-emerald-50/85">{label}</span>
-        <span className="font-mono text-[#6EE7B7] tabular-nums">{valueLabel}</span>
+        <span className="text-zinc-200">{label}</span>
+        <span className="font-mono text-[var(--ui-accent-soft)] tabular-nums">{valueLabel}</span>
       </div>
       <input
         type="range"
@@ -161,7 +161,7 @@ function SliderRow({
         value={value}
         data-testid={testId}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[#34D399] cursor-pointer h-1.5"
+        className="w-full cursor-pointer h-1.5"
       />
     </label>
   );
@@ -180,7 +180,7 @@ function SegmentedRow<T extends string>({
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-[11px] text-emerald-50/80">{label}</div>
+      <div className="text-[11px] text-zinc-300">{label}</div>
       <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
         {options.map((opt) => {
           const active = value === opt.id;
@@ -193,7 +193,7 @@ function SegmentedRow<T extends string>({
               className={`min-h-[34px] rounded-lg border text-[11px] font-medium transition-colors cursor-pointer ${
                 active
                   ? 'ui-active-tab'
-                  : 'border-white/10 bg-white/[0.025] text-emerald-100/70 hover:text-white hover:border-white/25'
+                  : 'border-white/10 bg-white/[0.025] text-zinc-400 hover:text-white hover:border-white/25'
               }`}
             >
               {opt.label}
@@ -317,10 +317,10 @@ export function UiCustomizerStudio({
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/10 shrink-0">
         <div>
           <h2 className="text-[15px] font-semibold text-white tracking-tight flex items-center gap-2">
-            <Settings className="w-4 h-4 text-[#6EE7B7]" />
+            <Settings className="w-4 h-4 text-[var(--ui-accent-soft)]" />
             <span>Settings</span>
           </h2>
-          <p className="text-xs text-emerald-100/55 mt-0.5">
+          <p className="text-xs text-zinc-400 mt-0.5">
             Workspace appearance, layout, stage motion, and backdrops
           </p>
         </div>
@@ -329,7 +329,7 @@ export function UiCustomizerStudio({
           onClick={onClose}
           aria-label="Close Settings"
           data-testid="ui-studio-close"
-          className="ui-tactile w-8 h-8 rounded-lg border border-white/10 bg-white/[0.04] text-emerald-100/70 hover:text-white hover:bg-white/[0.08] flex items-center justify-center cursor-pointer"
+          className="ui-tactile w-8 h-8 rounded-lg border border-white/10 bg-white/[0.04] text-zinc-300 hover:text-white hover:bg-white/[0.08] flex items-center justify-center cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
@@ -348,7 +348,7 @@ export function UiCustomizerStudio({
             value={agentPrompt}
             onChange={(e) => setAgentPrompt(e.target.value)}
             placeholder='Describe a UI update: "cyber violet, hide horizon"...'
-            className="flex-1 min-w-0 rounded-xl bg-black/40 border border-white/14 px-3 py-2 text-xs text-white placeholder:text-emerald-100/40 focus:outline-none focus:border-[#34D399]"
+            className="flex-1 min-w-0 rounded-xl bg-black/40 border border-white/14 px-3 py-2 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-[var(--ui-accent)]"
           />
           <button
             type="submit"
@@ -360,18 +360,18 @@ export function UiCustomizerStudio({
         </form>
 
         <div className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[11px]">
-          <span className="text-emerald-100/45 font-mono">Try:</span>
+          <span className="text-zinc-500 font-mono">Try:</span>
           {AGENT_PROMPT_EXAMPLES.map((example, idx) => (
             <span key={example} className="inline-flex items-center gap-2">
               {idx > 0 && (
-                <span aria-hidden="true" className="text-emerald-100/25 select-none">
+                <span aria-hidden="true" className="text-zinc-600 select-none">
                   ·
                 </span>
               )}
               <button
                 type="button"
                 onClick={() => onAskAgent(example)}
-                className="ui-tactile text-emerald-100/70 hover:text-[#6EE7B7] underline underline-offset-4 decoration-white/15 hover:decoration-[#34D399]/50 transition-colors cursor-pointer"
+                className="ui-tactile text-zinc-300 hover:text-white underline underline-offset-4 decoration-white/15 hover:decoration-white/45 transition-colors cursor-pointer"
               >
                 {example}
               </button>
@@ -398,12 +398,12 @@ export function UiCustomizerStudio({
             {activeTab === 'theme' && (
               <>
                 <div className="space-y-2">
-                  <div className="text-xs font-medium text-emerald-100/65">
+                  <div className="text-xs font-medium text-zinc-300">
                     Curated themes
                   </div>
                 <div className="grid grid-cols-2 gap-2">
                   {CURATED_UI_PRESETS.map((preset) => {
-                    const presetAccent = preset.config.accentHex ?? '#34D399';
+                    const presetAccent = preset.config.accentHex ?? '#94A3B8';
                     const active =
                       config.accentHex === presetAccent &&
                       config.surfaceHex === (preset.config.surfaceHex ?? config.surfaceHex) &&
@@ -425,15 +425,15 @@ export function UiCustomizerStudio({
                             <span className="flex-1" style={{ backgroundColor: presetAccent }} />
                             <span
                               className="flex-1"
-                              style={{ backgroundColor: preset.config.surfaceHex ?? '#0A1613' }}
+                              style={{ backgroundColor: preset.config.surfaceHex ?? '#11141B' }}
                             />
                           </span>
-                          {active && <Check className="w-3.5 h-3.5 text-[#6EE7B7]" />}
+                          {active && <Check className="w-3.5 h-3.5 text-[var(--ui-accent-soft)]" />}
                         </div>
                         <div className="mt-1.5 text-xs font-semibold text-white truncate">
                           {preset.name}
                         </div>
-                        <div className="text-[10.5px] text-emerald-100/60 leading-snug line-clamp-1 mt-0.5">
+                        <div className="text-[10.5px] text-zinc-400 leading-snug line-clamp-1 mt-0.5">
                           {preset.subtitle}
                         </div>
                       </button>
@@ -444,10 +444,10 @@ export function UiCustomizerStudio({
 
               <div className="space-y-2 pt-2.5 border-t border-white/8">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-emerald-100/65">
+                  <span className="text-xs font-medium text-zinc-300">
                     Accent palette
                   </span>
-                  <span className="font-mono text-[11px] text-[#6EE7B7]">{config.accentHex}</span>
+                  <span className="font-mono text-[11px] text-[var(--ui-accent-soft)]">{config.accentHex}</span>
                 </div>
                 <div className="flex items-center flex-wrap gap-2">
                   {ACCENT_SWATCHES.map((swatch) => {
@@ -465,12 +465,12 @@ export function UiCustomizerStudio({
                         }`}
                         style={{ backgroundColor: swatch.accentHex }}
                       >
-                        {active && <Check className="w-3.5 h-3.5 text-[#06120D]" />}
+                        {active && <Check className="w-3.5 h-3.5 text-[#0B0D12]" />}
                       </button>
                     );
                   })}
 
-                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/14 bg-white/[0.04] px-2.5 h-7 text-[11px] text-emerald-100/80 cursor-pointer hover:border-white/30">
+                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/14 bg-white/[0.04] px-2.5 h-7 text-[11px] text-zinc-200 cursor-pointer hover:border-white/30">
                     <span>Custom</span>
                     <input
                       type="color"
@@ -485,7 +485,7 @@ export function UiCustomizerStudio({
                 <label className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.025] px-3 py-1.5 text-xs cursor-pointer hover:border-white/20 transition-colors">
                   <span>Panel surface tint</span>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-emerald-100/60">
+                    <span className="font-mono text-[11px] text-zinc-400">
                       {config.surfaceHex}
                     </span>
                     <input
@@ -537,7 +537,7 @@ export function UiCustomizerStudio({
           {activeTab === 'layout' && (
             <>
               <div className="space-y-2">
-                <div className="text-xs font-medium text-emerald-100/65">
+                <div className="text-xs font-medium text-zinc-300">
                   Workspace layout
                 </div>
                 <ToggleRow
@@ -647,13 +647,13 @@ export function UiCustomizerStudio({
                 />
 
                 <label className="block space-y-1">
-                  <span className="text-[11px] text-emerald-50/80">Workspace brand title</span>
+                  <span className="text-[11px] text-zinc-300">Workspace brand title</span>
                   <input
                     type="text"
                     value={config.workspaceTitle}
                     onChange={(e) => onApplyPatch({ workspaceTitle: e.target.value }, 'studio')}
                     maxLength={28}
-                    className="w-full rounded-xl bg-black/35 border border-white/12 px-3 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]"
+                    className="w-full rounded-xl bg-black/35 border border-white/12 px-3 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[var(--ui-accent)]"
                   />
                 </label>
               </div>
@@ -663,7 +663,7 @@ export function UiCustomizerStudio({
           {activeTab === 'stage' && (
             <>
               <div className="space-y-2">
-                <div className="text-xs font-medium text-emerald-100/65">
+                <div className="text-xs font-medium text-zinc-300">
                   Character &amp; wave stage
                 </div>
                 <ToggleRow
@@ -764,17 +764,17 @@ export function UiCustomizerStudio({
 
               <div className="space-y-2.5 pt-2 border-t border-white/8">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-emerald-50/80">Portrait halftone tint</span>
+                  <span className="text-[11px] text-zinc-300">Portrait halftone tint</span>
                   <button
                     type="button"
                     onClick={() => onApplyPatch({ portraitTintHex: null }, 'studio')}
-                    className="text-[10.5px] font-mono text-[#6EE7B7] hover:underline cursor-pointer"
+                    className="text-[10.5px] font-mono text-[var(--ui-accent-soft)] hover:underline cursor-pointer"
                   >
                     {config.portraitTintHex ? 'Reset Auto' : 'Auto'}
                   </button>
                 </div>
                 <div className="flex items-center flex-wrap gap-2">
-                  {[null, '#FFFFFF', '#6EE7B7', '#D8B4FE', '#FCD34D', '#7DD3FC', '#FDA4AF'].map(
+                  {[null, '#FFFFFF', '#94A3B8', '#6EE7B7', '#D8B4FE', '#FCD34D', '#7DD3FC', '#FDA4AF'].map(
                     (tint) => {
                       const active = config.portraitTintHex === tint;
                       return (
@@ -785,7 +785,7 @@ export function UiCustomizerStudio({
                           className={`px-2.5 h-7 rounded-lg border text-[10.5px] font-mono cursor-pointer transition-colors ${
                             active
                               ? 'border-white bg-white/15 text-white'
-                              : 'border-white/12 bg-white/[0.03] text-emerald-100/75 hover:border-white/25'
+                              : 'border-white/12 bg-white/[0.03] text-zinc-300 hover:border-white/25'
                           }`}
                         >
                           {tint ? (
@@ -839,14 +839,14 @@ export function UiCustomizerStudio({
               </div>
 
               <div className="pt-2 border-t border-white/8 flex items-center justify-between">
-                <span className="text-xs text-emerald-100/55">Need the guided walkthrough?</span>
+                <span className="text-xs text-zinc-400">Need the guided walkthrough?</span>
                 <button
                   type="button"
                   onClick={() => {
                     onClose();
                     requestOnboardingReplay();
                   }}
-                  className="inline-flex items-center gap-1.5 text-xs text-[#6EE7B7] hover:text-white cursor-pointer"
+                  className="inline-flex items-center gap-1.5 text-xs text-[var(--ui-accent-soft)] hover:text-white cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Replay onboarding</span>
@@ -886,7 +886,7 @@ export function UiCustomizerStudio({
               disabled={!canUndo}
               onClick={onUndo}
               data-testid="ui-studio-undo"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] text-xs text-emerald-50/85 hover:text-white disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] text-xs text-zinc-200 hover:text-white disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
               <Undo2 className="w-3.5 h-3.5" />
               <span>Undo</span>
@@ -896,7 +896,7 @@ export function UiCustomizerStudio({
               type="button"
               onClick={() => onApplyPatch({ resetAll: true }, 'studio')}
               data-testid="ui-studio-reset"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:border-rose-400/50 hover:text-rose-200 text-xs text-emerald-100/75 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:border-rose-400/50 hover:text-rose-200 text-xs text-zinc-300 transition-colors cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Reset defaults</span>

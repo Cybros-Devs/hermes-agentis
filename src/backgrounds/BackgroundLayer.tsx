@@ -51,45 +51,45 @@ function getCachedBackdropBitmap(
 
     if (kind === 'aurora-drift') {
       drawRadialEllipse(ctx, w, h, 0.22, 0.26, 0.42, 0.42, [
-        [0, 'rgba(22, 114, 86, 0.58)'],
-        [0.66, 'rgba(22, 114, 86, 0)'],
+        [0, 'rgba(71, 85, 105, 0.44)'],
+        [0.66, 'rgba(71, 85, 105, 0)'],
       ]);
       drawRadialEllipse(ctx, w, h, 0.78, 0.76, 0.4, 0.42, [
-        [0, 'rgba(20, 88, 96, 0.52)'],
-        [0.66, 'rgba(20, 88, 96, 0)'],
+        [0, 'rgba(51, 65, 85, 0.38)'],
+        [0.66, 'rgba(51, 65, 85, 0)'],
       ]);
       drawRadialEllipse(ctx, w, h, 0.52, 0.52, 0.34, 0.34, [
-        [0, 'rgba(120, 76, 28, 0.34)'],
-        [0.64, 'rgba(120, 76, 28, 0)'],
+        [0, 'rgba(30, 41, 59, 0.36)'],
+        [0.64, 'rgba(30, 41, 59, 0)'],
       ]);
     } else if (kind === 'mesh-gradient') {
       drawRadialEllipse(ctx, w, h, 0.18, 0.22, 0.42, 0.46, [
-        [0, 'rgba(22, 98, 76, 0.56)'],
-        [0.62, 'rgba(22, 98, 76, 0)'],
+        [0, 'rgba(71, 85, 105, 0.46)'],
+        [0.62, 'rgba(71, 85, 105, 0)'],
       ]);
       drawRadialEllipse(ctx, w, h, 0.82, 0.24, 0.42, 0.46, [
-        [0, 'rgba(24, 68, 94, 0.50)'],
-        [0.62, 'rgba(24, 68, 94, 0)'],
+        [0, 'rgba(51, 65, 85, 0.42)'],
+        [0.62, 'rgba(51, 65, 85, 0)'],
       ]);
       drawRadialEllipse(ctx, w, h, 0.8, 0.8, 0.44, 0.48, [
-        [0, 'rgba(48, 84, 52, 0.46)'],
-        [0.64, 'rgba(48, 84, 52, 0)'],
+        [0, 'rgba(30, 41, 59, 0.44)'],
+        [0.64, 'rgba(30, 41, 59, 0)'],
       ]);
       drawRadialEllipse(ctx, w, h, 0.2, 0.8, 0.42, 0.46, [
-        [0, 'rgba(92, 60, 28, 0.38)'],
-        [0.62, 'rgba(92, 60, 28, 0)'],
+        [0, 'rgba(100, 116, 139, 0.28)'],
+        [0.62, 'rgba(100, 116, 139, 0)'],
       ]);
     } else if (kind === 'horizon-wave-a') {
       drawRadialEllipse(ctx, w, h, 0.5, 0.45, 0.62, 0.52, [
-        [0, 'rgba(24, 118, 88, 0.52)'],
-        [0.6, 'rgba(14, 64, 52, 0.24)'],
-        [0.9, 'rgba(14, 64, 52, 0)'],
+        [0, 'rgba(71, 85, 105, 0.46)'],
+        [0.6, 'rgba(30, 41, 59, 0.24)'],
+        [0.9, 'rgba(30, 41, 59, 0)'],
       ]);
     } else {
       drawRadialEllipse(ctx, w, h, 0.42, 0.48, 0.56, 0.48, [
-        [0, 'rgba(118, 78, 30, 0.34)'],
-        [0.55, 'rgba(16, 86, 72, 0.22)'],
-        [0.9, 'rgba(16, 86, 72, 0)'],
+        [0, 'rgba(100, 116, 139, 0.26)'],
+        [0.55, 'rgba(51, 65, 85, 0.20)'],
+        [0.9, 'rgba(51, 65, 85, 0)'],
       ]);
     }
 
@@ -255,10 +255,10 @@ export const BackgroundLayer = memo(function BackgroundLayer({
     };
 
     const drawBrailleRain = (dt: number) => {
-      ctx.fillStyle = '#071310';
+      ctx.fillStyle = '#0B0D12';
       ctx.fillRect(0, 0, width, height);
 
-      // Subtle mid-tone emerald ambient wash so no pure-black void dominates
+      // Subtle mid-tone slate ambient wash so no pure-black void dominates
       const grad = ctx.createRadialGradient(
         width * 0.5,
         height * 0.45,
@@ -267,8 +267,8 @@ export const BackgroundLayer = memo(function BackgroundLayer({
         height * 0.5,
         Math.max(width, height) * 0.72
       );
-      grad.addColorStop(0, 'rgba(18, 68, 55, 0.36)');
-      grad.addColorStop(1, 'rgba(7, 19, 16, 0.08)');
+      grad.addColorStop(0, 'rgba(51, 65, 85, 0.28)');
+      grad.addColorStop(1, 'rgba(11, 13, 18, 0.08)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, width, height);
 
@@ -289,7 +289,7 @@ export const BackgroundLayer = memo(function BackgroundLayer({
 
         // Soft glowing lead micro-halo behind foreground droplets
         if (isNear && col.y >= -stepY && col.y <= height + stepY) {
-          ctx.fillStyle = 'rgba(167, 243, 208, 0.20)';
+          ctx.fillStyle = 'rgba(203, 213, 225, 0.16)';
           ctx.beginPath();
           ctx.arc(col.x, col.y, 7.5, 0, Math.PI * 2);
           ctx.fill();
@@ -315,10 +315,10 @@ export const BackgroundLayer = memo(function BackgroundLayer({
 
           ctx.fillStyle =
             k === 0
-              ? `rgba(209, 250, 229, ${Math.min(0.54, baseAlpha + 0.11).toFixed(3)})`
+              ? `rgba(226, 232, 240, ${Math.min(0.54, baseAlpha + 0.11).toFixed(3)})`
               : isNear
-              ? `rgba(110, 231, 183, ${baseAlpha.toFixed(3)})`
-              : `rgba(52, 211, 153, ${baseAlpha.toFixed(3)})`;
+              ? `rgba(203, 213, 225, ${baseAlpha.toFixed(3)})`
+              : `rgba(148, 163, 184, ${baseAlpha.toFixed(3)})`;
           ctx.fillText(glyph, col.x, py);
         }
       }
@@ -343,10 +343,10 @@ export const BackgroundLayer = memo(function BackgroundLayer({
           const cloud = Math.max(0, Math.min(1, layerA * 0.58 + layerB * 0.42));
 
           const idx = (py * nw + px) * 4;
-          // Controlled mid-dark emerald/slate/indigo palette (avoids pure #000 and #fff)
-          data[idx] = Math.round(10 + cloud * 26);
-          data[idx + 1] = Math.round(22 + cloud * 68);
-          data[idx + 2] = Math.round(24 + cloud * 62 + layerB * 18);
+          // Controlled mid-dark charcoal/slate palette (avoids pure #000 and #fff)
+          data[idx] = Math.round(13 + cloud * 38);
+          data[idx + 1] = Math.round(16 + cloud * 44);
+          data[idx + 2] = Math.round(24 + cloud * 58 + layerB * 18);
           data[idx + 3] = 255;
         }
       }
@@ -357,7 +357,7 @@ export const BackgroundLayer = memo(function BackgroundLayer({
     };
 
     const drawConstellation = (dt: number) => {
-      ctx.fillStyle = '#071311';
+      ctx.fillStyle = '#0B0D12';
       ctx.fillRect(0, 0, width, height);
 
       const glow = ctx.createRadialGradient(
@@ -368,8 +368,8 @@ export const BackgroundLayer = memo(function BackgroundLayer({
         height * 0.5,
         Math.max(width, height) * 0.75
       );
-      glow.addColorStop(0, 'rgba(18, 72, 58, 0.32)');
-      glow.addColorStop(1, 'rgba(10, 26, 32, 0.14)');
+      glow.addColorStop(0, 'rgba(51, 65, 85, 0.26)');
+      glow.addColorStop(1, 'rgba(15, 23, 42, 0.12)');
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, width, height);
 
@@ -394,7 +394,7 @@ export const BackgroundLayer = memo(function BackgroundLayer({
           const d2 = dx * dx + dy * dy;
           if (d2 < linkDistSq) {
             const strength = 1 - d2 / linkDistSq;
-            ctx.strokeStyle = `rgba(110, 231, 183, ${(strength * 0.11).toFixed(3)})`;
+            ctx.strokeStyle = `rgba(148, 163, 184, ${(strength * 0.11).toFixed(3)})`;
             ctx.beginPath();
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(b.x, b.y);
@@ -405,7 +405,7 @@ export const BackgroundLayer = memo(function BackgroundLayer({
 
       for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i];
-        ctx.fillStyle = `rgba(167, 243, 208, ${n.alpha.toFixed(2)})`;
+        ctx.fillStyle = `rgba(226, 232, 240, ${n.alpha.toFixed(2)})`;
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -499,7 +499,7 @@ export const BackgroundLayer = memo(function BackgroundLayer({
       aria-hidden="true"
       data-testid="glass-background-layer"
       data-preset={customSlot ? `custom:${customSlot.id}` : activeId}
-      className="fixed inset-0 -z-10 pointer-events-none overflow-hidden bg-[#050c0a]"
+      className="fixed inset-0 -z-10 pointer-events-none overflow-hidden bg-[#0B0D12]"
     >
       <div className="absolute inset-0">
         {customSlot ? (

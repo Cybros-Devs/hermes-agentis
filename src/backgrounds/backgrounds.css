@@ -1,7 +1,7 @@
 /* Additive Glass Background System styles — isolated from existing stylesheets */
 
 html {
-  background-color: #050c0a;
+  background-color: #0b0d12;
 }
 
 body,
@@ -10,11 +10,11 @@ body,
   background-image: none !important;
 }
 
-/* Smoked-emerald translucent surface without expensive per-frame backdrop readbacks */
+/* Charcoal-slate translucent surface without expensive per-frame backdrop readbacks */
 .emerald-ambient-bg aside[data-testid="sidebar-workspace"] {
   background-color: rgba(
-    var(--ui-surface-rgb, 10, 22, 19),
-    clamp(0.8, calc(var(--glass-panel-alpha, 0.76) + 0.08), 0.94)
+    var(--ui-surface-rgb, 17, 20, 27),
+    clamp(0.8, calc(var(--glass-panel-alpha, 0.80) + 0.08), 0.94)
   );
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -24,14 +24,14 @@ body,
 .emerald-ambient-bg aside.ui-drawer-shell,
 .emerald-ambient-bg section.ui-drawer-shell,
 .emerald-ambient-bg aside[data-testid="backgrounds-picker"] {
-  background-color: rgba(var(--ui-surface-rgb, 10, 22, 19), 0.96);
+  background-color: rgba(var(--ui-surface-rgb, 17, 20, 27), 0.96);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   contain: layout paint;
 }
 
 .emerald-ambient-bg [data-testid="ascii-stage"] {
-  background-color: rgba(var(--ui-surface-rgb, 10, 22, 19), var(--glass-panel-alpha, 0.76));
+  background-color: rgba(var(--ui-surface-rgb, 17, 20, 27), var(--glass-panel-alpha, 0.80));
   contain: layout paint;
 }
 
@@ -43,7 +43,7 @@ body,
 .glass-bg-aurora {
   position: absolute;
   inset: 0;
-  background-color: #071310;
+  background-color: #0b0d12;
   overflow: hidden;
 }
 
@@ -67,7 +67,7 @@ body,
 .glass-bg-mesh {
   position: absolute;
   inset: 0;
-  background-color: #07120f;
+  background-color: #0b0d12;
   overflow: hidden;
 }
 
@@ -91,11 +91,11 @@ body,
 .glass-bg-scanline {
   position: absolute;
   inset: 0;
-  background-color: #07120f;
+  background-color: #0b0d12;
   background-image: repeating-linear-gradient(
     0deg,
-    rgba(167, 243, 208, 0.024) 0px,
-    rgba(167, 243, 208, 0.024) 1px,
+    rgba(203, 213, 225, 0.024) 0px,
+    rgba(203, 213, 225, 0.024) 1px,
     transparent 1px,
     transparent 4px
   );
@@ -111,9 +111,9 @@ body,
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(52, 211, 153, 0.08) 45%,
-    rgba(110, 231, 183, 0.14) 50%,
-    rgba(52, 211, 153, 0.08) 55%,
+    rgba(148, 163, 184, 0.08) 45%,
+    rgba(203, 213, 225, 0.14) 50%,
+    rgba(148, 163, 184, 0.08) 55%,
     transparent 100%
   );
   animation: glassScanSweep 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -128,11 +128,11 @@ body,
   }
 }
 
-/* Preset 7: Horizon Tide (bitmap-backed bioluminescent deep-emerald wave swell) */
+/* Preset 7: Horizon Tide (bitmap-backed charcoal-slate wave swell) */
 .glass-bg-horizon {
   position: absolute;
   inset: 0;
-  background: #07120f;
+  background: #0b0d12;
   overflow: hidden;
 }
 

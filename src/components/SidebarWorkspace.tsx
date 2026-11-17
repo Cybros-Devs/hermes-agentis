@@ -238,21 +238,21 @@ export function SidebarWorkspace({
 
   const cardSurfaceClass =
     charState.mode === 'speaking' || charState.mode === 'listening'
-      ? 'border-[#34D399]/40 bg-[#34D399]/[0.055]'
+      ? 'border-[rgba(var(--ui-accent-rgb),0.40)] bg-[rgba(var(--ui-accent-rgb),0.06)]'
       : charState.mode === 'working'
       ? 'border-amber-400/35 bg-amber-500/[0.05]'
       : charState.mode === 'attention'
       ? 'border-amber-300/40 bg-amber-400/[0.05]'
       : charState.mode === 'offline'
       ? 'border-rose-400/30 bg-rose-500/[0.035]'
-      : 'border-white/10 bg-white/[0.03] hover:border-[#34D399]/30';
+      : 'border-white/10 bg-white/[0.03] hover:border-[rgba(var(--ui-accent-rgb),0.32)]';
 
   const statusToneClass =
     charState.tone === 'amber'
       ? 'text-amber-300'
       : charState.tone === 'rose'
       ? 'text-rose-300/90'
-      : 'text-[#6EE7B7]';
+      : 'text-[var(--ui-accent-soft)]';
 
   const avatarHaloClass =
     charState.mode === 'speaking' || charState.mode === 'listening' || charState.mode === 'working'
@@ -285,7 +285,7 @@ export function SidebarWorkspace({
               type="button"
               onClick={onCloseMobile}
               aria-label="Back to workspace"
-              className="lg:hidden min-w-[36px] min-h-[36px] flex items-center justify-center -ml-1 rounded-lg text-emerald-100/75 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
+              className="lg:hidden min-w-[36px] min-h-[36px] flex items-center justify-center -ml-1 rounded-lg text-zinc-300 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -301,7 +301,7 @@ export function SidebarWorkspace({
         <button
           type="button"
           onClick={onNewTask}
-          className="ui-tactile flex items-center gap-1 text-xs font-medium text-emerald-50/80 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/[0.06] shrink-0"
+          className="ui-tactile flex items-center gap-1 text-xs font-medium text-zinc-200 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/[0.06] shrink-0"
         >
           <Plus className="w-3.5 h-3.5" />
           <span>New</span>
@@ -365,14 +365,14 @@ export function SidebarWorkspace({
                 </span>
               </div>
 
-              <p className="text-[11px] text-emerald-100/72 truncate mt-0.5">
+              <p className="text-[11px] text-zinc-300 truncate mt-0.5">
                 {charState.gatewayLine}
               </p>
 
               <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
                 {isSpeaking || isListening ? (
                   <>
-                    <span className="font-mono text-[10px] text-[#6EE7B7]/90 truncate">
+                    <span className="font-mono text-[10px] text-[var(--ui-accent-soft)] truncate">
                       {isListening ? 'mic active' : 'voice live'}
                       {charState.runningTaskCount > 0 ? ` · ${charState.runningTaskCount} active` : ''}
                     </span>
@@ -380,7 +380,7 @@ export function SidebarWorkspace({
                       {frequencyBands.slice(0, 6).map((band, idx) => (
                         <span
                           key={idx}
-                          className="w-0.5 h-full origin-bottom rounded-[1px] bg-[#4ADE80] transition-transform duration-75"
+                          className="w-0.5 h-full origin-bottom rounded-[1px] bg-[var(--ui-accent-bright)] transition-transform duration-75"
                           style={{ transform: `scaleY(${Math.max(0.24, Math.min(1, band))})` }}
                         />
                       ))}
@@ -396,7 +396,7 @@ export function SidebarWorkspace({
                       : ''}
                   </span>
                 ) : (
-                  <span className="font-mono text-[10px] text-emerald-100/62 truncate">
+                  <span className="font-mono text-[10px] text-zinc-400 truncate">
                     {`mood · ${charState.mood}`}
                   </span>
                 )}
@@ -465,7 +465,7 @@ export function SidebarWorkspace({
                 onClick={() => onSelectApproval(card)}
                 className={`ui-stagger-enter ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
                   active
-                    ? 'bg-white/[0.08] border-[#34D399]/35'
+                    ? 'bg-white/[0.08] border-[rgba(var(--ui-accent-rgb),0.36)]'
                     : 'border-transparent hover:bg-white/[0.04]'
                 }`}
               >
@@ -490,14 +490,14 @@ export function SidebarWorkspace({
                 onClick={() => onSelectBrief(item)}
                 className={`ui-stagger-enter ui-tactile w-full text-left flex items-start gap-2.5 px-2.5 py-2 rounded-xl border transition-colors duration-150 cursor-pointer ${
                   active
-                    ? 'bg-white/[0.08] border-[#34D399]/35'
+                    ? 'bg-white/[0.08] border-[rgba(var(--ui-accent-rgb),0.36)]'
                     : 'border-transparent hover:bg-white/[0.04]'
                 }`}
               >
                 <StatusPulse state="idle" className="mt-1.5" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12.5px] text-emerald-50/85 truncate">{item.title}</div>
-                  <div className="text-[10.5px] font-mono text-emerald-100/45 truncate mt-0.5">Brief</div>
+                  <div className="text-[12.5px] text-zinc-200 truncate">{item.title}</div>
+                  <div className="text-[10.5px] font-mono text-zinc-400 truncate mt-0.5">Brief</div>
                 </div>
               </button>
             );
@@ -535,14 +535,14 @@ export function SidebarWorkspace({
                       }}
                       className={`pb-1.5 text-[11px] font-medium transition-colors cursor-pointer inline-flex items-baseline gap-1 border-b-2 -mb-px ${
                         selected
-                          ? 'text-white border-[#34D399]'
-                          : 'text-emerald-100/45 border-transparent hover:text-emerald-100/80'
+                          ? 'text-white border-[var(--ui-accent)]'
+                          : 'text-zinc-400 border-transparent hover:text-zinc-200'
                       }`}
                     >
                       <span>{tab.label}</span>
                       <span
                         className={`font-mono text-[10px] tabular-nums ${
-                          selected ? 'text-[#6EE7B7]' : 'text-emerald-100/35'
+                          selected ? 'text-[var(--ui-accent-soft)]' : 'text-zinc-500'
                         }`}
                       >
                         {tab.count}
@@ -553,7 +553,7 @@ export function SidebarWorkspace({
               </div>
             </div>
           ) : (
-            <div className="px-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/45 tabular-nums">
+            <div className="px-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-400 tabular-nums">
               <span>Sessions</span>
               <span>{workspaceCount}</span>
             </div>
@@ -563,7 +563,7 @@ export function SidebarWorkspace({
             <div className="relative">
               <Search
                 aria-hidden="true"
-                className="w-3.5 h-3.5 text-emerald-100/35 pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
+                className="w-3.5 h-3.5 text-zinc-500 pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
               />
               <input
                 type="text"
@@ -577,14 +577,14 @@ export function SidebarWorkspace({
                 }
                 aria-label="Filter sessions"
                 data-testid="sidebar-session-search"
-                className="w-full rounded-lg bg-white/[0.03] border border-white/[0.08] focus:border-[#34D399]/45 focus:outline-none pl-8 pr-7 py-1.5 text-[11.5px] text-white/90 placeholder:text-emerald-100/45 transition-colors"
+                className="w-full rounded-lg bg-white/[0.03] border border-white/[0.08] focus:border-[var(--ui-accent)] focus:outline-none pl-8 pr-7 py-1.5 text-[11.5px] text-white/90 placeholder:text-zinc-500 transition-colors"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
                   aria-label="Clear session filter"
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-emerald-100/45 hover:text-white transition-colors cursor-pointer"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-zinc-400 hover:text-white transition-colors cursor-pointer"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -597,13 +597,13 @@ export function SidebarWorkspace({
       {/* Scannable Session List */}
       <div className="flex-1 overflow-y-auto cyber-scroll px-3 py-1.5 space-y-1">
         {!queueVisible ? (
-          <div className="px-2.5 py-6 text-center text-[11px] text-emerald-100/40">
+          <div className="px-2.5 py-6 text-center text-[11px] text-zinc-500">
             Queue hidden in UI layout
           </div>
         ) : effectiveScopeTab === 'workspace' && workspaceCount === 0 && pendingApprovals.length === 0 && openBrief.length === 0 ? (
           <div className="px-2.5 py-5 text-left space-y-1.5">
-            <p className="text-[12px] font-medium text-emerald-100/65">No sessions created yet</p>
-            <p className="text-[11px] text-emerald-100/40 leading-relaxed">
+            <p className="text-[12px] font-medium text-zinc-300">No sessions created yet</p>
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
               {externalCount > 0
                 ? 'Start a fresh prompt on Home, or inspect external CLI & API runs in Gateway.'
                 : 'Start a prompt on Home or add a Dot on Canvas to begin.'}
@@ -612,7 +612,7 @@ export function SidebarWorkspace({
               <button
                 type="button"
                 onClick={() => setScopeTab('external')}
-                className="text-[11px] font-mono text-[#6EE7B7] hover:text-white underline underline-offset-4 cursor-pointer"
+                className="text-[11px] font-mono text-[var(--ui-accent-soft)] hover:text-white underline underline-offset-4 cursor-pointer"
               >
                 Browse {externalCount} gateway {externalCount === 1 ? 'session' : 'sessions'}
               </button>
@@ -620,7 +620,7 @@ export function SidebarWorkspace({
           </div>
         ) : visibleSessions.length === 0 ? (
           <div className="px-2.5 py-5 text-left space-y-2">
-            <p className="text-[12px] font-medium text-emerald-100/60">
+            <p className="text-[12px] font-medium text-zinc-300">
               {searchQuery.trim()
                 ? 'No matching sessions'
                 : 'No external gateway sessions'}
@@ -629,7 +629,7 @@ export function SidebarWorkspace({
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="text-[11px] font-mono text-emerald-100/60 hover:text-white underline underline-offset-4 cursor-pointer"
+                className="text-[11px] font-mono text-zinc-400 hover:text-white underline underline-offset-4 cursor-pointer"
               >
                 Clear filter
               </button>
@@ -638,7 +638,7 @@ export function SidebarWorkspace({
         ) : (
           <>
             {effectiveScopeTab === 'external' && (
-              <div className="px-2 pb-1 text-[10.5px] text-emerald-100/40">
+              <div className="px-2 pb-1 text-[10.5px] text-zinc-400">
                 External CLI &amp; API history · click to read or pin to Canvas
               </div>
             )}
@@ -652,7 +652,7 @@ export function SidebarWorkspace({
                 <div
                   className={`group/row flex items-center gap-1 rounded-xl border transition-colors duration-150 ${
                     active
-                      ? 'bg-[#34D399]/[0.09] border-[#34D399]/35'
+                      ? 'bg-[rgba(var(--ui-accent-rgb),0.11)] border-[rgba(var(--ui-accent-rgb),0.36)]'
                       : 'border-transparent hover:bg-white/[0.04]'
                   }`}
                 >
@@ -682,8 +682,8 @@ export function SidebarWorkspace({
                             active
                               ? 'text-white'
                               : entry.isOpaqueId
-                              ? 'text-emerald-50/75'
-                              : 'text-emerald-50/90'
+                              ? 'text-zinc-300'
+                              : 'text-zinc-100'
                           }`}
                         >
                           {entry.displayTitle}
@@ -694,8 +694,8 @@ export function SidebarWorkspace({
                               entry.hasActiveWork
                                 ? 'text-amber-300/90 font-medium'
                                 : active
-                                ? 'text-[#6EE7B7]/90'
-                                : 'text-emerald-100/52'
+                                ? 'text-[var(--ui-accent-soft)]'
+                                : 'text-zinc-400'
                             }`}
                           >
                             {entry.hasActiveWork
@@ -711,8 +711,8 @@ export function SidebarWorkspace({
                           entry.hasActiveWork
                             ? 'text-amber-200/75'
                             : active
-                            ? 'text-emerald-100/68'
-                            : 'text-emerald-100/52'
+                            ? 'text-zinc-300'
+                            : 'text-zinc-400'
                         }`}
                       >
                         {entry.metadataLine}
@@ -727,7 +727,7 @@ export function SidebarWorkspace({
                       onClick={() => onPinToCanvas(session)}
                       aria-label={`Pin ${entry.displayTitle} to Canvas`}
                       title="Pin to Canvas"
-                      className="mr-1.5 p-1.5 rounded-lg text-emerald-100/45 hover:text-[#6EE7B7] hover:bg-white/[0.08] opacity-70 sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100 transition-opacity cursor-pointer shrink-0"
+                      className="mr-1.5 p-1.5 rounded-lg text-zinc-400 hover:text-[var(--ui-accent-soft)] hover:bg-white/[0.08] opacity-70 sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100 transition-opacity cursor-pointer shrink-0"
                     >
                       <Pin className="w-3.5 h-3.5" />
                     </button>

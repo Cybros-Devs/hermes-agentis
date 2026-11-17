@@ -117,7 +117,7 @@ test('resolvePortraitTonePalette and resolveShapeTonePalette shift tones dynamic
 
   assert.notEqual(idle.hexes[0], thinking.hexes[0]);
   assert.equal(thinking.hexes[0], '#B48448');
-  assert.equal(speaking.hexes[0], '#6EE7B7');
+  assert.equal(speaking.hexes[0], '#BAE6FD');
   assert.ok(speaking.alphas[0] > idle.alphas[0]);
 
   const shapeIdle = resolveShapeTonePalette({

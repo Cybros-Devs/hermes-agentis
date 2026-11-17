@@ -17,21 +17,21 @@ interface StatusPulseProps {
 
 const DOT_COLOR_MAP: Record<StatusPulseState, string> = {
   idle: 'bg-zinc-400/75',
-  live: 'bg-[#4ADE80]',
-  speaking: 'bg-[#4ADE80]',
-  listening: 'bg-[#34D399]',
+  live: 'bg-slate-200',
+  speaking: 'bg-sky-200',
+  listening: 'bg-sky-300',
   thinking: 'bg-amber-400',
   waiting: 'bg-amber-300/85',
-  done: 'bg-[#34D399]/85',
+  done: 'bg-zinc-400/90',
   error: 'bg-rose-400',
   muted: 'bg-rose-400/80',
 };
 
 const RING_COLOR_MAP: Record<StatusPulseState, string> = {
   idle: '',
-  live: 'bg-[#4ADE80]/55',
-  speaking: 'bg-[#4ADE80]/55',
-  listening: 'bg-[#34D399]/55',
+  live: 'bg-slate-200/45',
+  speaking: 'bg-sky-200/50',
+  listening: 'bg-sky-300/50',
   thinking: 'bg-amber-400/55',
   waiting: '',
   done: '',

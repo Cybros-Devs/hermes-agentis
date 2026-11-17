@@ -116,9 +116,9 @@ export function BrailleHorizonCanvas({
     const startTime = performance.now();
     let lastDraw = startTime;
     let elapsedPhase = 0;
-    let cachedAccent = '#6EE7B7';
-    let cachedAccentHigh = '#A7F3D0';
-    let cachedLow = '#94B8AE';
+    let cachedAccent = '#CBD5E1';
+    let cachedAccentHigh = '#E2E8F0';
+    let cachedLow = '#94A3B8';
     let themeFrameCounter = 0;
     const animator = createHorizonAnimator();
     let rafId = 0;
@@ -140,7 +140,7 @@ export function BrailleHorizonCanvas({
       { xy: b1XY, len: 0, hex: cachedLow, alpha: 0.36, diameterScale: 0.82 },
       { xy: b2XY, len: 0, hex: cachedAccent, alpha: 0.50, diameterScale: 0.94 },
       { xy: b3XY, len: 0, hex: cachedAccentHigh, alpha: 0.68, diameterScale: 1.04 },
-      { xy: b4XY, len: 0, hex: '#F3FAF7', alpha: 0.84, diameterScale: 1.12 },
+      { xy: b4XY, len: 0, hex: '#F1F5F9', alpha: 0.84, diameterScale: 1.12 },
     ];
 
     const drawFrame = (now: number) => {
@@ -156,14 +156,14 @@ export function BrailleHorizonCanvas({
 
       if (themeFrameCounter % 36 === 0 && typeof document !== 'undefined') {
         const styles = getComputedStyle(document.documentElement);
-        const uiAccent = styles.getPropertyValue('--ui-accent').trim() || '#34D399';
-        const uiSoft = styles.getPropertyValue('--ui-accent-soft').trim() || '#6EE7B7';
+        const uiAccent = styles.getPropertyValue('--ui-accent').trim() || '#94A3B8';
+        const uiSoft = styles.getPropertyValue('--ui-accent-soft').trim() || '#CBD5E1';
         if (uiSoft.startsWith('#') && uiSoft.length === 7) {
           cachedAccent = uiSoft;
           cachedAccentHigh = mixHexColors(uiSoft, '#FFFFFF', 0.42);
         }
         if (uiAccent.startsWith('#') && uiAccent.length === 7) {
-          cachedLow = mixHexColors('#6E8580', uiAccent, 0.35);
+          cachedLow = mixHexColors('#64748B', uiAccent, 0.35);
         }
       }
       themeFrameCounter++;
@@ -304,7 +304,7 @@ export function BrailleHorizonCanvas({
       buckets[3].alpha = s.isActive ? 0.74 : 0.62;
 
       buckets[4].len = len4;
-      buckets[4].hex = s.isActive ? '#FFFFFF' : '#E6F0EC';
+      buckets[4].hex = s.isActive ? '#FFFFFF' : '#E2E8F0';
       buckets[4].alpha = s.isActive ? 0.88 : 0.76;
 
       rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {

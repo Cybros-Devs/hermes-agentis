@@ -78,11 +78,11 @@ export function CommandTerminal({
     >
       {/* Clean Single-Row Terminal Header & Unboxed Quick-Command Strip */}
       <div className="px-4 py-2.5 border-b border-white/[0.07] bg-black/25 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
-        <div className="flex items-center gap-2 font-mono text-xs text-emerald-50/85 min-w-0 sm:max-w-[235px] shrink-0">
-          <Terminal className="w-3.5 h-3.5 text-[#34D399] shrink-0" />
+        <div className="flex items-center gap-2 font-mono text-xs text-zinc-200 min-w-0 sm:max-w-[235px] shrink-0">
+          <Terminal className="w-3.5 h-3.5 text-[var(--ui-accent)] shrink-0" />
           <span className="font-semibold text-white shrink-0">hermes-agent</span>
-          <span className="text-emerald-100/35 shrink-0">·</span>
-          <span title={sessionLabel} className="text-emerald-100/70 truncate">
+          <span className="text-zinc-600 shrink-0">·</span>
+          <span title={sessionLabel} className="text-zinc-400 truncate">
             {sessionLabel}
           </span>
         </div>
@@ -94,7 +94,7 @@ export function CommandTerminal({
               type="button"
               title={summary}
               onClick={() => onSubmitInput(cmd)}
-              className="ui-tactile px-1.5 py-1 rounded-md font-mono text-[10.5px] text-emerald-100/65 hover:text-[#6EE7B7] hover:bg-white/[0.05] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="ui-tactile px-1.5 py-1 rounded-md font-mono text-[10.5px] text-zinc-400 hover:text-[var(--ui-accent-soft)] hover:bg-white/[0.05] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {cmd}
             </button>
@@ -122,7 +122,7 @@ export function CommandTerminal({
               <div className="text-xs font-semibold text-white">
                 {readyHeading}
               </div>
-              <p className="text-[11.5px] text-emerald-100/50">
+              <p className="text-[11.5px] text-zinc-400">
                 Select a diagnostic command below or enter a prompt in the composer.
               </p>
             </div>
@@ -134,10 +134,10 @@ export function CommandTerminal({
                   onClick={() => onSubmitInput(cmd)}
                   className="ui-tactile w-full text-left py-2 px-1 flex items-center justify-between gap-4 hover:bg-white/[0.03] transition-colors cursor-pointer group"
                 >
-                  <span className="text-[#6EE7B7] font-semibold shrink-0 group-hover:translate-x-0.5 transition-transform">
+                  <span className="text-[var(--ui-accent-soft)] font-semibold shrink-0 group-hover:translate-x-0.5 transition-transform">
                     {cmd}
                   </span>
-                  <span className="text-[11px] text-emerald-100/55 truncate">{summary}</span>
+                  <span className="text-[11px] text-zinc-400 truncate">{summary}</span>
                 </button>
               ))}
             </div>
@@ -149,13 +149,13 @@ export function CommandTerminal({
 
             return (
               <div key={entry.id} className="ui-msg-enter space-y-1">
-                <div className="flex items-center gap-2 text-[11px] text-emerald-100/60">
+                <div className="flex items-center gap-2 text-[11px] text-zinc-400">
                   <span
                     className={
                       isUser
-                        ? 'text-[#6EE7B7] font-semibold'
+                        ? 'text-[var(--ui-accent-soft)] font-semibold'
                         : isSystem
-                        ? 'text-emerald-200/75 font-semibold'
+                        ? 'text-zinc-300 font-semibold'
                         : 'text-white font-semibold'
                     }
                   >
@@ -169,10 +169,10 @@ export function CommandTerminal({
                 <pre
                   className={`whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed ${
                     isUser
-                      ? 'text-white rounded-lg bg-[#34D399]/[0.07] border border-[#34D399]/20 px-3 py-2'
+                      ? 'text-white rounded-lg bg-white/[0.06] border border-white/[0.12] px-3 py-2'
                       : isSystem
-                      ? 'text-emerald-50/85 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2'
-                      : 'text-emerald-50/92 pl-0.5'
+                      ? 'text-zinc-200 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2'
+                      : 'text-zinc-100 pl-0.5'
                   }`}
                 >
                   {isUser ? (
@@ -191,7 +191,7 @@ export function CommandTerminal({
         )}
 
         {isThinking && (
-          <div className="ui-msg-enter flex items-center gap-2 text-xs text-[#6EE7B7]">
+          <div className="ui-msg-enter flex items-center gap-2 text-xs text-[var(--ui-accent-soft)]">
             <StatusPulse state="thinking" size="sm" />
             <span>HERMES</span>
             <span aria-hidden="true">·</span>
@@ -201,7 +201,7 @@ export function CommandTerminal({
       </div>
 
       {/* Compact Terminal Footer */}
-      <div className="px-4 py-2 border-t border-white/[0.07] bg-black/25 flex items-center justify-between gap-3 font-mono text-[10.5px] text-emerald-100/45 tabular-nums shrink-0">
+      <div className="px-4 py-2 border-t border-white/[0.07] bg-black/25 flex items-center justify-between gap-3 font-mono text-[10.5px] text-zinc-500 tabular-nums shrink-0">
         <span className="truncate">Tab autocomplete · ↑↓ command history</span>
         <span className="shrink-0">
           {activeChannel ? `#${activeChannel}` : 'global'} · {scopedEntries.length}{' '}

@@ -94,7 +94,7 @@ function ReceiptBanner({
               key={cat}
               className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10.5px] text-zinc-200"
             >
-              <Check className="w-2.5 h-2.5 text-emerald-400" />
+              <Check className="w-2.5 h-2.5 text-[var(--ui-accent-soft)]" />
               <span>{cat}</span>
             </span>
           ))}
@@ -264,7 +264,7 @@ export function UpdateCenterPanel({
                   className={`mt-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center shrink-0 ${
                     step.status === 'failed'
                       ? 'bg-rose-500/20 text-rose-300'
-                      : 'bg-emerald-400/15 text-emerald-300'
+                      : 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)]'
                   }`}
                 >
                   <Check className="w-2.5 h-2.5" />
@@ -308,7 +308,7 @@ export function UpdateCenterPanel({
       <div className="rounded-xl border border-white/10 bg-[#14171F] p-3.5 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
+            <ShieldCheck className="w-4 h-4 text-[var(--ui-accent-soft)] shrink-0" />
             <div className="min-w-0">
               <div className="text-xs font-semibold text-white">Protected Settings Vault</div>
               <div className="text-[10.5px] font-mono text-zinc-400 truncate">
@@ -316,7 +316,7 @@ export function UpdateCenterPanel({
               </div>
             </div>
           </div>
-          <span className="text-[10.5px] font-mono text-emerald-300 shrink-0">Auto-preserved</span>
+          <span className="text-[10.5px] font-mono text-[var(--ui-accent-soft)] shrink-0">Auto-preserved</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
@@ -327,7 +327,7 @@ export function UpdateCenterPanel({
             >
               <Check
                 className={`w-3 h-3 mt-0.5 shrink-0 ${
-                  item.customized ? 'text-emerald-400' : 'text-zinc-500'
+                  item.customized ? 'text-[var(--ui-accent-soft)]' : 'text-zinc-500'
                 }`}
               />
               <div className="min-w-0">

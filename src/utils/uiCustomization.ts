@@ -4,6 +4,7 @@ import type { BrailleDotProfile } from './brailleCanvasRaster';
 import type { BrailleHorizonStyle } from './brailleFieldEngine';
 
 export type UiAccentPreset =
+  | 'slate'
   | 'emerald'
   | 'cyan'
   | 'violet'
@@ -89,6 +90,14 @@ export interface AccentSwatchDefinition {
 
 export const ACCENT_SWATCHES: readonly AccentSwatchDefinition[] = [
   {
+    id: 'slate',
+    label: 'Slate',
+    accentHex: '#94A3B8',
+    accentSoftHex: '#CBD5E1',
+    accentBrightHex: '#E2E8F0',
+    surfaceHex: '#11141B',
+  },
+  {
     id: 'emerald',
     label: 'Emerald',
     accentHex: '#34D399',
@@ -158,6 +167,49 @@ export interface CuratedUiPreset {
 }
 
 export const CURATED_UI_PRESETS: readonly CuratedUiPreset[] = [
+  {
+    id: 'slate-terminal',
+    name: 'Slate Monochrome',
+    subtitle: 'Modern graphite glass & neutral telemetry',
+    backgroundPresetId: 'aurora-drift',
+    backgroundOpacity: 0.58,
+    glassBlurPx: 14,
+    mood: 'focused',
+    config: {
+      accentPreset: 'slate',
+      accentHex: '#94A3B8',
+      accentSoftHex: '#CBD5E1',
+      accentBrightHex: '#E2E8F0',
+      surfaceHex: '#11141B',
+      textHex: '#F1F5F9',
+      panelAlpha: 0.80,
+      borderOpacity: 0.22,
+      glowIntensity: 0.30,
+      cornerRadius: 'rounded',
+      density: 'comfortable',
+      fontPreset: 'jakarta',
+      fontScale: 1.0,
+      sidebarVisible: true,
+      sidebarPosition: 'left',
+      sidebarWidthPx: 296,
+      sidebarQueueVisible: true,
+      sidebarChannelsVisible: true,
+      showTopNav: true,
+      composerStyle: 'docked',
+      workspaceTitle: 'Hermes',
+      portraitVisible: true,
+      portraitScale: 1.0,
+      portraitTintHex: null,
+      brailleDotProfile: 'balanced',
+      brailleBloom: 0.75,
+      horizonVisible: true,
+      horizonOpacity: 0.8,
+      horizonStyle: 'silk',
+      statusReadoutVisible: true,
+      animationSpeed: 1.0,
+      reducedMotion: false,
+    },
+  },
   {
     id: 'emerald-terminal',
     name: 'Emerald Terminal',
@@ -353,15 +405,15 @@ export const CURATED_UI_PRESETS: readonly CuratedUiPreset[] = [
 ];
 
 export const DEFAULT_UI_CONFIG: UiCustomizationConfig = {
-  accentPreset: 'emerald',
-  accentHex: '#34D399',
-  accentSoftHex: '#6EE7B7',
-  accentBrightHex: '#4ADE80',
-  surfaceHex: '#0A1613',
-  textHex: '#ECF3F0',
-  panelAlpha: 0.76,
-  borderOpacity: 0.42,
-  glowIntensity: 1.0,
+  accentPreset: 'slate',
+  accentHex: '#94A3B8',
+  accentSoftHex: '#CBD5E1',
+  accentBrightHex: '#E2E8F0',
+  surfaceHex: '#11141B',
+  textHex: '#F1F5F9',
+  panelAlpha: 0.80,
+  borderOpacity: 0.22,
+  glowIntensity: 0.30,
   cornerRadius: 'rounded',
   density: 'comfortable',
   fontPreset: 'jakarta',
@@ -415,7 +467,7 @@ export function normalizeHex(input: unknown): string | null {
 }
 
 export function hexToRgbTuple(hex: string): [number, number, number] {
-  const norm = normalizeHex(hex) ?? '#34D399';
+  const norm = normalizeHex(hex) ?? '#94A3B8';
   const r = parseInt(norm.slice(1, 3), 16);
   const g = parseInt(norm.slice(3, 5), 16);
   const b = parseInt(norm.slice(5, 7), 16);
@@ -441,6 +493,7 @@ export function getCuratedPreset(id: string): CuratedUiPreset | undefined {
 }
 
 const VALID_ACCENT_PRESETS = new Set<UiAccentPreset>([
+  'slate',
   'emerald',
   'cyan',
   'violet',
@@ -523,7 +576,7 @@ export function sanitizeUiPatch(raw: unknown): UiCustomizationPatch {
       out.accentBrightHex = blendHex(accentHex, '#FFFFFF', 0.22);
     }
     if (!normalizeHex(src.surfaceHex) && out.accentPreset === 'custom') {
-      out.surfaceHex = blendHex('#070B0A', accentHex, 0.08);
+      out.surfaceHex = blendHex('#0B0D12', accentHex, 0.08);
     }
   }
 
@@ -647,7 +700,7 @@ export function applyUiPatch(
         glassBlurPx: defBg.glassBlurPx,
       },
       changedKeys: ['resetAll'],
-      summary: 'Restored default Emerald Terminal UI & backdrop',
+      summary: 'Restored default Slate Monochrome UI & backdrop',
     };
   }
 
@@ -710,7 +763,7 @@ export function parseNaturalUiIntent(
       lower
     );
   const hasUiNoun =
-    /\b(ui|interface|theme|preset|color|colour|accent|palette|violet|purple|amber|gold|cyan|blue|rose|pink|crimson|red|emerald|green|mono|monochrome|stealth|zen|sakura|solaris|glacier|sidebar|panel|nav|tabs|header|title|brand|portrait|character|avatar|horizon|wave|footer|composer|input|font|monospace|jakarta|text|corner|corners|sharp|pill|rounded|blur|opacity|glow|border|compact|airy|comfortable|motion|animation|speed|background|backdrop|aurora|braille|dots|bloom|phosphor|peaks|silk|pulse|rain|matrix|scanline|nebula|constellation|mesh|canvas|queue|cli|thread|studio|customizer)\b/i.test(
+    /\b(ui|interface|theme|preset|color|colour|accent|palette|slate|grey|gray|violet|purple|amber|gold|cyan|blue|rose|pink|crimson|red|emerald|green|mono|monochrome|stealth|zen|sakura|solaris|glacier|sidebar|panel|nav|tabs|header|title|brand|portrait|character|avatar|horizon|wave|footer|composer|input|font|monospace|jakarta|text|corner|corners|sharp|pill|rounded|blur|opacity|glow|border|compact|airy|comfortable|motion|animation|speed|background|backdrop|aurora|braille|dots|bloom|phosphor|peaks|silk|pulse|rain|matrix|scanline|nebula|constellation|mesh|canvas|queue|cli|thread|studio|customizer)\b/i.test(
       lower
     );
   const isDirectPresetOrHex =
@@ -756,6 +809,9 @@ export function parseNaturalUiIntent(
   } else if (/\b(zen\s*mode|stealth|minimalist\s*focus|monograph)\b/i.test(lower) || lower === 'zen-mono') {
     patch.presetId = 'zen-mono';
     mark();
+  } else if (/\b(slate\s*monochrome|slate\s*terminal|slate\s*theme)\b/i.test(lower) || lower === 'slate-terminal') {
+    patch.presetId = 'slate-terminal';
+    mark();
   } else if (/\b(emerald\s*terminal)\b/i.test(lower) || lower === 'emerald-terminal') {
     patch.presetId = 'emerald-terminal';
     mark();
@@ -774,7 +830,10 @@ export function parseNaturalUiIntent(
       mark();
     }
   } else if (!patch.presetId) {
-    if (/\b(violet|purple|lavender)\b/i.test(lower)) {
+    if (/\b(slate|grey|gray|graphite|charcoal)\b/i.test(lower)) {
+      patch.accentPreset = 'slate';
+      mark();
+    } else if (/\b(violet|purple|lavender)\b/i.test(lower)) {
       patch.accentPreset = 'violet';
       mark();
     } else if (/\b(cyan|ice|aqua|sky|blue)\b/i.test(lower)) {
@@ -1086,13 +1145,49 @@ export function parseNaturalUiIntent(
   return touched ? patch : null;
 }
 
+export const UI_THEME_EPOCH_KEY = 'duet.uiThemeEpoch.v1';
+export const UI_THEME_EPOCH_VALUE = 'slate-v1';
+
 export function loadUiConfig(): UiCustomizationConfig {
   if (typeof window === 'undefined') return { ...DEFAULT_UI_CONFIG };
   try {
     const raw = window.localStorage.getItem(UI_STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_UI_CONFIG };
+    const epoch = window.localStorage.getItem(UI_THEME_EPOCH_KEY);
+    if (!raw) {
+      window.localStorage.setItem(UI_THEME_EPOCH_KEY, UI_THEME_EPOCH_VALUE);
+      return { ...DEFAULT_UI_CONFIG };
+    }
     const parsed = JSON.parse(raw) as unknown;
     const { next } = applyUiPatch(DEFAULT_UI_CONFIG, sanitizeUiPatch(parsed));
+    if (
+      epoch !== UI_THEME_EPOCH_VALUE &&
+      next.accentPreset === 'emerald' &&
+      next.accentHex === '#34D399' &&
+      next.surfaceHex === '#0A1613' &&
+      next.textHex === '#ECF3F0' &&
+      next.panelAlpha === 0.76 &&
+      next.borderOpacity === 0.42 &&
+      next.glowIntensity === 1 &&
+      !next.portraitTintHex
+    ) {
+      const migrated: UiCustomizationConfig = {
+        ...next,
+        accentPreset: DEFAULT_UI_CONFIG.accentPreset,
+        accentHex: DEFAULT_UI_CONFIG.accentHex,
+        accentSoftHex: DEFAULT_UI_CONFIG.accentSoftHex,
+        accentBrightHex: DEFAULT_UI_CONFIG.accentBrightHex,
+        surfaceHex: DEFAULT_UI_CONFIG.surfaceHex,
+        textHex: DEFAULT_UI_CONFIG.textHex,
+        panelAlpha: DEFAULT_UI_CONFIG.panelAlpha,
+        borderOpacity: DEFAULT_UI_CONFIG.borderOpacity,
+        glowIntensity: DEFAULT_UI_CONFIG.glowIntensity,
+      };
+      saveUiConfig(migrated);
+      return migrated;
+    }
+    if (epoch !== UI_THEME_EPOCH_VALUE) {
+      window.localStorage.setItem(UI_THEME_EPOCH_KEY, UI_THEME_EPOCH_VALUE);
+    }
     return next;
   } catch {
     return { ...DEFAULT_UI_CONFIG };
@@ -1103,6 +1198,7 @@ export function saveUiConfig(config: UiCustomizationConfig): void {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(config));
+    window.localStorage.setItem(UI_THEME_EPOCH_KEY, UI_THEME_EPOCH_VALUE);
   } catch {
     // Ignore storage quota / privacy mode errors
   }
@@ -1150,7 +1246,7 @@ export function applyUiConfigToDom(config: UiCustomizationConfig): void {
   root.style.setProperty('--ui-horizon-opacity', String(config.horizonOpacity));
 
   root.dataset.uiAccent = config.accentPreset;
-  root.dataset.uiThemed = config.accentPreset === 'emerald' ? 'default' : 'custom';
+  root.dataset.uiThemed = config.accentPreset === 'slate' ? 'default' : 'custom';
   root.dataset.uiRadius = config.cornerRadius;
   root.dataset.uiFont = config.fontPreset;
   root.dataset.uiCompact = config.density === 'compact' ? 'true' : 'false';

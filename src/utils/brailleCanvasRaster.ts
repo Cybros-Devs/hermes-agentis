@@ -75,7 +75,7 @@ export interface PortraitTonePalette {
 
 /**
  * Computes state-reactive 5-tier halftone dot colors & opacities for the Braille portrait
- * so cognitive states (thinking amber phosphor, listening/speaking emerald glow, alert rose)
+ * so cognitive states (thinking amber phosphor, listening/speaking sky-silver glow, alert rose)
  * read naturally within the dot matrix itself.
  */
 export function resolvePortraitTonePalette(params: PortraitToneParams): PortraitTonePalette {
@@ -90,8 +90,8 @@ export function resolvePortraitTonePalette(params: PortraitToneParams): Portrait
     : isAlertState
     ? ['#B0707C', '#D89AA6', '#EFD4D9', '#F9ECEF', '#FFFFFF']
     : activeVoiceTint
-    ? ['#6EE7B7', '#A7F3D0', '#DCE8E3', '#F1F7F4', '#FFFFFF']
-    : ['#8FA69E', '#B9CCC5', '#DCE8E3', '#F1F7F4', '#FFFFFF'];
+    ? ['#BAE6FD', '#E0F2FE', '#F1F5F9', '#F8FAFC', '#FFFFFF']
+    : ['#94A3B8', '#CBD5E1', '#E2E8F0', '#F1F5F9', '#FFFFFF'];
 
   const hexes: [string, string, string, string, string] = tintHex
     ? [

@@ -120,7 +120,7 @@ export function ThreadTurnMinimap({
                   buttonRefs.current[prevIdx]?.focus();
                 }
               }}
-              className="group relative flex items-center py-[5px] px-1 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-[#34D399]/70 rounded-sm"
+              className="group relative flex items-center py-[5px] px-1 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ui-accent)]/70 rounded-sm"
             >
               <span
                 style={tickColorStyle}
@@ -170,15 +170,15 @@ export function ThreadTurnMinimap({
           role="tooltip"
           data-testid="minimap-preview-card"
           style={{ top: `${popoverTop}px` }}
-          className="ui-pop-in pointer-events-none absolute left-full ml-2 w-[min(268px,calc(100vw-4.5rem))] sm:w-[min(304px,calc(100vw-5rem))] rounded-xl border border-white/[0.18] bg-[#091511] px-3.5 py-2.5 shadow-[0_20px_48px_rgba(0,0,0,0.78)]"
+          className="ui-pop-in pointer-events-none absolute left-full ml-2 w-[min(268px,calc(100vw-4.5rem))] sm:w-[min(304px,calc(100vw-5rem))] rounded-xl border border-white/[0.16] bg-[#12151D] px-3.5 py-2.5 shadow-[0_20px_48px_rgba(0,0,0,0.78)]"
         >
           <p className="text-[13px] font-semibold text-white leading-snug line-clamp-2 break-words">
             {previewTurn.title}
           </p>
-          <p className="mt-1 text-[12px] leading-[1.52] text-emerald-100/68 line-clamp-3 break-words">
+          <p className="mt-1 text-[12px] leading-[1.52] text-zinc-300/80 line-clamp-3 break-words">
             {previewTurn.snippet}
           </p>
-          <div className="mt-2 pt-1.5 border-t border-white/[0.06] flex items-center justify-between gap-2 font-mono text-[10px] text-emerald-100/45 tabular-nums">
+          <div className="mt-2 pt-1.5 border-t border-white/[0.06] flex items-center justify-between gap-2 font-mono text-[10px] text-zinc-400 tabular-nums">
             <span className="truncate">
               Turn {previewTurn.turnNumber}/{turns.length}
               {previewTurn.stepCount > 0
@@ -197,7 +197,7 @@ export function ThreadTurnMinimap({
                 : ''}
             </span>
             {previewTurn.timestamp && (
-              <span className="shrink-0 text-emerald-100/40">{previewTurn.timestamp}</span>
+              <span className="shrink-0 text-zinc-500">{previewTurn.timestamp}</span>
             )}
           </div>
         </div>

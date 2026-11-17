@@ -617,7 +617,7 @@ export function BrailleSessionsCanvas({
         className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            'radial-gradient(circle, rgba(167, 243, 208, 0.10) 1px, transparent 1px)',
+            'radial-gradient(circle, rgba(var(--ui-accent-rgb), 0.12) 1px, transparent 1px)',
           backgroundSize: `${Math.round(28 * viewport.zoom)}px ${Math.round(28 * viewport.zoom)}px`,
           backgroundPosition: `${Math.round(viewport.panX)}px ${Math.round(viewport.panY)}px`,
           maskImage: 'radial-gradient(ellipse 90% 84% at 50% 48%, black 42%, transparent 100%)',
@@ -632,7 +632,7 @@ export function BrailleSessionsCanvas({
         className="pointer-events-none absolute inset-x-0 bottom-0 h-[42%] opacity-75"
         style={{
           background:
-            'radial-gradient(ellipse 115% 85% at 50% 100%, rgba(18, 88, 68, 0.34) 0%, rgba(10, 28, 23, 0.14) 55%, transparent 82%)',
+            'radial-gradient(ellipse 115% 85% at 50% 100%, rgba(var(--ui-accent-rgb), 0.14) 0%, rgba(17, 20, 27, 0.22) 55%, transparent 82%)',
         }}
       />
 
@@ -660,7 +660,7 @@ export function BrailleSessionsCanvas({
           <h1 className="text-sm sm:text-base font-semibold text-white tracking-tight truncate">
             Hermes Dots
           </h1>
-          <span className="font-mono text-[11px] text-emerald-100/55 tabular-nums whitespace-nowrap">
+          <span className="font-mono text-[11px] text-zinc-400 tabular-nums whitespace-nowrap">
             {sessions.length} {sessions.length === 1 ? 'dot' : 'dots'}
             {autonomousCount > 0 ? ` · ${autonomousCount} auto` : ''}
             {runningCount > 0 ? ` · ${runningCount} running` : ''}
@@ -690,8 +690,8 @@ export function BrailleSessionsCanvas({
                       }}
                       className={`px-2 py-1 rounded-md text-[11px] font-medium tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                         effectiveFilterMode === opt.id
-                          ? 'bg-[#34D399]/18 text-[#6EE7B7]'
-                          : 'text-emerald-100/60 hover:text-white'
+                          ? 'bg-[rgba(var(--ui-accent-rgb),0.18)] text-[var(--ui-accent-soft)]'
+                          : 'text-zinc-400 hover:text-white'
                       }`}
                     >
                       {opt.label}
@@ -727,7 +727,7 @@ export function BrailleSessionsCanvas({
                           className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                             active
                               ? 'bg-white/12 text-white'
-                              : 'text-emerald-100/60 hover:text-white'
+                              : 'text-zinc-400 hover:text-white'
                           }`}
                         >
                           <Icon className="w-3 h-3" />
@@ -746,7 +746,7 @@ export function BrailleSessionsCanvas({
                     }}
                     aria-label="Auto arrange sessions on canvas"
                     title="Arrange dots"
-                    className="@[660px]:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                    className="@[660px]:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-zinc-200 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                   </button>
@@ -760,7 +760,7 @@ export function BrailleSessionsCanvas({
                   onClick={() => handleStepZoom(-CANVAS_ZOOM_BOUNDS.step)}
                   aria-label="Zoom out canvas"
                   title="Zoom out"
-                  className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
+                  className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
                 >
                   <ZoomOut className="w-3.5 h-3.5" />
                 </button>
@@ -772,8 +772,8 @@ export function BrailleSessionsCanvas({
                   title="Reset view to 100%"
                   className={`px-1.5 py-0.5 rounded font-mono text-[10.5px] tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                     isViewportModified
-                      ? 'text-[#6EE7B7] hover:bg-white/8'
-                      : 'text-emerald-100/65 hover:text-white'
+                      ? 'text-[var(--ui-accent-soft)] hover:bg-white/8'
+                      : 'text-zinc-400 hover:text-white'
                   }`}
                 >
                   {Math.round(viewport.zoom * 100)}%
@@ -783,7 +783,7 @@ export function BrailleSessionsCanvas({
                   onClick={() => handleStepZoom(CANVAS_ZOOM_BOUNDS.step)}
                   aria-label="Zoom in canvas"
                   title="Zoom in"
-                  className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
+                  className="p-1 rounded text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
                 </button>
@@ -799,8 +799,8 @@ export function BrailleSessionsCanvas({
             aria-expanded={isPinComposerOpen}
             className={`ui-tactile px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${
               isPinComposerOpen
-                ? 'border-[#34D399]/55 bg-[#34D399]/16 text-[#6EE7B7]'
-                : 'border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-emerald-50/85 hover:text-white'
+                ? 'ui-active-tab'
+                : 'border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-zinc-200 hover:text-white'
             }`}
           >
             <Pin className="w-3 h-3" />
@@ -811,7 +811,7 @@ export function BrailleSessionsCanvas({
             type="button"
             onClick={() => setIsAddOpen(true)}
             data-testid="canvas-add-button"
-            className="ui-tactile px-3 py-1.5 rounded-lg border border-[#34D399]/45 bg-[#34D399]/14 hover:bg-[#34D399] hover:text-[#05140E] text-[#6EE7B7] text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            className="ui-tactile ui-accent-btn px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 hover:opacity-90 transition-opacity cursor-pointer whitespace-nowrap shrink-0"
           >
             <span>+ Add</span>
           </button>
@@ -824,7 +824,7 @@ export function BrailleSessionsCanvas({
           onSubmit={handleDropPinSubmit}
           onPointerDown={(e) => e.stopPropagation()}
           data-testid="canvas-pin-composer"
-          className="relative z-20 mx-4 sm:mx-6 mb-1 px-3 py-2 rounded-xl border border-[#34D399]/30 bg-[#07130F]/95 flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0"
+          className="relative z-20 mx-4 sm:mx-6 mb-1 px-3 py-2 rounded-xl border border-white/15 bg-[#11141B]/95 flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0"
         >
           <div className="flex items-center gap-1">
             {(['note', 'repo', 'brief'] as const).map((k) => (
@@ -834,8 +834,8 @@ export function BrailleSessionsCanvas({
                 onClick={() => setPinKind(k)}
                 className={`px-2 py-1 rounded text-[11px] font-medium capitalize cursor-pointer whitespace-nowrap shrink-0 ${
                   pinKind === k
-                    ? 'bg-[#34D399] text-[#05140E] font-semibold'
-                    : 'bg-white/[0.05] text-emerald-100/70 hover:text-white'
+                    ? 'ui-accent-btn font-semibold'
+                    : 'bg-white/[0.05] text-zinc-400 hover:text-white'
                 }`}
               >
                 {k}
@@ -848,18 +848,18 @@ export function BrailleSessionsCanvas({
             onChange={(e) => setPinTitle(e.target.value)}
             placeholder="Pin title (e.g. Launch Brief)"
             autoFocus
-            className="flex-1 min-w-[140px] rounded-lg bg-black/35 border border-white/12 focus:border-[#34D399] px-2.5 py-1 text-xs text-white placeholder:text-emerald-100/40 focus:outline-none"
+            className="flex-1 min-w-[140px] rounded-lg bg-black/35 border border-white/12 focus:border-[var(--ui-accent)] px-2.5 py-1 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
           />
           <input
             type="text"
             value={pinDetail}
             onChange={(e) => setPinDetail(e.target.value)}
             placeholder="Context or repo path (optional)"
-            className="flex-1 min-w-[160px] rounded-lg bg-black/35 border border-white/12 focus:border-[#34D399] px-2.5 py-1 text-xs text-white placeholder:text-emerald-100/40 focus:outline-none"
+            className="flex-1 min-w-[160px] rounded-lg bg-black/35 border border-white/12 focus:border-[var(--ui-accent)] px-2.5 py-1 text-xs text-white placeholder:text-zinc-500 focus:outline-none"
           />
           <button
             type="submit"
-            className="px-3 py-1 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0"
+            className="ui-accent-btn px-3 py-1 rounded-lg text-xs font-semibold hover:opacity-90 cursor-pointer whitespace-nowrap shrink-0"
           >
             Drop Pin
           </button>
@@ -867,7 +867,7 @@ export function BrailleSessionsCanvas({
             type="button"
             onClick={() => setIsPinComposerOpen(false)}
             aria-label="Cancel pin"
-            className="p-1 rounded text-emerald-100/55 hover:text-white cursor-pointer shrink-0"
+            className="p-1 rounded text-zinc-400 hover:text-white cursor-pointer shrink-0"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -899,9 +899,9 @@ export function BrailleSessionsCanvas({
           >
             <defs>
               <linearGradient id="canvas-link-hot" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="rgba(52, 211, 153, 0.55)" />
-                <stop offset="50%" stopColor="rgba(167, 243, 208, 0.35)" />
-                <stop offset="100%" stopColor="rgba(52, 211, 153, 0.55)" />
+                <stop offset="0%" stopColor="rgba(148, 163, 184, 0.55)" />
+                <stop offset="50%" stopColor="rgba(226, 232, 240, 0.35)" />
+                <stop offset="100%" stopColor="rgba(148, 163, 184, 0.55)" />
               </linearGradient>
             </defs>
 
@@ -930,8 +930,8 @@ export function BrailleSessionsCanvas({
                     isLinkHot
                       ? 'url(#canvas-link-hot)'
                       : edge.kind === 'collab'
-                      ? 'rgba(110, 231, 183, 0.22)'
-                      : 'rgba(110, 231, 183, 0.13)'
+                      ? 'rgba(203, 213, 225, 0.22)'
+                      : 'rgba(148, 163, 184, 0.14)'
                   }
                   strokeWidth={isLinkHot ? '1.5' : '1'}
                   strokeDasharray={isLinkHot ? '5 4' : '4 6'}
@@ -954,7 +954,7 @@ export function BrailleSessionsCanvas({
                   y1={`${pPos.yPct}%`}
                   x2={`${sPos.xPct}%`}
                   y2={`${sPos.yPct}%`}
-                  stroke="rgba(167, 243, 208, 0.16)"
+                  stroke="rgba(203, 213, 225, 0.16)"
                   strokeWidth="1"
                   strokeDasharray="2 5"
                 />
@@ -986,15 +986,15 @@ export function BrailleSessionsCanvas({
                     zIndex: isPinDragged ? 35 : 8,
                   } as React.CSSProperties
                 }
-                className={`hidden sm:flex flex-col absolute -translate-x-1/2 -translate-y-1/2 w-[196px] rounded-xl border px-3 py-2 bg-[#07130F]/90 shadow-[0_8px_22px_rgba(0,0,0,0.38)] touch-none ${
+                className={`hidden sm:flex flex-col absolute -translate-x-1/2 -translate-y-1/2 w-[196px] rounded-xl border px-3 py-2 bg-[#11141B]/92 shadow-[0_8px_22px_rgba(0,0,0,0.38)] touch-none ${
                   isPinDragged
-                    ? 'border-[#34D399]/65 scale-[1.03] cursor-grabbing'
-                    : 'border-white/12 hover:border-[#34D399]/40 cursor-grab'
+                    ? 'border-[rgba(var(--ui-accent-rgb),0.65)] scale-[1.03] cursor-grabbing'
+                    : 'border-white/12 hover:border-[rgba(var(--ui-accent-rgb),0.40)] cursor-grab'
                 }`}
               >
                 <div className="flex items-center justify-between gap-1.5">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <PinIcon className="w-3.5 h-3.5 text-[#6EE7B7] shrink-0" />
+                    <PinIcon className="w-3.5 h-3.5 text-[var(--ui-accent-soft)] shrink-0" />
                     <span className="text-[11.5px] font-semibold text-white truncate">
                       {pin.title}
                     </span>
@@ -1006,7 +1006,7 @@ export function BrailleSessionsCanvas({
                         onClick={() => onSelectSession(owner)}
                         aria-label={`Focus Dot #${owner.name}`}
                         title={`Focus #${owner.name}`}
-                        className="p-0.5 rounded text-emerald-100/50 hover:text-[#6EE7B7] cursor-pointer"
+                        className="p-0.5 rounded text-zinc-400 hover:text-[var(--ui-accent-soft)] cursor-pointer"
                       >
                         <Maximize2 className="w-2.5 h-2.5" />
                       </button>
@@ -1015,16 +1015,16 @@ export function BrailleSessionsCanvas({
                       type="button"
                       onClick={() => onRemovePin(pin.id)}
                       aria-label={`Remove pin ${pin.title}`}
-                      className="p-0.5 rounded text-emerald-100/45 hover:text-rose-300 cursor-pointer"
+                      className="p-0.5 rounded text-zinc-400 hover:text-rose-300 cursor-pointer"
                     >
                       <X className="w-3 h-3" />
                     </button>
                   </div>
                 </div>
-                <p className="mt-1 text-[10.5px] leading-snug text-emerald-100/70 line-clamp-2 select-text">
+                <p className="mt-1 text-[10.5px] leading-snug text-zinc-300 line-clamp-2 select-text">
                   {pin.detail}
                 </p>
-                <div className="mt-1 font-mono text-[9.5px] text-emerald-100/45 truncate">
+                <div className="mt-1 font-mono text-[9.5px] text-zinc-500 truncate">
                   {pin.meta}
                 </div>
               </div>
@@ -1050,7 +1050,7 @@ export function BrailleSessionsCanvas({
                   <button
                     type="button"
                     onClick={() => setIsAddOpen(true)}
-                    className="ui-tactile px-4 py-2 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold cursor-pointer"
+                    className="ui-tactile ui-accent-btn px-4 py-2 rounded-lg text-xs font-semibold hover:opacity-90 cursor-pointer"
                   >
                     + Add first Dot
                   </button>
