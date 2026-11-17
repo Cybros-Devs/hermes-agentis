@@ -150,8 +150,8 @@ test('groupThreadTimeline renders terminal diagnostic failures as standalone ent
   }
 });
 
-test('groupThreadTimeline hoists turn activities before assistant reply and suppresses trailing Running placeholder once reply text streams', () => {
-  const reordered = groupThreadTimeline(
+test('groupThreadTimeline keeps activity runs in chronological order around assistant replies', () => {
+  const chronological = groupThreadTimeline(
     [
       makeEntry('u1', 'user', 'what should we work on', '08:21'),
       makeEntry('h1', 'hermes', 'Scanning ledgers...', '08:22'),
@@ -160,12 +160,16 @@ test('groupThreadTimeline hoists turn activities before assistant reply and supp
     ],
     false
   );
-  assert.equal(reordered.length, 3);
-  assert.equal(reordered[0].kind, 'entry');
-  assert.equal(reordered[1].kind, 'trace');
-  assert.equal(reordered[2].kind, 'entry');
-  if (reordered[2].kind === 'entry') {
-    assert.equal(reordered[2].entry.id, 'h1');
+  assert.equal(chronological.length, 3);
+  assert.equal(chronological[0].kind, 'entry');
+  assert.equal(chronological[1].kind, 'entry');
+  if (chronological[1].kind === 'entry') {
+    assert.equal(chronological[1].entry.id, 'h1');
+  }
+  assert.equal(chronological[2].kind, 'trace');
+  if (chronological[2].kind === 'trace') {
+    assert.equal(chronological[2].items.length, 2);
+    assert.equal(chronological[2].isLive, false);
   }
 
   const activeStreaming = groupThreadTimeline(
@@ -178,6 +182,38 @@ test('groupThreadTimeline hoists turn activities before assistant reply and supp
   );
   assert.equal(activeStreaming.length, 2);
   assert.equal(activeStreaming.every((b) => b.kind === 'entry'), true);
+});
+
+test('groupThreadTimeline renders post-reply activity as a NEW trace block below streamed text', () => {
+  const blocks = groupThreadTimeline(
+    [
+      makeEntry('u1', 'user', 'fix the failing test', '09:00'),
+      { ...makeEntry('a1', 'activity', 'search_files completed', '09:01'), activityKind: 'tool' },
+      makeEntry('h1', 'hermes', 'Found it in threadTrace.ts. Patching now.', '09:02'),
+      { ...makeEntry('a2', 'activity', 'Running patch', '09:03'), activityKind: 'tool', activityStatus: 'running' },
+      { ...makeEntry('a3', 'activity', 'patch completed', '09:04'), activityKind: 'tool' },
+    ],
+    true
+  );
+
+  // Expected: user entry, pre-text trace, streamed reply, NEW live trace below the reply
+  assert.equal(blocks.length, 4);
+  assert.equal(blocks[0].kind, 'entry');
+  assert.equal(blocks[1].kind, 'trace');
+  if (blocks[1].kind === 'trace') {
+    assert.equal(blocks[1].items.length, 1);
+    assert.equal(blocks[1].isLive, false);
+  }
+  assert.equal(blocks[2].kind, 'entry');
+  if (blocks[2].kind === 'entry') {
+    assert.equal(blocks[2].entry.id, 'h1');
+  }
+  assert.equal(blocks[3].kind, 'trace');
+  if (blocks[3].kind === 'trace') {
+    // "Running patch" is upgraded in place by dedupe when "patch completed" lands
+    assert.equal(blocks[3].items.length, 1);
+    assert.equal(blocks[3].isLive, true);
+  }
 });
 
 test('coalesceConsecutiveSteps merges adjacent identical steps with repeat counts and preserves reasoning', () => {

@@ -179,10 +179,13 @@ function isTurnBoundaryEntry(entry: TerminalEntry): boolean {
  * and optionally attaches the live thinking state to the trailing trace tree.
  *
  * Within each conversational turn (delimited by user/command/system/diagnostic
- * boundaries), non-diagnostic activity steps are always ordered before that turn's
- * assistant reply so streaming text is never rendered above its own tool activity.
- * Once the trailing turn already has non-empty streamed reply text, no dangling
- * "Activity · Running" placeholder is emitted below the streamed message.
+ * boundaries), activity runs and assistant replies keep their chronological
+ * interleaving: activity that arrived before a reply renders above it, and
+ * activity that arrives after streamed text renders as a NEW trace block below
+ * that text — late tool steps are never merged back into the earlier activity
+ * tree above the reply. The live thinking state attaches to the trailing trace
+ * block of the last turn, and no dangling "Activity · Running" placeholder is
+ * emitted below streamed text once the turn has reply text and no running tools.
  */
 export function groupThreadTimeline(
   entries: TerminalEntry[],
@@ -191,38 +194,50 @@ export function groupThreadTimeline(
 ): ThreadTimelineBlock[] {
   const blocks: ThreadTimelineBlock[] = [];
 
+  type SegmentFlowItem =
+    | { type: 'trace'; items: TerminalEntry[] }
+    | { type: 'reply'; entry: TerminalEntry };
+
   type TurnSegment = {
     boundary: TerminalEntry | null;
-    activities: TerminalEntry[];
-    replies: TerminalEntry[];
+    flow: SegmentFlowItem[];
   };
 
   const segments: TurnSegment[] = [];
-  let current: TurnSegment = { boundary: null, activities: [], replies: [] };
+  let current: TurnSegment = { boundary: null, flow: [] };
+  const hasContent = (seg: TurnSegment) =>
+    seg.boundary !== null || seg.flow.length > 0;
 
   for (const entry of entries) {
     if (isTurnBoundaryEntry(entry)) {
-      if (
-        current.boundary !== null ||
-        current.activities.length > 0 ||
-        current.replies.length > 0
-      ) {
+      if (hasContent(current)) {
         segments.push(current);
       }
-      current = { boundary: entry, activities: [], replies: [] };
+      current = { boundary: entry, flow: [] };
     } else if (entry.role === 'activity') {
-      current.activities.push(entry);
+      const last = current.flow[current.flow.length - 1];
+      if (last && last.type === 'trace') {
+        last.items.push(entry);
+      } else {
+        current.flow.push({ type: 'trace', items: [entry] });
+      }
     } else {
-      current.replies.push(entry);
+      current.flow.push({ type: 'reply', entry });
     }
   }
 
-  if (
-    current.boundary !== null ||
-    current.activities.length > 0 ||
-    current.replies.length > 0
-  ) {
+  if (hasContent(current)) {
     segments.push(current);
+  }
+
+  if (segments.length === 0 && isThinking && includeLivePlaceholder) {
+    blocks.push({
+      kind: 'trace',
+      id: 'trace-live',
+      items: [],
+      isLive: true,
+    });
+    return blocks;
   }
 
   for (let idx = 0; idx < segments.length; idx++) {
@@ -236,37 +251,53 @@ export function groupThreadTimeline(
       });
     }
 
-    const deduped = dedupeActivityEntries(seg.activities);
-    const hasNonEmptyReply = seg.replies.some((r) => r.text.trim().length > 0);
-    const hasRunningTool = deduped.some((a) => a.activityStatus === 'running');
+    const segActivities = seg.flow.flatMap((item) =>
+      item.type === 'trace' ? item.items : []
+    );
+    const hasNonEmptyReply = seg.flow.some(
+      (item) => item.type === 'reply' && item.entry.text.trim().length > 0
+    );
+    const hasRunningTool = segActivities.some(
+      (a) => a.activityStatus === 'running'
+    );
     const liveForSegment =
       isLastSegment && isThinking && (!hasNonEmptyReply || hasRunningTool);
 
-    if (deduped.length > 0 || (liveForSegment && includeLivePlaceholder)) {
+    let lastTraceIdx = -1;
+    seg.flow.forEach((item, i) => {
+      if (item.type === 'trace') lastTraceIdx = i;
+    });
+
+    for (let i = 0; i < seg.flow.length; i++) {
+      const item = seg.flow[i];
+      if (item.type === 'reply') {
+        blocks.push({
+          kind: 'entry',
+          id: item.entry.id,
+          entry: item.entry,
+        });
+        continue;
+      }
+      const deduped = dedupeActivityEntries(item.items);
+      if (deduped.length === 0) continue;
       blocks.push({
         kind: 'trace',
-        id: deduped.length > 0 ? `trace-${deduped[0].id}` : 'trace-live',
+        id: `trace-${deduped[0].id}`,
         items: deduped.map(classifyTraceStep),
-        isLive: liveForSegment,
+        isLive: liveForSegment && i === lastTraceIdx,
       });
     }
 
-    for (const reply of seg.replies) {
+    const endsWithTrace =
+      seg.flow.length > 0 && lastTraceIdx === seg.flow.length - 1;
+    if (liveForSegment && includeLivePlaceholder && !endsWithTrace) {
       blocks.push({
-        kind: 'entry',
-        id: reply.id,
-        entry: reply,
+        kind: 'trace',
+        id: 'trace-live',
+        items: [],
+        isLive: true,
       });
     }
-  }
-
-  if (segments.length === 0 && isThinking && includeLivePlaceholder) {
-    blocks.push({
-      kind: 'trace',
-      id: 'trace-live',
-      items: [],
-      isLive: true,
-    });
   }
 
   return blocks;
