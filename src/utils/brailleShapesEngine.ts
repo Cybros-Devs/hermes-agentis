@@ -487,9 +487,10 @@ export function createBrailleShapeAnimator() {
           tGazeX = idlePose.gazeX;
           tGazeY = idlePose.gazeY;
         } else {
-          const idleFix = Math.floor(offsetTime * 0.55);
-          tGazeX = (idleFix * 7) % 3 === 0 ? Math.sin(idleFix * 2.1) * 0.20 : 0;
-          tGazeY = (idleFix * 5) % 4 === 0 ? -0.08 : 0.02;
+          const idleFix = Math.floor(offsetTime * 0.72);
+          const turnLead = clamp(-state.dragTilt * 1.15, -0.14, 0.14);
+          tGazeX = ((idleFix * 7) % 3 === 0 ? Math.sin(idleFix * 2.1) * 0.22 : 0) + turnLead;
+          tGazeY = (idleFix * 5) % 4 === 0 ? -0.10 : 0.02;
         }
       }
       state.gazeX = expApproach(state.gazeX, clamp(tGazeX, -1, 1), 14, clampedDt);
@@ -541,53 +542,57 @@ export function createBrailleShapeAnimator() {
       hoverVel += ((targetHover - state.hoverBoost) * 115 - hoverVel * 16.5) * clampedDt;
       state.hoverBoost = clamp(state.hoverBoost + hoverVel * clampedDt, 0, 1.2);
 
-      // Subtle periodic ear perk wave + reactive impulse + idle ear delta
+      // Subtle periodic ear perk wave + gentle breath wiggle + reactive impulse + idle ear delta
       const sPerk = Math.max(0, Math.sin(offsetTime * 1.08));
       const s2 = sPerk * sPerk;
       const s4 = s2 * s2;
       const s8 = s4 * s4;
-      const perkPulse = s8 * s8 * 0.12;
-      const idleEar = (idlePose.earLeft + idlePose.earRight) * 0.35;
+      const perkPulse = s8 * s8 * 0.13 + Math.sin(offsetTime * 2.15 - 0.4) * 0.018;
+      const idleEar = (idlePose.earLeft + idlePose.earRight) * 0.38;
       const targetEarTwitch = clamp(
         perkPulse + earImpulse + idleEar + (input.isSpeaking ? input.energy * 0.08 : 0),
         -0.25,
-        0.32
+        0.34
       );
       earTwitchVel += ((targetEarTwitch - state.earTwitch) * 140 - earTwitchVel * 16) * clampedDt;
       state.earTwitch = clamp(state.earTwitch + earTwitchVel * clampedDt, -0.25, 0.35);
 
       state.haloFloat =
-        Math.sin(offsetTime * 2.1 + 0.4) * 0.022 -
-        state.hoverBoost * 0.014 -
-        state.dragLift * 0.012 -
+        Math.sin(offsetTime * 2.15 + 0.4) * 0.028 -
+        state.hoverBoost * 0.016 -
+        state.dragLift * 0.014 -
         idlePose.haloLift;
 
       const dragVx = clamp(input.dragVelX ?? 0, -2.5, 2.5);
       const moodTilt = input.isThinking
-        ? Math.sin(offsetTime * 1.6) * 0.065 - 0.035
+        ? Math.sin(offsetTime * 1.65) * 0.072 - 0.035
         : input.isSpeaking
-        ? Math.sin(offsetTime * 3.9) * (0.045 + input.energy * 0.05)
+        ? Math.sin(offsetTime * 3.9) * (0.048 + input.energy * 0.052)
         : isHovered
-        ? Math.sin(offsetTime * 2.0) * 0.032 + idlePose.tilt * 0.5
-        : Math.sin(offsetTime * 1.15) * 0.014 + idlePose.tilt;
+        ? Math.sin(offsetTime * 2.05) * 0.038 + idlePose.tilt * 0.55
+        : Math.sin(offsetTime * 1.25) * 0.024 +
+          Math.sin(offsetTime * 0.58 + 0.5) * 0.011 +
+          idlePose.tilt;
       const targetTilt = clamp(moodTilt - dragVx * 0.11, -0.22, 0.22);
       tiltVel += ((targetTilt - state.dragTilt) * 100 - tiltVel * 15.5) * clampedDt;
       state.dragTilt = clamp(state.dragTilt + tiltVel * clampedDt, -0.24, 0.24);
 
-      const breathBob = Math.sin(offsetTime * 2.2) * 0.016;
-      const speakBob = input.isSpeaking ? Math.abs(Math.sin(offsetTime * 7.2)) * (0.016 + input.energy * 0.028) : 0;
-      const dragHoverY = state.dragLift * 0.032 + state.hoverBoost * 0.014;
+      const breathBob = Math.sin(offsetTime * 2.25) * 0.022 + Math.sin(offsetTime * 4.5 + 0.3) * 0.003;
+      const speakBob = input.isSpeaking ? Math.abs(Math.sin(offsetTime * 7.2)) * (0.018 + input.energy * 0.030) : 0;
+      const dragHoverY = state.dragLift * 0.032 + state.hoverBoost * 0.016;
       const targetBounceY = breathBob - speakBob - dragHoverY + dropImpulse + idlePose.headY;
       bounceVel += ((targetBounceY - state.bounceY) * 115 - bounceVel * 16.5) * clampedDt;
       state.bounceY = clamp(state.bounceY + bounceVel * clampedDt, -0.11, 0.11);
 
       const desiredHairLag = clamp(
-        -tiltVel * 0.058 + Math.sin(offsetTime * 2.3 - 0.75) * (0.022 + state.hoverBoost * 0.010) + idlePose.hairSway,
-        -0.16,
-        0.16
+        -tiltVel * 0.064 +
+          Math.sin(offsetTime * 2.25 - 0.75) * (0.030 + state.hoverBoost * 0.014) +
+          idlePose.hairSway,
+        -0.17,
+        0.17
       );
-      hairVel += ((desiredHairLag - state.hairLag) * 84 - hairVel * 11.2) * clampedDt;
-      state.hairLag = clamp(state.hairLag + hairVel * clampedDt, -0.17, 0.17);
+      hairVel += ((desiredHairLag - state.hairLag) * 80 - hairVel * 10.6) * clampedDt;
+      state.hairLag = clamp(state.hairLag + hairVel * clampedDt, -0.18, 0.18);
 
       state.idle = idle;
 
@@ -1496,11 +1501,12 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
     pose.hand !== 'none' ||
     pose.prop !== 'none';
 
+  const idleBreathSwayX = motion ? Math.sin(time * 1.05) * 0.010 : 0;
   const invSubW = 1 / subW;
   const invSubH = 1 / subH;
   const invScaleX = 1 / scaleX;
   const invScaleY = 1 / scaleY;
-  const headShiftX = pose.headX * 0.5;
+  const headShiftX = pose.headX * 0.5 + idleBreathSwayX;
   const minBoundX = hasDynamicOverlay ? -0.94 : shape === 'star' ? -0.88 : -0.78;
   const maxBoundX = hasDynamicOverlay ? 0.94 : shape === 'star' ? 0.88 : 0.78;
   const minBoundY = hasDynamicOverlay ? -0.88 : -0.84;

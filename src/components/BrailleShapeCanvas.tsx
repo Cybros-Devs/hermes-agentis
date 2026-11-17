@@ -419,12 +419,12 @@ export function BrailleShapeCanvas({
         s.isHovered ||
         activeIdleBusy;
       const minInterval = isPreview
-        ? 48
+        ? 34
         : fastMotion
         ? 16
         : activeMotion
-        ? 22
-        : 48;
+        ? 18
+        : 26;
       if (now - lastDraw >= minInterval) {
         drawFrame(now);
       }

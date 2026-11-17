@@ -418,4 +418,33 @@ test('renderBrailleShape adds orbiting cognition sparks when thinking and acoust
   assert.notEqual(silent, speaking, 'Speaking state should add acoustic ripple arcs and mouth articulation');
 });
 
-
+test('createBrailleShapeAnimator maintains subtle continuous breathing, tilt, and hair lag during calm resting windows', () => {
+  const anim = createBrailleShapeAnimator();
+  let minTilt = Infinity;
+  let maxTilt = -Infinity;
+  let minBounce = Infinity;
+  let maxBounce = -Infinity;
+  for (let i = 0; i < 60; i++) {
+    // Sample inside the 3.15s..4.00s resting gap of slot 0 and early slot 1
+    const st = anim.step(
+      {
+        shape: 'clover',
+        time: 3.16 + i * 0.014,
+        mood: 'happy',
+        eyeStyle: 'open',
+        viseme: 'closed',
+        energy: 0.06,
+        isSpeaking: false,
+        isThinking: false,
+        isDragging: false,
+      },
+      0.016
+    );
+    minTilt = Math.min(minTilt, st.dragTilt);
+    maxTilt = Math.max(maxTilt, st.dragTilt);
+    minBounce = Math.min(minBounce, st.bounceY);
+    maxBounce = Math.max(maxBounce, st.bounceY);
+  }
+  assert.ok(maxTilt - minTilt > 0.012, `Expected gentle continuous tilt during calm rest, got ${maxTilt - minTilt}`);
+  assert.ok(maxBounce - minBounce > 0.008, `Expected gentle continuous breath bob, got ${maxBounce - minBounce}`);
+});

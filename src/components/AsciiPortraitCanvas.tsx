@@ -617,7 +617,7 @@ export function AsciiPortraitCanvas({
         isBlinkingRef.current ||
         blinkLookahead;
 
-      // Fluid VSync cadence (60fps active/materialize/blink/thinking, 30fps sidebar idle, ~21fps stage idle)
+      // Fluid VSync cadence (60fps active/materialize/blink/thinking, ~42fps idle stage/hero, ~33fps sidebar idle)
       const minIntervalMs = isReduced
         ? 220
         : isMaterializing
@@ -625,8 +625,8 @@ export function AsciiPortraitCanvas({
         : activeMotion
         ? 16
         : isSidebar
-        ? 33
-        : 48;
+        ? 30
+        : 24;
       if (now - lastDraw >= minIntervalMs) {
         drawFrame(now);
       }

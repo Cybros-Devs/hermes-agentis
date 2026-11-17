@@ -237,64 +237,68 @@ function getTargetMotionFromParams(
 ): PortraitMotionState {
   const { time, mood, viseme, eyeState, energy, isSpeaking, isListening } = params;
 
-  // Natural rhythmic breathing & overlapping secondary action
-  const breath = Math.sin(time * 2.05);
-  const breathLag = Math.sin(time * 2.05 - 0.85);
+  // Natural rhythmic breathing & overlapping secondary action (slightly richer figure-8 organic sway)
+  const breath = Math.sin(time * 2.15) + Math.sin(time * 4.3 + 0.35) * 0.14;
+  const breathLag = Math.sin(time * 2.15 - 0.85) + Math.sin(time * 4.3 - 0.5) * 0.14;
   const speakCadence = isSpeaking ? Math.sin(time * 7.6) : 0;
-  const speakBounce = isSpeaking ? Math.abs(speakCadence) * (0.009 + energy * 0.016) : 0;
-  const speakNod = isSpeaking ? Math.sin(time * 4.4) * (0.024 + energy * 0.042) : 0;
+  const speakBounce = isSpeaking ? Math.abs(speakCadence) * (0.011 + energy * 0.018) : 0;
+  const speakNod = isSpeaking ? Math.sin(time * 4.4) * (0.026 + energy * 0.044) : 0;
 
   // Expressive autonomous 2.5D head yaw & pitch choreography per mood
-  let headYaw = Math.sin(time * 0.72) * 0.115 + Math.sin(time * 0.31) * 0.045;
-  let headPitch = Math.sin(time * 1.08) * 0.045;
+  let headYaw =
+    Math.sin(time * 0.82) * 0.142 +
+    Math.sin(time * 0.37 + 0.65) * 0.056;
+  let headPitch =
+    Math.sin(time * 1.15) * 0.056 +
+    Math.sin(time * 0.52 + 0.4) * 0.018;
 
   if (mood === 'thinking') {
-    headYaw = -0.19 + Math.sin(time * 0.85) * 0.06;
-    headPitch = -0.095 + Math.cos(time * 0.7) * 0.025;
+    headYaw = -0.19 + Math.sin(time * 0.92) * 0.072 + Math.sin(time * 0.41) * 0.025;
+    headPitch = -0.092 + Math.cos(time * 0.78) * 0.032;
   } else if (mood === 'listening') {
-    headYaw = 0.13 + Math.sin(time * 1.15) * 0.05;
-    headPitch = 0.035 + Math.sin(time * 2.2) * (0.025 + energy * 0.04);
+    headYaw = 0.13 + Math.sin(time * 1.22) * 0.064;
+    headPitch = 0.032 + Math.sin(time * 2.25) * (0.032 + energy * 0.042);
   } else if (mood === 'alert') {
-    headYaw = 0.16 + Math.sin(time * 2.6) * 0.025;
-    headPitch = -0.045;
+    headYaw = 0.16 + Math.sin(time * 2.7) * 0.035;
+    headPitch = -0.045 + Math.sin(time * 1.9) * 0.014;
   } else if (mood === 'focused') {
-    headYaw = 0.05 + Math.sin(time * 0.55) * 0.04;
-    headPitch = 0.03 + Math.sin(time * 1.1) * 0.02;
+    headYaw = 0.05 + Math.sin(time * 0.65) * 0.054;
+    headPitch = 0.03 + Math.sin(time * 1.2) * 0.026;
   } else if (mood === 'happy') {
-    headYaw = 0.08 + Math.sin(time * 1.15) * 0.11;
-    headPitch = -0.02 + Math.sin(time * 2.2) * 0.045;
+    headYaw = 0.07 + Math.sin(time * 1.12) * 0.138 + Math.sin(time * 0.46 + 1.05) * 0.052;
+    headPitch = -0.016 + Math.sin(time * 1.95) * 0.056 + Math.cos(time * 0.72) * 0.022;
   }
 
   if (isSpeaking) {
     // Conversational emphasis head turns toward viewer & syllable nods
-    headYaw += 0.08 + Math.sin(time * 1.55) * (0.09 + energy * 0.07);
-    headPitch += Math.sin(time * 3.6) * (0.035 + energy * 0.055);
+    headYaw += 0.08 + Math.sin(time * 1.55) * (0.095 + energy * 0.075);
+    headPitch += Math.sin(time * 3.6) * (0.038 + energy * 0.058);
   }
 
   // Blend subtle pointer-tracking head turn when user hovers/moves cursor near portrait
   if (lookTarget) {
     const lx = clamp(lookTarget.x, -1, 1);
     const ly = clamp(lookTarget.y, -1, 1);
-    headYaw = lerp(headYaw, lx * 0.28, 0.65);
-    headPitch = lerp(headPitch, ly * 0.16, 0.6);
+    headYaw = lerp(headYaw, lx * 0.29, 0.66);
+    headPitch = lerp(headPitch, ly * 0.17, 0.62);
   }
 
   headYaw = clamp(headYaw, -0.34, 0.34);
-  headPitch = clamp(headPitch, -0.2, 0.2);
+  headPitch = clamp(headPitch, -0.21, 0.21);
 
   const baseTilt =
     mood === 'thinking'
-      ? -0.068 + Math.sin(time * 1.4) * 0.022
+      ? -0.068 + Math.sin(time * 1.45) * 0.028
       : mood === 'happy'
-      ? 0.032 + Math.sin(time * 2.1) * 0.024
+      ? 0.030 + Math.sin(time * 1.85) * 0.034 + Math.sin(time * 0.68 + 0.4) * 0.014
       : mood === 'listening'
-      ? 0.042 + Math.sin(time * 2.5) * 0.018
+      ? 0.042 + Math.sin(time * 2.35) * 0.024
       : mood === 'alert'
-      ? -0.024
+      ? -0.024 + Math.sin(time * 2.4) * 0.012
       : mood === 'focused'
-      ? -0.014 + Math.sin(time * 1.3) * 0.01
-      : Math.sin(time * 1.6) * 0.02;
-  const headTilt = baseTilt + speakNod - headYaw * 0.12;
+      ? -0.014 + Math.sin(time * 1.35) * 0.016
+      : Math.sin(time * 1.48) * 0.028 + Math.sin(time * 0.58 + 0.5) * 0.012;
+  const headTilt = baseTilt + speakNod - headYaw * 0.13;
 
   const autoBlink = evaluateNaturalBlinkCurve(time, 0, 4);
 
@@ -313,11 +317,13 @@ function getTargetMotionFromParams(
   const wide = eyeState === 'wide' || mood === 'alert' ? 0.88 : 0;
 
   // Dynamic eyebrow micro-expressions (emphasis raises, focused narrows, subtle blink micro-dip)
-  let browLift = 0.09 * Math.sin(time * 1.3);
+  let browLift = 0.11 * Math.sin(time * 1.35) + 0.04 * Math.sin(time * 0.58 + 0.3);
   if (mood === 'alert' || eyeState === 'wide') browLift = 0.72;
-  else if (mood === 'thinking') browLift = 0.38 + Math.sin(time * 1.6) * 0.12;
+  else if (mood === 'thinking') browLift = 0.38 + Math.sin(time * 1.6) * 0.14;
   else if (mood === 'focused' || eyeState === 'half') browLift = -0.34;
-  else if (mood === 'happy' || eyeState === 'happy') browLift = 0.28 + Math.sin(time * 2.1) * 0.1;
+  else if (mood === 'happy' || eyeState === 'happy') {
+    browLift = 0.26 + Math.sin(time * 1.95) * 0.13 + Math.sin(time * 0.65 + 0.5) * 0.05;
+  }
   if (isSpeaking) {
     browLift += Math.max(0, Math.sin(time * 3.8)) * (0.12 + energy * 0.46);
   }
@@ -419,26 +425,28 @@ function getTargetMotionFromParams(
   }
 
   // Natural micro-saccades with realistic fixation holds & crisp glance shifts
-  const fixWindow = Math.floor(time * 0.68);
-  const fixDriftX = Math.sin(time * 0.9) * 0.025;
-  const fixDriftY = Math.cos(time * 0.8) * 0.015;
-  const saccadeX = ((fixWindow * 7) % 5 === 0 ? 0.24 : (fixWindow * 3) % 4 === 1 ? -0.22 : 0.04) * Math.sin(fixWindow * 2.1 + 0.5);
-  const saccadeY = ((fixWindow * 5) % 4 === 0 ? -0.12 : 0.02);
+  const fixWindow = Math.floor(time * 0.85);
+  const fixDriftX = Math.sin(time * 1.1) * 0.042;
+  const fixDriftY = Math.cos(time * 0.95) * 0.022;
+  const saccadeX =
+    ((fixWindow * 7) % 5 === 0 ? 0.28 : (fixWindow * 3) % 4 === 1 ? -0.25 : 0.06) *
+    Math.sin(fixWindow * 2.1 + 0.5);
+  const saccadeY = (fixWindow * 5) % 4 === 0 ? -0.14 : (fixWindow * 3) % 5 === 2 ? 0.08 : 0.02;
 
   let gazeX =
     mood === 'thinking'
-      ? -0.40 + Math.sin(Math.floor(time * 1.15) * 1.7) * 0.32 + fixDriftX
+      ? -0.40 + Math.sin(Math.floor(time * 1.15) * 1.7) * 0.34 + fixDriftX
       : eyeState === 'side'
       ? 0.72
       : mood === 'listening'
-      ? Math.sin(Math.floor(time * 0.85) * 1.9) * 0.22 + fixDriftX
-      : saccadeX + fixDriftX;
+      ? Math.sin(Math.floor(time * 0.85) * 1.9) * 0.26 + fixDriftX
+      : saccadeX + fixDriftX + clamp((headYaw - 0.04) * 0.42, -0.14, 0.14);
   let gazeY =
     mood === 'thinking'
-      ? -0.46 + Math.cos(Math.floor(time * 1.15) * 1.3) * 0.14 + fixDriftY
+      ? -0.46 + Math.cos(Math.floor(time * 1.15) * 1.3) * 0.16 + fixDriftY
       : mood === 'alert'
       ? -0.10
-      : saccadeY + fixDriftY;
+      : saccadeY + fixDriftY + clamp(headPitch * 0.35, -0.08, 0.08);
 
   if (lookTarget) {
     gazeX = lerp(gazeX, clamp(lookTarget.x * 1.15, -1, 1), 0.75);
@@ -474,15 +482,18 @@ function getTargetMotionFromParams(
     headYaw,
     headPitch,
     headTilt,
-    headNodY: breath * 0.008 - speakBounce,
-    headSwayX: Math.sin(time * 1.15) * 0.005 + (isSpeaking ? Math.sin(time * 3.8) * 0.005 * energy : 0),
+    headNodY: breath * 0.012 - speakBounce,
+    headSwayX:
+      Math.sin(time * 1.15) * 0.0085 +
+      Math.sin(time * 0.52 + 0.7) * 0.004 +
+      (isSpeaking ? Math.sin(time * 3.8) * 0.006 * energy : 0),
     hairLagX:
-      breathLag * 0.017 +
-      (isSpeaking ? Math.sin(time * 4.4 - 0.72) * 0.024 * energy : 0),
+      breathLag * 0.025 +
+      (isSpeaking ? Math.sin(time * 4.4 - 0.72) * 0.026 * energy : 0),
     hairLagY:
-      Math.cos(time * 2.05 - 0.6) * 0.006 +
-      (isSpeaking ? Math.sin(time * 7.6 - 0.65) * 0.011 * energy : 0),
-    shoulderY: breath * 0.012,
+      Math.cos(time * 2.15 - 0.6) * 0.009 +
+      (isSpeaking ? Math.sin(time * 7.6 - 0.65) * 0.013 * energy : 0),
+    shoulderY: breath * 0.018,
     listenPulse,
   };
 }
@@ -641,19 +652,19 @@ export function createPortraitAnimator() {
         state.headSwayX = expApproach(state.headSwayX, target.headSwayX, 8, clampedDt);
         state.shoulderY = expApproach(state.shoulderY, target.shoulderY, 5.5, clampedDt);
 
-        // Spring-damper secondary follow-through on lower hair curls reacting to both head yaw & tilt velocity
+        // Spring-damper secondary follow-through on lower hair curls reacting to head yaw, tilt & nod velocity
         const tiltVel = (state.headTilt - prevHeadTilt) / clampedDt;
         const yawVel = (state.headYaw - prevHeadYaw) / clampedDt;
         const nodVel = (state.headNodY - prevHeadNodY) / clampedDt;
-        const desiredLagX = target.hairLagX - tiltVel * 0.036 - yawVel * 0.048;
-        const desiredLagY = target.hairLagY - nodVel * 0.034;
+        const desiredLagX = target.hairLagX - tiltVel * 0.052 - yawVel * 0.064;
+        const desiredLagY = target.hairLagY - nodVel * 0.044;
 
-        const stiffness = 68;
-        const damping = 9.0;
+        const stiffness = 62;
+        const damping = 8.4;
         hairVelX += ((desiredLagX - state.hairLagX) * stiffness - hairVelX * damping) * clampedDt;
         hairVelY += ((desiredLagY - state.hairLagY) * stiffness - hairVelY * damping) * clampedDt;
-        state.hairLagX = clamp(state.hairLagX + hairVelX * clampedDt, -0.065, 0.065);
-        state.hairLagY = clamp(state.hairLagY + hairVelY * clampedDt, -0.045, 0.045);
+        state.hairLagX = clamp(state.hairLagX + hairVelX * clampedDt, -0.085, 0.085);
+        state.hairLagY = clamp(state.hairLagY + hairVelY * clampedDt, -0.055, 0.055);
       }
 
       state.listenPulse = expApproach(state.listenPulse, target.listenPulse, 9, clampedDt);
@@ -745,15 +756,18 @@ export function buildPortraitSourceFromRgba(
         (x + 2 < width && outside[idx + 2]);
 
       if (ink > 0.35) {
-        const crownSheen = Math.exp(-(((uy - 0.14) * 5.0) ** 2)) * 0.14;
+        const crownSheen = Math.exp(-(((uy - 0.14) * 5.0) ** 2)) * 0.16;
         const strandWave =
-          ux > 0.48 && ux < 0.85 && uy > 0.25 && uy < 0.88
-            ? Math.max(0, Math.sin((ux - uy * 0.22) * 34)) * 0.085 * (1 - smoothstep(0.75, 0.92, uy))
+          ux > 0.44 && ux < 0.86 && uy > 0.24 && uy < 0.90
+            ? Math.max(0, Math.sin((ux - uy * 0.22) * 34)) * 0.135 * (1 - smoothstep(0.76, 0.94, uy))
             : 0;
         const curlSheen =
-          uy > 0.56 ? Math.exp(-(((ux - 0.72) * 4.5) ** 2)) * 0.09 : 0;
-        const rimGlow = nearOut ? 0.46 : 0;
-        baseLum[idx] = clamp01((0.03 + crownSheen + strandWave + curlSheen + rimGlow) * bottomFade);
+          uy > 0.54
+            ? (Math.exp(-(((ux - 0.72) * 4.2) ** 2)) * 0.12 +
+                Math.exp(-(((ux - 0.16) * 5.2) ** 2)) * 0.11)
+            : 0;
+        const rimGlow = nearOut ? 0.52 : 0;
+        baseLum[idx] = clamp01((0.055 + crownSheen + strandWave + curlSheen + rimGlow) * bottomFade);
       } else {
         const isHeadbandOrShine = uy < 0.36;
         if (isHeadbandOrShine) {
@@ -1150,7 +1164,7 @@ export function buildPortraitBankFromSpriteSheet(
       const anchorCx = cntX > 0 ? sumX / cntX : cw * 0.5;
       const anchorCrownY = foundCrown ? crownY : ch * 0.06;
 
-      // 4) Resample aligned panel into canonical targetSize x targetSize RGBA buffer
+      // 4) Resample aligned panel into canonical targetSize x targetSize RGBA buffer with clean bilinear interpolation
       const aligned = new Uint8ClampedArray(targetSize * targetSize * 4);
       const scale = Math.min(cw, ch) * 0.94;
       const dstCx = targetSize * 0.505;
@@ -1158,23 +1172,56 @@ export function buildPortraitBankFromSpriteSheet(
 
       for (let ty = 0; ty < targetSize; ty++) {
         const srcY = anchorCrownY + ((ty - dstCrownY) / targetSize) * scale;
+        if (srcY < 0 || srcY >= ch - 1) continue;
+        const y0i = srcY | 0;
+        const y1i = y0i + 1 < ch ? y0i + 1 : y0i;
+        const fty = srcY - y0i;
         for (let tx = 0; tx < targetSize; tx++) {
           const srcX = anchorCx + ((tx - dstCx) / targetSize) * scale;
           const outIdx = (ty * targetSize + tx) * 4;
-          if (srcX < 0 || srcX >= cw - 1 || srcY < 0 || srcY >= ch - 1) {
+          if (srcX < 0 || srcX >= cw - 1) {
             aligned[outIdx + 3] = 0;
             continue;
           }
-          const sx = Math.round(srcX);
-          const sy = Math.round(srcY);
-          const sIdx = sy * cw + sx;
-          if (outside[sIdx]) {
+          const x0i = srcX | 0;
+          const x1i = x0i + 1 < cw ? x0i + 1 : x0i;
+          const ftx = srcX - x0i;
+          const i00 = y0i * cw + x0i;
+          const i10 = y0i * cw + x1i;
+          const i01 = y1i * cw + x0i;
+          const i11 = y1i * cw + x1i;
+
+          const a00 = outside[i00] ? 0 : 1;
+          const a10 = outside[i10] ? 0 : 1;
+          const a01 = outside[i01] ? 0 : 1;
+          const a11 = outside[i11] ? 0 : 1;
+          const w00 = (1 - ftx) * (1 - fty) * a00;
+          const w10 = ftx * (1 - fty) * a10;
+          const w01 = (1 - ftx) * fty * a01;
+          const w11 = ftx * fty * a11;
+          const wSum = w00 + w10 + w01 + w11;
+          if (wSum < 0.48) {
             aligned[outIdx + 3] = 0;
             continue;
           }
-          aligned[outIdx] = cellRgb[sIdx * 3];
-          aligned[outIdx + 1] = cellRgb[sIdx * 3 + 1];
-          aligned[outIdx + 2] = cellRgb[sIdx * 3 + 2];
+          const invW = 1 / wSum;
+          aligned[outIdx] = Math.round(
+            (cellRgb[i00 * 3] * w00 + cellRgb[i10 * 3] * w10 + cellRgb[i01 * 3] * w01 + cellRgb[i11 * 3] * w11) * invW
+          );
+          aligned[outIdx + 1] = Math.round(
+            (cellRgb[i00 * 3 + 1] * w00 +
+              cellRgb[i10 * 3 + 1] * w10 +
+              cellRgb[i01 * 3 + 1] * w01 +
+              cellRgb[i11 * 3 + 1] * w11) *
+              invW
+          );
+          aligned[outIdx + 2] = Math.round(
+            (cellRgb[i00 * 3 + 2] * w00 +
+              cellRgb[i10 * 3 + 2] * w10 +
+              cellRgb[i01 * 3 + 2] * w01 +
+              cellRgb[i11 * 3 + 2] * w11) *
+              invW
+          );
           aligned[outIdx + 3] = 255;
         }
       }
@@ -1740,7 +1787,9 @@ function sampleReferenceWithExpression(
     (motion.headYaw > 0 ? -0.016 * motion.headYaw * faceZone : 0);
 
   // 3. Overlapping multi-zone kinematics around neck pivot (0.38, 0.74)
+  // Keep face/chin plane anchored while outer side-locks & back hair carry secondary hair follow-through
   const lowerFactor = framedY <= 0.45 ? 0 : framedY >= 0.90 ? 1 : smoothstep(0.45, 0.90, framedY);
+  const hairPlaneWeight = 1 - faceZone * 0.85;
   const bangFactor =
     framedY >= 0.42 || framedX <= 0.10
       ? 0
@@ -1750,11 +1799,12 @@ function sampleReferenceWithExpression(
 
   const localSwayX =
     motion.headSwayX +
-    motion.hairLagX * lowerFactor +
-    motion.hairLagX * 0.38 * bangFactor;
+    motion.hairLagX * lowerFactor * hairPlaneWeight * 1.18 +
+    motion.hairLagX * 0.42 * bangFactor;
   const localNodY =
     lerp(motion.headNodY, motion.shoulderY, shoulderFactor) +
-    motion.hairLagY * lowerFactor;
+    motion.hairLagY * lowerFactor * hairPlaneWeight +
+    motion.hairLagY * 0.22 * bangFactor;
 
   const pivotX = 0.38;
   const pivotY = 0.74;
@@ -1923,16 +1973,18 @@ function sampleSpriteBankWithExpression(
     (motion.headYaw > 0 ? -0.014 * motion.headYaw * faceZone : 0);
 
   const lowerFactor = smoothstep(0.45, 0.90, framedY);
+  const hairPlaneWeight = 1 - faceZone * 0.85;
   const bangFactor = (1 - smoothstep(0.28, 0.42, framedY)) * smoothstep(0.10, 0.32, framedX);
   const shoulderFactor = smoothstep(0.70, 0.94, framedY);
 
   const localSwayX =
     motion.headSwayX +
-    motion.hairLagX * lowerFactor +
-    motion.hairLagX * 0.38 * bangFactor;
+    motion.hairLagX * lowerFactor * hairPlaneWeight * 1.18 +
+    motion.hairLagX * 0.42 * bangFactor;
   const localNodY =
     lerp(motion.headNodY, motion.shoulderY, shoulderFactor) +
-    motion.hairLagY * lowerFactor;
+    motion.hairLagY * lowerFactor * hairPlaneWeight +
+    motion.hairLagY * 0.22 * bangFactor;
 
   const pivotX = 0.42;
   const pivotY = 0.74;
