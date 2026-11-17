@@ -135,6 +135,27 @@ function sdEllipsoid(x: number, y: number, z: number, rx: number, ry: number, rz
   return (k0 * (k0 - 1)) / k1;
 }
 
+function sdEllipsoidInv(
+  x: number,
+  y: number,
+  z: number,
+  irx: number,
+  iry: number,
+  irz: number,
+  minR: number
+): number {
+  const x0 = x * irx;
+  const y0 = y * iry;
+  const z0 = z * irz;
+  const k0 = Math.sqrt(x0 * x0 + y0 * y0 + z0 * z0);
+  if (k0 < 1e-6) return -minR;
+  const x1 = x0 * irx;
+  const y1 = y0 * iry;
+  const z1 = z0 * irz;
+  const k1 = Math.sqrt(x1 * x1 + y1 * y1 + z1 * z1) || 1;
+  return (k0 * (k0 - 1)) / k1;
+}
+
 function sdBox(x: number, y: number, z: number, bx: number, by: number, bz: number): number {
   const qx = (x < 0 ? -x : x) - bx;
   const qy = (y < 0 ? -y : y) - by;
@@ -337,12 +358,171 @@ function buildFramePrecompute(params: Ascii3DParams): FramePrecompute {
 }
 
 let lastHitMat = MAT_BG;
+let sdfBestD = 99;
+let sdfBestMat = MAT_BG;
+
+function evalHeadAssembly(px: number, py: number, pz: number, fc: FramePrecompute): void {
+  const hpx = px * fc.cYaw + pz * fc.sYaw;
+  const hpz = -px * fc.sYaw + pz * fc.cYaw;
+  const hax = hpx < 0 ? -hpx : hpx;
+
+  const cranium = sdEllipsoidInv(hpx, py - 0.13, hpz, 1.6393443, 1.4705882, 1.7241379, 0.58);
+  const chin = py < 0.38 ? sdEllipsoidInv(hpx, py + 0.26, hpz - 0.09, 2.5641026, 2.3255814, 2.2222222, 0.39) : 99;
+  let headDist = smin(cranium, chin, 0.22);
+  if (hpz > 0.24 && hax < 0.32 && py > -0.35 && py < 0.32) {
+    const nose = sdCapsule(hpx, py, hpz, 0, 0.07, 0.54, 0, -0.09, 0.62, 0.048);
+    headDist = smin(headDist, nose, 0.05);
+  }
+  if (hpz > 0.40 && hax < 0.42 && py > -0.10 && py < 0.26) {
+    const eyeSocket = sdEllipsoidInv(hax - 0.22, py - 0.08, hpz - 0.56, 7.4074074, 8.0, 12.5, 0.08);
+    if (eyeSocket < 0) headDist = Math.max(headDist, -eyeSocket * 0.65);
+  }
+  if (hpz > 0.26 && hax < 0.34 && py > -0.48 && py < -0.02) {
+    const smileBend = fc.isSmile ? hpx * hpx * 0.42 : 0;
+    const mouthCavity = sdEllipsoid(hpx, py + 0.27 - smileBend, hpz - 0.49, fc.mouthRx, fc.mouthRy, 0.16);
+    if (mouthCavity < 0) headDist = Math.max(headDist, -mouthCavity);
+  }
+  if (headDist < sdfBestD) {
+    sdfBestD = headDist;
+    sdfBestMat = MAT_BODY;
+  }
+
+  if (fc.mouthOpen && hpz > 0.10 && hax < 0.42 && py > -0.58 && py < 0.08) {
+    const vocalCore = sdEllipsoid(hpx, py + 0.27, hpz - 0.43, fc.mouthRx * 0.76, fc.mouthRy * 0.78, 0.09);
+    if (vocalCore < sdfBestD) {
+      sdfBestD = vocalCore;
+      sdfBestMat = MAT_MOUTH;
+    }
+  }
+
+  const hairBack = sdEllipsoidInv(hpx, py - 0.16, hpz + 0.14, 1.4084507, 1.2987013, 1.5625, 0.64);
+  let hairShell = hairBack;
+  if (hpz > -0.20) {
+    const faceWindow = sdEllipsoidInv(hpx, py + 0.01, hpz - 0.36, 1.9230769, 1.7857143, 2.0833333, 0.48);
+    if (-faceWindow > hairShell) hairShell = -faceWindow;
+  }
+  const bangL = hpx < 0.06 && hpz > 0.04 && py > -0.45 ? sdCapsule(hpx, py, hpz, -0.22, 0.72, 0.33, -0.56, -0.2, 0.36, 0.125) : 99;
+  const bangR = hpx > -0.06 && hpz > 0.04 && py > -0.45 ? sdCapsule(hpx, py, hpz, 0.22, 0.72, 0.33, 0.56, -0.2, 0.36, 0.125) : 99;
+  const bangC = hax < 0.28 && hpz > 0.18 && py > 0.15 ? sdCapsule(hpx, py, hpz, 0.04, 0.76, 0.44, -0.06, 0.41, 0.52, 0.085) : 99;
+  const hairMin = hairShell < bangL ? (hairShell < bangR ? hairShell : bangR) : (bangL < bangR ? bangL : bangR);
+  const hairDist = smin(hairMin, bangC, 0.07);
+  if (hairDist < sdfBestD) {
+    sdfBestD = hairDist;
+    sdfBestMat = MAT_HAIR;
+  }
+
+  if (hpz > 0.18 && py > -0.22 && py < 0.38 && hax < 0.50) {
+    const eyeDist = sdEllipsoid(hax - 0.22 - fc.eyeGazeX, py - 0.08, hpz - 0.53, 0.115, fc.eyeScaleY, 0.09);
+    if (eyeDist < sdfBestD) {
+      sdfBestD = eyeDist;
+      sdfBestMat = MAT_EYE;
+    }
+  }
+
+  if (hpz > 0.22 && py > 0.05 && py < 0.48 && hax < 0.50) {
+    const bx0 = hax - 0.22;
+    const by0 = py - 0.26;
+    const browDist = sdBox(bx0 * fc.cBrow - by0 * fc.sBrow, bx0 * fc.sBrow + by0 * fc.cBrow, hpz - 0.54, 0.125, 0.024, 0.042);
+    if (browDist < sdfBestD) {
+      sdfBestD = browDist;
+      sdfBestMat = MAT_HAIR;
+    }
+  }
+
+  if (hpz > 0.20 && py > 0.30 && py < 0.80 && hax < 0.36) {
+    const vx0 = hpx;
+    const vy0 = py - 0.54;
+    const visorDist = sdBox((vx0 - vy0) * 0.7071, (vx0 + vy0) * 0.7071, hpz - 0.53, 0.085, 0.085, 0.052);
+    if (visorDist < sdfBestD) {
+      sdfBestD = visorDist;
+      sdfBestMat = MAT_VISOR;
+    }
+  }
+}
+
+function evalRingsAssembly(wx: number, wy: number, wz: number, fc: FramePrecompute): void {
+  const r1x = wx * fc.cR1Y + wz * fc.sR1Y;
+  const r1z = -wx * fc.sR1Y + wz * fc.cR1Y;
+  const r1y = wy * 0.94 - r1z * 0.34;
+  const r1zz = wy * 0.34 + r1z * 0.94;
+  const ring1 = sdTorus(r1x, r1y - 0.66, r1zz, 1.38, 0.028);
+  if (ring1 < sdfBestD) {
+    sdfBestD = ring1;
+    sdfBestMat = MAT_RING;
+  }
+  const r2x = wx * fc.cR2Y + wz * fc.sR2Y;
+  const r2z = -wx * fc.sR2Y + wz * fc.cR2Y;
+  const r2y = wy * 0.88 + r2z * 0.47;
+  const r2zz = -wy * 0.47 + r2z * 0.88;
+  const ring2 = sdTorus(r2x, r2y + 0.58, r2zz, 1.62, 0.022);
+  if (ring2 < sdfBestD) {
+    sdfBestD = ring2;
+    sdfBestMat = MAT_RING;
+  }
+  const o1dx = wx - fc.orb1X;
+  const o1dz = wz - fc.orb1Z;
+  const orb1 = sdOctahedron(o1dx * fc.cOrbSpin - o1dz * fc.sOrbSpin, wy - fc.orb1Y, o1dx * fc.sOrbSpin + o1dz * fc.cOrbSpin, 0.115);
+  const o2dx = wx - fc.orb2X;
+  const o2dz = wz - fc.orb2Z;
+  const orb2 = sdOctahedron(o2dx * fc.cOrbSpin + o2dz * fc.sOrbSpin, wy - fc.orb2Y, -o2dx * fc.sOrbSpin + o2dz * fc.cOrbSpin, 0.115);
+  const orbDist = orb1 < orb2 ? orb1 : orb2;
+  if (orbDist < sdfBestD) {
+    sdfBestD = orbDist;
+    sdfBestMat = MAT_ORB;
+  }
+  if (fc.pulseActive) {
+    const pulseRing = sdTorus(wx, wy + 0.55, wz, fc.pulseRadius, 0.018 + fc.energy * 0.015);
+    if (pulseRing < sdfBestD) {
+      sdfBestD = pulseRing;
+      sdfBestMat = MAT_PULSE;
+    }
+  }
+}
+
+function evalTorsoAssembly(px: number, py: number, pz: number): void {
+  const neck = sdCapsule(px, py, pz, 0, -0.45, -0.02, 0, -0.82, -0.04, 0.185);
+  const shoulders = sdEllipsoidInv(px, py + 1.08, pz + 0.04, 1.0526316, 2.2222222, 2.2727273, 0.44);
+  const collar = sdTorus(px, py + 0.72, pz + 0.02, 0.33, 0.07);
+  const torsoDist = smin(smin(neck, shoulders, 0.19), collar, 0.08);
+  if (torsoDist < sdfBestD) {
+    sdfBestD = torsoDist;
+    sdfBestMat = MAT_BODY;
+  }
+}
+
+function evalWingAssembly(ax: number, py: number, pz: number, fc: FramePrecompute): void {
+  const wx0 = ax - 0.68;
+  const wy0 = py - 0.38;
+  const wbx = wx0 * fc.cWing - wy0 * fc.sWing;
+  const wby = wx0 * fc.sWing + wy0 * fc.cWing;
+  const wbz = pz + 0.04;
+  const earCup = sdEllipsoidInv(ax - 0.65, py - 0.02, pz + 0.02, 9.0909091, 5.0, 6.25, 0.11);
+  const w1 = sdBox(wbx - 0.36, wby - 0.21, wbz, 0.44, 0.072, 0.055);
+  const w2 = sdBox(wbx - 0.28, wby - 0.04, wbz, 0.35, 0.065, 0.05);
+  const w3 = sdBox(wbx - 0.19, wby + 0.12, wbz, 0.26, 0.056, 0.046);
+  const w4 = sdBox(wbx - 0.11, wby + 0.26, wbz, 0.17, 0.045, 0.04);
+  const wingDist = Math.min(earCup, Math.min(Math.min(w1, w2), Math.min(w3, w4)));
+  if (wingDist < sdfBestD) {
+    sdfBestD = wingDist;
+    sdfBestMat = MAT_WING;
+  }
+}
+
+function evalPillarAssembly(awx: number, wy: number, wz: number, fc: FramePrecompute): void {
+  const p0 = sdBox(awx - 1.34, wy + 1.38 - fc.pillarH0, wz + 0.55, 0.075, fc.pillarH0, 0.075);
+  const p1 = sdBox(awx - 1.56, wy + 1.38 - fc.pillarH1, wz + 0.68, 0.075, fc.pillarH1, 0.075);
+  const p2 = sdBox(awx - 1.78, wy + 1.38 - fc.pillarH2, wz + 0.82, 0.075, fc.pillarH2, 0.075);
+  const pillarDist = p0 < p1 ? (p0 < p2 ? p0 : p2) : (p1 < p2 ? p1 : p2);
+  if (pillarDist < sdfBestD) {
+    sdfBestD = pillarDist;
+    sdfBestMat = MAT_PILLAR;
+  }
+}
 
 /**
  * Hierarchical conservative-bounded SDF evaluation:
  * Computes cheap bounding-sphere lower bounds for every sub-assembly first,
- * skipping exact primitive evaluations for sub-assemblies strictly farther than `minD`.
- * Far from all geometry (> 0.26), returns the exact conservative lower bound directly.
+ * skipping exact primitive evaluations for sub-assemblies strictly farther than `sdfBestD`.
  */
 function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, exactMode = false): number {
   const y0 = wy - fc.breathY;
@@ -355,8 +535,6 @@ function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, ex
   const awy = wy < 0 ? -wy : wy;
   const awz = wz < 0 ? -wz : wz;
 
-  // Zero-sqrt conservative Cauchy-Schwarz lower bounds for sub-assemblies:
-  // (|dx| + |dy| + |dz|) * 0.57735026 <= sqrt(dx^2 + dy^2 + dz^2) everywhere.
   const bHead = (ax + Math.abs(py - 0.1) + Math.abs(pz - 0.04)) * 0.57735026 - 0.96;
   const bTorso = (ax + Math.abs(py + 0.85) + Math.abs(pz + 0.02)) * 0.57735026 - 1.12;
   const bWing =
@@ -366,10 +544,8 @@ function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, ex
   const r2 = wx * wx + wy * wy + wz * wz;
   let bRings: number;
   if (r2 >= 3.5344) {
-    // r >= 1.88 -> outside outer shell (1.52 + 0.36)
     bRings = (awx + awy + awz) * 0.57735026 - 1.88;
   } else if (r2 <= 1.3456) {
-    // r <= 1.16 -> inside inner shell (1.52 - 0.36)
     const rUpper = awx + awy + awz;
     bRings = rUpper < 1.16 ? 1.16 - rUpper : Math.abs(Math.sqrt(r2) - 1.52) - 0.36;
   } else {
@@ -386,197 +562,40 @@ function evalSdfFast(wx: number, wy: number, wz: number, fc: FramePrecompute, ex
   if (bRings < minBound) minBound = bRings;
   if (bPillars < minBound) minBound = bPillars;
 
-  // Safe empty-space acceleration: when strictly outside all sub-assembly envelopes, step by minBound
-  if (!exactMode && minBound > 0.20) {
+  if (!exactMode && minBound > 0.08) {
     lastHitMat = MAT_BG;
     return minBound;
   }
 
-  // Evaluate assembly bounds in strict tight-first check without allocating closures:
-  // If we hit a tight bound first, `minD` drops immediately and skips all farther assemblies.
-  let minD = 99;
-  let mat = MAT_BG;
+  sdfBestD = 99;
+  sdfBestMat = MAT_BG;
+  let evaluated = 0;
 
-  // Stage 1: Evaluate the closest bounding assembly first
-  let evaluated = 0; // bitmask: 1=head, 2=torso, 4=wing, 8=rings, 16=pillars
-  if (bRings === minBound) {
-    evaluated |= 8;
-    const r1x = wx * fc.cR1Y + wz * fc.sR1Y;
-    const r1z = -wx * fc.sR1Y + wz * fc.cR1Y;
-    const r1y = wy * 0.94 - r1z * 0.34;
-    const r1zz = wy * 0.34 + r1z * 0.94;
-    const ring1 = sdTorus(r1x, r1y - 0.66, r1zz, 1.38, 0.028);
-    if (ring1 < minD) { minD = ring1; mat = MAT_RING; }
-    const r2x = wx * fc.cR2Y + wz * fc.sR2Y;
-    const r2z = -wx * fc.sR2Y + wz * fc.cR2Y;
-    const r2y = wy * 0.88 + r2z * 0.47;
-    const r2zz = -wy * 0.47 + r2z * 0.88;
-    const ring2 = sdTorus(r2x, r2y + 0.58, r2zz, 1.62, 0.022);
-    if (ring2 < minD) { minD = ring2; mat = MAT_RING; }
-    const o1dx = wx - fc.orb1X;
-    const o1dz = wz - fc.orb1Z;
-    const orb1 = sdOctahedron(o1dx * fc.cOrbSpin - o1dz * fc.sOrbSpin, wy - fc.orb1Y, o1dx * fc.sOrbSpin + o1dz * fc.cOrbSpin, 0.115);
-    const o2dx = wx - fc.orb2X;
-    const o2dz = wz - fc.orb2Z;
-    const orb2 = sdOctahedron(o2dx * fc.cOrbSpin + o2dz * fc.sOrbSpin, wy - fc.orb2Y, -o2dx * fc.sOrbSpin + o2dz * fc.cOrbSpin, 0.115);
-    const orbDist = orb1 < orb2 ? orb1 : orb2;
-    if (orbDist < minD) { minD = orbDist; mat = MAT_ORB; }
-    if (fc.pulseActive) {
-      const pulseRing = sdTorus(wx, wy + 0.55, wz, fc.pulseRadius, 0.018 + fc.energy * 0.015);
-      if (pulseRing < minD) { minD = pulseRing; mat = MAT_PULSE; }
-    }
+  if (bHead === minBound) {
+    evaluated = 1;
+    evalHeadAssembly(px, py, pz, fc);
+  } else if (bRings === minBound) {
+    evaluated = 8;
+    evalRingsAssembly(wx, wy, wz, fc);
   } else if (bPillars === minBound) {
-    evaluated |= 16;
-    const pDist0 = sdBox(awx - 1.34, wy + 1.38 - fc.pillarH0, wz + 0.55, 0.075, fc.pillarH0, 0.075);
-    const pDist1 = sdBox(awx - 1.56, wy + 1.38 - fc.pillarH1, wz + 0.68, 0.075, fc.pillarH1, 0.075);
-    const pDist2 = sdBox(awx - 1.78, wy + 1.38 - fc.pillarH2, wz + 0.82, 0.075, fc.pillarH2, 0.075);
-    const pillarDist = Math.min(pDist0, Math.min(pDist1, pDist2));
-    if (pillarDist < minD) { minD = pillarDist; mat = MAT_PILLAR; }
+    evaluated = 16;
+    evalPillarAssembly(awx, wy, wz, fc);
   } else if (bWing === minBound) {
-    evaluated |= 4;
-    const wx0 = ax - 0.68;
-    const wy0 = py - 0.38;
-    const wbx = wx0 * fc.cWing - wy0 * fc.sWing;
-    const wby = wx0 * fc.sWing + wy0 * fc.cWing;
-    const wbz = pz + 0.04;
-    const earCup = sdEllipsoid(ax - 0.65, py - 0.02, pz + 0.02, 0.11, 0.2, 0.16);
-    const w1 = sdBox(wbx - 0.36, wby - 0.21, wbz, 0.44, 0.072, 0.055);
-    const w2 = sdBox(wbx - 0.28, wby - 0.04, wbz, 0.35, 0.065, 0.05);
-    const w3 = sdBox(wbx - 0.19, wby + 0.12, wbz, 0.26, 0.056, 0.046);
-    const w4 = sdBox(wbx - 0.11, wby + 0.26, wbz, 0.17, 0.045, 0.04);
-    const wingDist = Math.min(earCup, Math.min(Math.min(w1, w2), Math.min(w3, w4)));
-    if (wingDist < minD) { minD = wingDist; mat = MAT_WING; }
-  } else if (bTorso === minBound) {
-    evaluated |= 2;
-    const neck = sdCapsule(px, py, pz, 0, -0.45, -0.02, 0, -0.82, -0.04, 0.185);
-    const shoulders = sdEllipsoid(px, py + 1.08, pz + 0.04, 0.95, 0.45, 0.44);
-    const collar = sdTorus(px, py + 0.72, pz + 0.02, 0.33, 0.07);
-    const torsoDist = smin(smin(neck, shoulders, 0.19), collar, 0.08);
-    if (torsoDist < minD) { minD = torsoDist; mat = MAT_BODY; }
+    evaluated = 4;
+    evalWingAssembly(ax, py, pz, fc);
+  } else {
+    evaluated = 2;
+    evalTorsoAssembly(px, py, pz);
   }
 
-  // Stage 2: Remaining assemblies only if their conservative bound < current minD
-  if ((evaluated & 1) === 0 && bHead < minD) {
-    const hpx = px * fc.cYaw + pz * fc.sYaw;
-    const hpz = -px * fc.sYaw + pz * fc.cYaw;
-    const hax = hpx < 0 ? -hpx : hpx;
+  if ((evaluated & 1) === 0 && bHead < sdfBestD) evalHeadAssembly(px, py, pz, fc);
+  if ((evaluated & 2) === 0 && bTorso < sdfBestD) evalTorsoAssembly(px, py, pz);
+  if ((evaluated & 4) === 0 && bWing < sdfBestD) evalWingAssembly(ax, py, pz, fc);
+  if ((evaluated & 8) === 0 && bRings < sdfBestD) evalRingsAssembly(wx, wy, wz, fc);
+  if ((evaluated & 16) === 0 && bPillars < sdfBestD) evalPillarAssembly(awx, wy, wz, fc);
 
-    const cranium = sdEllipsoid(hpx, py - 0.13, hpz, 0.61, 0.68, 0.58);
-    const chin = py < 0.38 ? sdEllipsoid(hpx, py + 0.26, hpz - 0.09, 0.39, 0.43, 0.45) : 99;
-    let headDist = smin(cranium, chin, 0.22);
-    if (hpz > 0.24 && hax < 0.32 && py > -0.35 && py < 0.32) {
-      const nose = sdCapsule(hpx, py, hpz, 0, 0.07, 0.54, 0, -0.09, 0.62, 0.048);
-      headDist = smin(headDist, nose, 0.05);
-    }
-    if (hpz > 0.40 && hax < 0.42 && py > -0.10 && py < 0.26) {
-      const eyeSocket = sdEllipsoid(hax - 0.22, py - 0.08, hpz - 0.56, 0.135, 0.125, 0.08);
-      if (eyeSocket < 0) headDist = Math.max(headDist, -eyeSocket * 0.65);
-    }
-    if (hpz > 0.26 && hax < 0.34 && py > -0.48 && py < -0.02) {
-      const smileBend = fc.isSmile ? hpx * hpx * 0.42 : 0;
-      const mouthCavity = sdEllipsoid(hpx, py + 0.27 - smileBend, hpz - 0.49, fc.mouthRx, fc.mouthRy, 0.16);
-      if (mouthCavity < 0) headDist = Math.max(headDist, -mouthCavity);
-    }
-    if (headDist < minD) { minD = headDist; mat = MAT_BODY; }
-
-    if (fc.mouthOpen && hpz > 0.10 && hax < 0.42 && py > -0.58 && py < 0.08) {
-      const vocalCore = sdEllipsoid(hpx, py + 0.27, hpz - 0.43, fc.mouthRx * 0.76, fc.mouthRy * 0.78, 0.09);
-      if (vocalCore < minD) { minD = vocalCore; mat = MAT_MOUTH; }
-    }
-
-    const hairBack = sdEllipsoid(hpx, py - 0.16, hpz + 0.14, 0.71, 0.77, 0.64);
-    let hairShell = hairBack;
-    if (hpz > -0.20) {
-      const faceWindow = sdEllipsoid(hpx, py + 0.01, hpz - 0.36, 0.52, 0.56, 0.48);
-      if (-faceWindow > hairShell) hairShell = -faceWindow;
-    }
-    const bangL = hpx < 0.06 && hpz > 0.04 && py > -0.45 ? sdCapsule(hpx, py, hpz, -0.22, 0.72, 0.33, -0.56, -0.2, 0.36, 0.125) : 99;
-    const bangR = hpx > -0.06 && hpz > 0.04 && py > -0.45 ? sdCapsule(hpx, py, hpz, 0.22, 0.72, 0.33, 0.56, -0.2, 0.36, 0.125) : 99;
-    const bangC = hax < 0.28 && hpz > 0.18 && py > 0.15 ? sdCapsule(hpx, py, hpz, 0.04, 0.76, 0.44, -0.06, 0.41, 0.52, 0.085) : 99;
-    const hairMin = hairShell < bangL ? (hairShell < bangR ? hairShell : bangR) : (bangL < bangR ? bangL : bangR);
-    const hairDist = smin(hairMin, bangC, 0.07);
-    if (hairDist < minD) { minD = hairDist; mat = MAT_HAIR; }
-
-    if (hpz > 0.18 && py > -0.22 && py < 0.38 && hax < 0.50) {
-      const eyeDist = sdEllipsoid(hax - 0.22 - fc.eyeGazeX, py - 0.08, hpz - 0.53, 0.115, fc.eyeScaleY, 0.09);
-      if (eyeDist < minD) { minD = eyeDist; mat = MAT_EYE; }
-    }
-
-    if (hpz > 0.22 && py > 0.05 && py < 0.48 && hax < 0.50) {
-      const bx0 = hax - 0.22;
-      const by0 = py - 0.26;
-      const browDist = sdBox(bx0 * fc.cBrow - by0 * fc.sBrow, bx0 * fc.sBrow + by0 * fc.cBrow, hpz - 0.54, 0.125, 0.024, 0.042);
-      if (browDist < minD) { minD = browDist; mat = MAT_HAIR; }
-    }
-
-    if (hpz > 0.20 && py > 0.30 && py < 0.80 && hax < 0.36) {
-      const vx0 = hpx;
-      const vy0 = py - 0.54;
-      const visorDist = sdBox((vx0 - vy0) * 0.7071, (vx0 + vy0) * 0.7071, hpz - 0.53, 0.085, 0.085, 0.052);
-      if (visorDist < minD) { minD = visorDist; mat = MAT_VISOR; }
-    }
-  }
-
-  if ((evaluated & 2) === 0 && bTorso < minD) {
-    const neck = sdCapsule(px, py, pz, 0, -0.45, -0.02, 0, -0.82, -0.04, 0.185);
-    const shoulders = sdEllipsoid(px, py + 1.08, pz + 0.04, 0.95, 0.45, 0.44);
-    const collar = sdTorus(px, py + 0.72, pz + 0.02, 0.33, 0.07);
-    const torsoDist = smin(smin(neck, shoulders, 0.19), collar, 0.08);
-    if (torsoDist < minD) { minD = torsoDist; mat = MAT_BODY; }
-  }
-
-  if ((evaluated & 4) === 0 && bWing < minD) {
-    const wx0 = ax - 0.68;
-    const wy0 = py - 0.38;
-    const wbx = wx0 * fc.cWing - wy0 * fc.sWing;
-    const wby = wx0 * fc.sWing + wy0 * fc.cWing;
-    const wbz = pz + 0.04;
-    const earCup = sdEllipsoid(ax - 0.65, py - 0.02, pz + 0.02, 0.11, 0.2, 0.16);
-    const w1 = sdBox(wbx - 0.36, wby - 0.21, wbz, 0.44, 0.072, 0.055);
-    const w2 = sdBox(wbx - 0.28, wby - 0.04, wbz, 0.35, 0.065, 0.05);
-    const w3 = sdBox(wbx - 0.19, wby + 0.12, wbz, 0.26, 0.056, 0.046);
-    const w4 = sdBox(wbx - 0.11, wby + 0.26, wbz, 0.17, 0.045, 0.04);
-    const wingDist = Math.min(earCup, Math.min(Math.min(w1, w2), Math.min(w3, w4)));
-    if (wingDist < minD) { minD = wingDist; mat = MAT_WING; }
-  }
-
-  if ((evaluated & 8) === 0 && bRings < minD) {
-    const r1x = wx * fc.cR1Y + wz * fc.sR1Y;
-    const r1z = -wx * fc.sR1Y + wz * fc.cR1Y;
-    const r1y = wy * 0.94 - r1z * 0.34;
-    const r1zz = wy * 0.34 + r1z * 0.94;
-    const ring1 = sdTorus(r1x, r1y - 0.66, r1zz, 1.38, 0.028);
-    if (ring1 < minD) { minD = ring1; mat = MAT_RING; }
-    const r2x = wx * fc.cR2Y + wz * fc.sR2Y;
-    const r2z = -wx * fc.sR2Y + wz * fc.cR2Y;
-    const r2y = wy * 0.88 + r2z * 0.47;
-    const r2zz = -wy * 0.47 + r2z * 0.88;
-    const ring2 = sdTorus(r2x, r2y + 0.58, r2zz, 1.62, 0.022);
-    if (ring2 < minD) { minD = ring2; mat = MAT_RING; }
-    const o1dx = wx - fc.orb1X;
-    const o1dz = wz - fc.orb1Z;
-    const orb1 = sdOctahedron(o1dx * fc.cOrbSpin - o1dz * fc.sOrbSpin, wy - fc.orb1Y, o1dx * fc.sOrbSpin + o1dz * fc.cOrbSpin, 0.115);
-    const o2dx = wx - fc.orb2X;
-    const o2dz = wz - fc.orb2Z;
-    const orb2 = sdOctahedron(o2dx * fc.cOrbSpin + o2dz * fc.sOrbSpin, wy - fc.orb2Y, -o2dx * fc.sOrbSpin + o2dz * fc.cOrbSpin, 0.115);
-    const orbDist = orb1 < orb2 ? orb1 : orb2;
-    if (orbDist < minD) { minD = orbDist; mat = MAT_ORB; }
-    if (fc.pulseActive) {
-      const pulseRing = sdTorus(wx, wy + 0.55, wz, fc.pulseRadius, 0.018 + fc.energy * 0.015);
-      if (pulseRing < minD) { minD = pulseRing; mat = MAT_PULSE; }
-    }
-  }
-
-  if ((evaluated & 16) === 0 && bPillars < minD) {
-    const pDist0 = sdBox(awx - 1.34, wy + 1.38 - fc.pillarH0, wz + 0.55, 0.075, fc.pillarH0, 0.075);
-    const pDist1 = sdBox(awx - 1.56, wy + 1.38 - fc.pillarH1, wz + 0.68, 0.075, fc.pillarH1, 0.075);
-    const pDist2 = sdBox(awx - 1.78, wy + 1.38 - fc.pillarH2, wz + 0.82, 0.075, fc.pillarH2, 0.075);
-    const pillarDist = Math.min(pDist0, Math.min(pDist1, pDist2));
-    if (pillarDist < minD) { minD = pillarDist; mat = MAT_PILLAR; }
-  }
-
-  lastHitMat = mat;
-  return minD;
+  lastHitMat = sdfBestMat;
+  return sdfBestD;
 }
 
 export function evaluateSceneSdf(
@@ -597,12 +616,43 @@ let normX = 0;
 let normY = 0;
 let normZ = 1;
 
-function calcNormalFastVoid(x: number, y: number, z: number, fc: FramePrecompute): void {
+function evalRingsDistOnly(wx: number, wy: number, wz: number, fc: FramePrecompute): number {
+  sdfBestD = 99;
+  sdfBestMat = MAT_BG;
+  evalRingsAssembly(wx, wy, wz, fc);
+  return sdfBestD;
+}
+
+function evalPillarDistOnly(wx: number, wy: number, wz: number, fc: FramePrecompute): number {
+  const awx = wx < 0 ? -wx : wx;
+  const p0 = sdBox(awx - 1.34, wy + 1.38 - fc.pillarH0, wz + 0.55, 0.075, fc.pillarH0, 0.075);
+  const p1 = sdBox(awx - 1.56, wy + 1.38 - fc.pillarH1, wz + 0.68, 0.075, fc.pillarH1, 0.075);
+  const p2 = sdBox(awx - 1.78, wy + 1.38 - fc.pillarH2, wz + 0.82, 0.075, fc.pillarH2, 0.075);
+  return p0 < p1 ? (p0 < p2 ? p0 : p2) : (p1 < p2 ? p1 : p2);
+}
+
+function calcNormalFastVoid(x: number, y: number, z: number, fc: FramePrecompute, hintMat = -1): void {
   const e = 0.008;
-  const k1 = evalSdfFast(x + e, y - e, z - e, fc, true);
-  const k2 = evalSdfFast(x - e, y - e, z + e, fc, true);
-  const k3 = evalSdfFast(x - e, y + e, z - e, fc, true);
-  const k4 = evalSdfFast(x + e, y + e, z + e, fc, true);
+  let k1: number;
+  let k2: number;
+  let k3: number;
+  let k4: number;
+  if (hintMat === MAT_RING || hintMat === MAT_ORB || hintMat === MAT_PULSE) {
+    k1 = evalRingsDistOnly(x + e, y - e, z - e, fc);
+    k2 = evalRingsDistOnly(x - e, y - e, z + e, fc);
+    k3 = evalRingsDistOnly(x - e, y + e, z - e, fc);
+    k4 = evalRingsDistOnly(x + e, y + e, z + e, fc);
+  } else if (hintMat === MAT_PILLAR) {
+    k1 = evalPillarDistOnly(x + e, y - e, z - e, fc);
+    k2 = evalPillarDistOnly(x - e, y - e, z + e, fc);
+    k3 = evalPillarDistOnly(x - e, y + e, z - e, fc);
+    k4 = evalPillarDistOnly(x + e, y + e, z + e, fc);
+  } else {
+    k1 = evalSdfFast(x + e, y - e, z - e, fc, true);
+    k2 = evalSdfFast(x - e, y - e, z + e, fc, true);
+    k3 = evalSdfFast(x - e, y + e, z - e, fc, true);
+    k4 = evalSdfFast(x + e, y + e, z + e, fc, true);
+  }
   const nx = k1 - k2 - k3 + k4;
   const ny = -k1 - k2 + k3 + k4;
   const nz = -k1 + k2 - k3 + k4;
@@ -621,14 +671,13 @@ function calcNormalFast(x: number, y: number, z: number, fc: FramePrecompute): V
  * Fast 2-tap SDF Ambient Occlusion for sculpted crevices.
  */
 function calcAOFast(x: number, y: number, z: number, nx: number, ny: number, nz: number, fc: FramePrecompute): number {
-  const d1 = evalSdfFast(x + nx * 0.09, y + ny * 0.09, z + nz * 0.09, fc, true);
-  const d2 = evalSdfFast(x + nx * 0.22, y + ny * 0.22, z + nz * 0.22, fc, true);
-  const occ = (0.09 - d1) * 1.4 + (0.22 - d2) * 0.7;
-  return clamp(1 - occ * 1.35, 0.28, 1);
+  const d1 = evalSdfFast(x + nx * 0.12, y + ny * 0.12, z + nz * 0.12, fc, false);
+  const occ = Math.max(0, 0.12 - d1) * 1.95;
+  return clamp(0.86 + ny * 0.14 - occ * 1.45, 0.30, 1);
 }
 
 /**
- * Soft 6-tap SDF raymarched self-shadowing toward key light.
+ * Fast 2-tap SDF raymarched self-shadowing toward key light.
  */
 function calcSoftShadow(
   ox: number,
@@ -640,16 +689,15 @@ function calcSoftShadow(
   fc: FramePrecompute
 ): number {
   let res = 1.0;
-  let t = 0.12;
-  for (let i = 0; i < 3; i++) {
+  let t = 0.15;
+  for (let i = 0; i < 2; i++) {
     const h = evalSdfFast(ox + lx * t, oy + ly * t, oz + lz * t, fc);
-    if (h < 0.015) return 0.36;
-    const penumbra = (4.0 * h) / t;
+    if (h < 0.015) return 0.38;
+    const penumbra = (3.8 * h) / t;
     if (penumbra < res) res = penumbra;
-    t += clamp(h, 0.14, 0.34);
-    if (t > 1.05) break;
+    t += clamp(h, 0.20, 0.40);
   }
-  return clamp(res, 0.36, 1.0);
+  return clamp(res, 0.38, 1.0);
 }
 
 function mapLuminanceToChar(lum: number, ramp: string, dither: number): string {
@@ -804,11 +852,12 @@ function shadeHitCell(
 
   if (shaderMode === 'holo') {
     const scanWave = 0.62 + 0.38 * Math.sin(hy * 14 - fc.time * 7.2);
+    const glintWave = 0.88 + 0.12 * Math.sin((hx + hy) * 9 - fc.time * 4.2);
     const oneMinusNdv = 1 - clamp(ndotv, 0, 1);
     const fresnel = oneMinusNdv * Math.sqrt(oneMinusNdv);
     const holoLum = clamp(
-      (0.24 + fresnel * 0.76) * scanWave + (hitMat === MAT_EYE || hitMat === MAT_ORB ? 0.38 : 0),
-      0.12,
+      (0.24 + fresnel * 0.78) * scanWave * glintWave + (hitMat === MAT_EYE || hitMat === MAT_ORB ? 0.38 : 0),
+      0.14,
       1
     );
     const ch =
@@ -828,20 +877,45 @@ function shadeHitCell(
     return { ch, intensity: holoLum, material: matName };
   }
 
-  // SOLID shader: Key light + 2-tap AO + 3-tap Soft SDF Shadow + Rim Fresnel + Specular
+  // Fast exit for self-illuminated materials (zero wasted AO / shadow raymarch taps)
+  if (hitMat === MAT_EYE) {
+    return { ch: '◉', intensity: clamp(0.90 + fc.energy * 0.10, 0.88, 1), material: matName };
+  }
+  if (hitMat === MAT_VISOR) {
+    return { ch: '◈', intensity: clamp(0.90 + fc.energy * 0.10, 0.88, 1), material: matName };
+  }
+  if (hitMat === MAT_MOUTH) {
+    return {
+      ch: fc.viseme === 'round' ? 'o' : 'O',
+      intensity: clamp(0.68 + (fc.isSpeaking ? fc.energy * 0.32 : 0.12), 0.62, 1),
+      material: matName,
+    };
+  }
   const keyX = 0.468;
   const keyY = 0.585;
   const keyZ = 0.663;
-  const ao = calcAOFast(hx, hy, hz, nX, nY, nZ, fc);
   const diffRaw = Math.max(0, nX * keyX + nY * keyY + nZ * keyZ);
+  if (hitMat === MAT_RING || hitMat === MAT_PILLAR || hitMat === MAT_ORB || hitMat === MAT_PULSE) {
+    const lum = clamp(0.56 + diffRaw * 0.36 + fc.energy * 0.28, 0.44, 1);
+    const ch =
+      hitMat === MAT_ORB
+        ? '◆'
+        : hitMat === MAT_PULSE
+        ? '~'
+        : mapLuminanceToChar(lum, CLEAN_RAMP, dither);
+    return { ch, intensity: lum, material: matName };
+  }
+
+  // SOLID sculpted body/hair/wing: 1-tap AO + 2-tap Soft Shadow + Rim Fresnel + Blinn-Phong
+  const ao = calcAOFast(hx, hy, hz, nX, nY, nZ, fc);
   const shadow =
-    diffRaw > 0.12 && (hitMat === MAT_BODY || hitMat === MAT_HAIR)
+    diffRaw > 0.16 && ao > 0.42 && (hitMat === MAT_BODY || hitMat === MAT_HAIR)
       ? calcSoftShadow(hx, hy, hz, keyX, keyY, keyZ, fc)
       : 1.0;
   const diff = diffRaw * shadow;
   const oneMinusNdv = 1 - clamp(ndotv, 0, 1);
-  const rim = oneMinusNdv * oneMinusNdv * (0.52 + fc.energy * 0.48);
-  const rimBack = Math.max(0, nX * -0.808 + nY * 0.303 + nZ * -0.505) * 0.4;
+  const rim = oneMinusNdv * oneMinusNdv * (0.54 + fc.energy * 0.46);
+  const rimBack = Math.max(0, nX * -0.808 + nY * 0.303 + nZ * -0.505) * 0.42;
   const hxV = keyX - rdx;
   const hyV = keyY - rdy;
   const hzV = keyZ - rdz;
@@ -851,38 +925,18 @@ function shadeHitCell(
   const nd4 = nd2 * nd2;
   const nd8 = nd4 * nd4;
   const nd16 = nd8 * nd8;
-  const spec = nd16 * nd4 * nd2 * 0.62 * shadow;
+  const spec = nd16 * nd4 * nd2 * 0.64 * shadow;
 
-  let lum = (0.14 + diff * 0.66) * ao + rim * 0.4 + rimBack + spec;
-  if (hitMat === MAT_EYE || hitMat === MAT_VISOR) {
-    lum = clamp(0.88 + fc.energy * 0.12, 0.86, 1);
-  } else if (hitMat === MAT_MOUTH) {
-    lum = clamp(0.68 + (fc.isSpeaking ? fc.energy * 0.32 : 0.12), 0.62, 1);
-  } else if (hitMat === MAT_RING || hitMat === MAT_PILLAR || hitMat === MAT_ORB || hitMat === MAT_PULSE) {
-    lum = clamp(0.56 + diffRaw * 0.36 + fc.energy * 0.28, 0.44, 1);
-  } else if (hitMat === MAT_HAIR) {
-    lum *= 0.8;
+  let lum = (0.14 + diff * 0.66) * ao + rim * 0.42 + rimBack + spec;
+  if (hitMat === MAT_HAIR) {
+    lum = clamp(lum * 0.80 + rim * 0.10, 0.08, 1);
   } else if (hitMat === MAT_WING) {
     lum = clamp(lum + 0.1 + fc.energy * 0.18, 0.22, 1);
+  } else {
+    lum = clamp(lum, 0.08, 1);
   }
 
-  lum = clamp(lum, 0.08, 1);
-  const ch =
-    hitMat === MAT_EYE
-      ? '◉'
-      : hitMat === MAT_VISOR
-      ? '◈'
-      : hitMat === MAT_ORB
-      ? '◆'
-      : hitMat === MAT_PULSE
-      ? '~'
-      : hitMat === MAT_MOUTH
-      ? fc.viseme === 'round'
-        ? 'o'
-        : 'O'
-      : mapLuminanceToChar(lum, CLEAN_RAMP, dither);
-
-  return { ch, intensity: lum, material: matName };
+  return { ch: mapLuminanceToChar(lum, CLEAN_RAMP, dither), intensity: lum, material: matName };
 }
 
 /**
@@ -962,18 +1016,29 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
 
       if (disc >= 0) {
         const sqrtD = Math.sqrt(disc);
-        const tStart = Math.max(0.4, -b - sqrtD);
-        const tEnd = Math.min(6.4, -b + sqrtD);
-        t = tStart;
-        for (let step = 0; step < 19; step++) {
-          const d = evalSdfFast(camX + rdx * t, camY + rdy * t, camZ + rdz * t, fc);
-          if (d < 0.019) {
-            hit = true;
-            hitMat = lastHitMat;
-            break;
+        let tStart = Math.max(0.4, -b - sqrtD);
+        let tEnd = Math.min(6.4, -b + sqrtD);
+        if (rdy > 1e-4) {
+          tStart = Math.max(tStart, (-1.52 - camY) / rdy);
+          tEnd = Math.min(tEnd, (1.25 - camY) / rdy);
+        } else if (rdy < -1e-4) {
+          tStart = Math.max(tStart, (1.25 - camY) / rdy);
+          tEnd = Math.min(tEnd, (-1.52 - camY) / rdy);
+        } else if (camY < -1.52 || camY > 1.25) {
+          tEnd = tStart - 1;
+        }
+        if (tStart <= tEnd) {
+          t = tStart;
+          for (let step = 0; step < 16; step++) {
+            const d = evalSdfFast(camX + rdx * t, camY + rdy * t, camZ + rdz * t, fc);
+            if (d < 0.019) {
+              hit = true;
+              hitMat = lastHitMat;
+              break;
+            }
+            t += d * 0.99;
+            if (t > tEnd) break;
           }
-          t += d * 0.99;
-          if (t > tEnd) break;
         }
       }
 
@@ -992,10 +1057,27 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
           continue;
         }
 
+        if (shaderMode === 'solid' && (hitMat === MAT_EYE || hitMat === MAT_VISOR || hitMat === MAT_MOUTH)) {
+          nxBuf[idx] = 0;
+          nyBuf[idx] = 0;
+          nzBuf[idx] = 1;
+          cells[idx] =
+            hitMat === MAT_EYE
+              ? { ch: '◉', intensity: clamp(0.90 + fc.energy * 0.10, 0.88, 1), material: matName }
+              : hitMat === MAT_VISOR
+              ? { ch: '◈', intensity: clamp(0.90 + fc.energy * 0.10, 0.88, 1), material: matName }
+              : {
+                  ch: fc.viseme === 'round' ? 'o' : 'O',
+                  intensity: clamp(0.68 + (fc.isSpeaking ? fc.energy * 0.32 : 0.12), 0.62, 1),
+                  material: matName,
+                };
+          continue;
+        }
+
         const hx = camX + rdx * t;
         const hy = camY + rdy * t;
         const hz = camZ + rdz * t;
-        calcNormalFastVoid(hx, hy, hz, fc);
+        calcNormalFastVoid(hx, hy, hz, fc, hitMat);
         const nX = normX;
         const nY = normY;
         const nZ = normZ;
@@ -1080,8 +1162,9 @@ export function renderAscii3DFrame(params: Ascii3DParams): Ascii3DFrame {
         }
       }
 
-      const starHash = Math.sin(c * 12.9898 + r * 78.233) * 43758.5453;
-      const frac = starHash - Math.floor(starHash);
+      let sh = (c * 374761393 + r * 668265263) | 0;
+      sh = Math.imul(sh ^ (sh >>> 13), 1274126177);
+      const frac = ((sh >>> 0) & 0xffff) / 65536;
       if (frac > 0.9935) {
         cells[idx] = {
           ch: '·',

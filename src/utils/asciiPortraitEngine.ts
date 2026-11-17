@@ -45,6 +45,8 @@ export interface PortraitMotionState {
   hairLagY: number;    // normalized UV secondary bounce on lower curls
   shoulderY: number;   // normalized UV decoupled collar/shoulder breathing
   listenPulse: number; // 0 .. 1 active listening/speaking aura
+  speakEnvelope?: number; // smoothed 0..1 speaking cadence envelope
+  smoothEnergy?: number;  // smoothed 0..1 audio energy envelope
 }
 
 export interface PortraitParams {
@@ -233,31 +235,35 @@ export function evaluateNaturalBlinkCurve(
 
 function getTargetMotionFromParams(
   params: PortraitParams,
-  lookTarget?: LookTarget | null
+  lookTarget?: LookTarget | null,
+  speakEnvelopeOverride?: number,
+  smoothEnergyOverride?: number
 ): PortraitMotionState {
   const { time, mood, viseme, eyeState, energy, isSpeaking, isListening } = params;
+  const effEnergy = smoothEnergyOverride ?? energy;
+  const speakEnv = speakEnvelopeOverride ?? (isSpeaking ? 1 : 0);
 
   // Natural rhythmic breathing & overlapping secondary action (organic figure-8 sway)
   const breath = Math.sin(time * 2.35) + Math.sin(time * 4.7 + 0.35) * 0.16;
   const breathLag = Math.sin(time * 2.35 - 0.82) + Math.sin(time * 4.7 - 0.48) * 0.16;
-  const speakCadence = isSpeaking ? Math.sin(time * 7.6) : 0;
-  const speakBounce = isSpeaking ? Math.abs(speakCadence) * (0.011 + energy * 0.018) : 0;
-  const speakNod = isSpeaking ? Math.sin(time * 4.4) * (0.026 + energy * 0.044) : 0;
+  const speakCadence = Math.sin(time * 7.6) * speakEnv;
+  const speakBounce = speakEnv * Math.abs(Math.sin(time * 7.6)) * (0.010 + effEnergy * 0.015);
+  const speakNod = speakEnv * Math.sin(time * 4.4) * (0.022 + effEnergy * 0.036);
 
   // Expressive autonomous 2.5D head yaw & pitch choreography per mood
   let headYaw =
-    Math.sin(time * 1.18) * 0.205 +
-    Math.sin(time * 0.54 + 0.65) * 0.082;
+    Math.sin(time * 1.18) * 0.225 +
+    Math.sin(time * 0.54 + 0.65) * 0.088;
   let headPitch =
-    Math.sin(time * 1.48) * 0.092 +
-    Math.sin(time * 0.68 + 0.4) * 0.030;
+    Math.sin(time * 1.48) * 0.102 +
+    Math.sin(time * 0.68 + 0.4) * 0.034;
 
   if (mood === 'thinking') {
     headYaw = -0.19 + Math.sin(time * 1.05) * 0.092 + Math.sin(time * 0.46) * 0.032;
     headPitch = -0.095 + Math.cos(time * 0.92) * 0.044;
   } else if (mood === 'listening') {
     headYaw = 0.13 + Math.sin(time * 1.38) * 0.095;
-    headPitch = 0.032 + Math.sin(time * 2.35) * (0.044 + energy * 0.048);
+    headPitch = 0.032 + Math.sin(time * 2.35) * (0.044 + effEnergy * 0.048);
   } else if (mood === 'alert') {
     headYaw = 0.16 + Math.sin(time * 2.8) * 0.048;
     headPitch = -0.045 + Math.sin(time * 2.0) * 0.024;
@@ -265,14 +271,14 @@ function getTargetMotionFromParams(
     headYaw = 0.05 + Math.sin(time * 0.88) * 0.088;
     headPitch = 0.03 + Math.sin(time * 1.38) * 0.040;
   } else if (mood === 'happy') {
-    headYaw = 0.06 + Math.sin(time * 1.28) * 0.185 + Math.sin(time * 0.56 + 1.05) * 0.072;
-    headPitch = -0.016 + Math.sin(time * 2.15) * 0.078 + Math.cos(time * 0.85) * 0.030;
+    headYaw = 0.06 + Math.sin(time * 1.28) * 0.205 + Math.sin(time * 0.56 + 1.05) * 0.078;
+    headPitch = -0.016 + Math.sin(time * 2.15) * 0.086 + Math.cos(time * 0.85) * 0.034;
   }
 
-  if (isSpeaking) {
+  if (speakEnv > 0.005) {
     // Conversational emphasis head turns toward viewer & syllable nods
-    headYaw += 0.08 + Math.sin(time * 1.55) * (0.10 + energy * 0.075);
-    headPitch += Math.sin(time * 3.6) * (0.042 + energy * 0.056);
+    headYaw += speakEnv * (0.075 + Math.sin(time * 1.55) * (0.09 + effEnergy * 0.062));
+    headPitch += speakEnv * Math.sin(time * 3.6) * (0.036 + effEnergy * 0.046);
   }
 
   // Blend subtle pointer-tracking head turn when user hovers/moves cursor near portrait
@@ -306,14 +312,12 @@ function getTargetMotionFromParams(
     eyeState === 'blink' ? 1 : eyeState === 'half' ? Math.max(0.46, autoBlink) : autoBlink;
   const squint =
     eyeState === 'happy' || mood === 'happy'
-      ? 0.34 + (isSpeaking ? Math.max(0, speakCadence) * energy * 0.12 : 0)
+      ? 0.34 + Math.max(0, speakCadence) * effEnergy * 0.12
       : eyeState === 'half' || mood === 'focused'
       ? 0.56
       : viseme === 'ee'
       ? 0.22
-      : isSpeaking
-      ? energy * 0.14
-      : 0;
+      : speakEnv * effEnergy * 0.14;
   const wide = eyeState === 'wide' || mood === 'alert' ? 0.88 : 0;
 
   // Dynamic eyebrow micro-expressions (emphasis raises, focused narrows, subtle blink micro-dip)
@@ -324,8 +328,8 @@ function getTargetMotionFromParams(
   else if (mood === 'happy' || eyeState === 'happy') {
     browLift = 0.26 + Math.sin(time * 1.95) * 0.13 + Math.sin(time * 0.65 + 0.5) * 0.05;
   }
-  if (isSpeaking) {
-    browLift += Math.max(0, Math.sin(time * 3.8)) * (0.12 + energy * 0.46);
+  if (speakEnv > 0.005) {
+    browLift += speakEnv * Math.max(0, Math.sin(time * 3.8)) * (0.10 + effEnergy * 0.40);
   }
   browLift -= blink * 0.18;
   browLift = clamp(browLift, -0.45, 1.0);
@@ -424,10 +428,10 @@ function getTargetMotionFromParams(
       break;
   }
 
-  // Natural micro-saccades with realistic fixation holds & crisp glance shifts
+  // Natural micro-saccades with realistic VOR fixation holds & crisp glance shifts
   const fixWindow = Math.floor(time * 0.85);
-  const fixDriftX = Math.sin(time * 1.1) * 0.064;
-  const fixDriftY = Math.cos(time * 0.95) * 0.030;
+  const fixDriftX = Math.sin(time * 1.1) * 0.032;
+  const fixDriftY = Math.cos(time * 0.95) * 0.015;
   const saccadeX =
     ((fixWindow * 7) % 5 === 0 ? 0.28 : (fixWindow * 3) % 4 === 1 ? -0.25 : 0.06) *
     Math.sin(fixWindow * 2.1 + 0.5);
@@ -440,24 +444,25 @@ function getTargetMotionFromParams(
       ? 0.72
       : mood === 'listening'
       ? Math.sin(Math.floor(time * 0.85) * 1.9) * 0.26 + fixDriftX
-      : saccadeX + fixDriftX + clamp((headYaw - 0.04) * 0.42, -0.14, 0.14);
+      : saccadeX + fixDriftX + clamp((headYaw - 0.04) * 0.20, -0.09, 0.09);
   let gazeY =
     mood === 'thinking'
       ? -0.46 + Math.cos(Math.floor(time * 1.15) * 1.3) * 0.16 + fixDriftY
       : mood === 'alert'
       ? -0.10
-      : saccadeY + fixDriftY + clamp(headPitch * 0.35, -0.08, 0.08);
+      : saccadeY + fixDriftY + clamp(headPitch * 0.16, -0.045, 0.045);
 
   if (lookTarget) {
     gazeX = lerp(gazeX, clamp(lookTarget.x * 1.15, -1, 1), 0.75);
     gazeY = lerp(gazeY, clamp(lookTarget.y * 0.9, -1, 1), 0.75);
   }
 
-  const listenPulse = isSpeaking
-    ? clamp01(0.58 + energy * 0.42)
-    : isListening
-    ? clamp01(0.36 + energy * 0.45)
-    : 0;
+  const listenPulse =
+    speakEnv > 0.01
+      ? clamp01((0.55 + effEnergy * 0.45) * speakEnv + (isListening ? (0.34 + effEnergy * 0.45) * (1 - speakEnv) : 0))
+      : isListening
+      ? clamp01(0.36 + effEnergy * 0.45)
+      : 0;
 
   return {
     blink,
@@ -482,19 +487,21 @@ function getTargetMotionFromParams(
     headYaw,
     headPitch,
     headTilt,
-    headNodY: breath * 0.022 - speakBounce,
+    headNodY: breath * 0.026 - speakBounce,
     headSwayX:
-      Math.sin(time * 1.25) * 0.018 +
-      Math.sin(time * 0.56 + 0.7) * 0.007 +
-      (isSpeaking ? Math.sin(time * 3.8) * 0.006 * energy : 0),
+      Math.sin(time * 1.25) * 0.022 +
+      Math.sin(time * 0.56 + 0.7) * 0.008 +
+      speakEnv * Math.sin(time * 3.8) * 0.005 * effEnergy,
     hairLagX:
-      breathLag * 0.042 +
-      (isSpeaking ? Math.sin(time * 4.4 - 0.72) * 0.030 * energy : 0),
+      breathLag * 0.052 +
+      speakEnv * Math.sin(time * 4.4 - 0.72) * 0.024 * effEnergy,
     hairLagY:
-      Math.cos(time * 2.35 - 0.6) * 0.018 +
-      (isSpeaking ? Math.sin(time * 7.6 - 0.65) * 0.015 * energy : 0),
-    shoulderY: breath * 0.028,
+      Math.cos(time * 2.35 - 0.6) * 0.022 +
+      speakEnv * Math.sin(time * 7.6 - 0.65) * 0.012 * effEnergy,
+    shoulderY: breath * 0.040,
     listenPulse,
+    smoothEnergy: effEnergy,
+    speakEnvelope: speakEnv,
   };
 }
 
@@ -532,6 +539,8 @@ export function createPortraitAnimator() {
     hairLagY: 0,
     shoulderY: 0,
     listenPulse: 0,
+    smoothEnergy: 0.08,
+    speakEnvelope: 0,
   };
   let hairVelX = 0;
   let hairVelY = 0;
@@ -542,6 +551,8 @@ export function createPortraitAnimator() {
   let impulseNodOffset = 0;
   let impulsePitchOffset = 0;
   let impulsePitchVel = 0;
+  let smoothEnergy = 0.08;
+  let speakEnvelope = 0;
   let prevHeadTilt = 0;
   let prevHeadYaw = 0;
   let prevHeadNodY = 0;
@@ -550,15 +561,15 @@ export function createPortraitAnimator() {
 
   const triggerImpulse = (kind: 'mood' | 'speak' | 'tap' = 'tap') => {
     if (kind === 'mood' || kind === 'tap') {
-      impulseNodVel = clamp(impulseNodVel + 0.16, -0.26, 0.26);
-      impulsePitchVel = clamp(impulsePitchVel + 0.95, -1.45, 1.45);
-      browVel = clamp(browVel + 2.4, -3.6, 3.6);
-      hairVelX = clamp(hairVelX + 0.22, -0.36, 0.36);
-      hairVelY = clamp(hairVelY + 0.14, -0.22, 0.22);
+      impulseNodVel = clamp(impulseNodVel + 0.12, -0.22, 0.22);
+      impulsePitchVel = clamp(impulsePitchVel + 0.68, -1.15, 1.15);
+      browVel = clamp(browVel + 1.85, -3.0, 3.0);
+      hairVelX = clamp(hairVelX + 0.14, -0.26, 0.26);
+      hairVelY = clamp(hairVelY + 0.095, -0.17, 0.17);
     } else if (kind === 'speak') {
-      impulseNodVel = clamp(impulseNodVel + 0.14, -0.22, 0.22);
-      browVel = clamp(browVel + 2.0, -3.2, 3.2);
-      hairVelY = clamp(hairVelY + 0.1, -0.18, 0.18);
+      impulseNodVel = clamp(impulseNodVel + 0.065, -0.14, 0.14);
+      browVel = clamp(browVel + 1.10, -2.0, 2.0);
+      hairVelY = clamp(hairVelY + 0.048, -0.11, 0.11);
     }
   };
 
@@ -572,17 +583,26 @@ export function createPortraitAnimator() {
     ): PortraitMotionState {
       const clampedDt = Math.min(0.06, Math.max(0.004, dt));
       if (!reducedMotion) {
-        if (prevMood !== null && prevMood !== params.mood) {
-          triggerImpulse('mood');
-        }
         if (!prevSpeaking && params.isSpeaking) {
           triggerImpulse('speak');
+        } else if (prevMood !== null && prevMood !== params.mood && params.mood !== 'speaking') {
+          triggerImpulse('mood');
         }
       }
       prevMood = params.mood;
       prevSpeaking = params.isSpeaking;
 
-      const target = getTargetMotionFromParams(params as PortraitParams, lookTarget);
+      speakEnvelope = expApproach(speakEnvelope, params.isSpeaking ? 1 : 0, 8.2, clampedDt);
+      smoothEnergy = expApproach(smoothEnergy, clamp01(params.energy), params.energy > smoothEnergy ? 8.5 : 6.4, clampedDt);
+      state.speakEnvelope = speakEnvelope;
+      state.smoothEnergy = smoothEnergy;
+
+      const target = getTargetMotionFromParams(
+        params as PortraitParams,
+        lookTarget,
+        speakEnvelope,
+        smoothEnergy
+      );
 
       // Asymmetric crisp blink: fast snap-close (rate 52), graceful lid lift (rate 22)
       const blinkRate = target.blink > state.blink ? 52 : 22;
@@ -590,29 +610,29 @@ export function createPortraitAnimator() {
       state.squint = expApproach(state.squint, target.squint, 10, clampedDt);
       state.wide = expApproach(state.wide, target.wide, 14, clampedDt);
 
-      // Slightly underdamped brow micro-expression spring for expressive emphasis
-      browVel += ((target.browLift - state.browLift) * 135 - browVel * 19) * clampedDt;
+      // Smoothly damped brow micro-expression spring for expressive emphasis
+      browVel += ((target.browLift - state.browLift) * 125 - browVel * 20) * clampedDt;
       state.browLift = clamp(state.browLift + browVel * clampedDt, -0.48, 1.0);
 
       // Critically-damped 2nd-order filter for lip-sync mouth & jaw (zero 1-frame teleport pops)
-      const mouthStiffness = target.mouthOpen > state.mouthOpen ? 128 : 102;
-      mouthVel += ((target.mouthOpen - state.mouthOpen) * mouthStiffness - mouthVel * 23) * clampedDt;
+      const mouthStiffness = target.mouthOpen > state.mouthOpen ? 98 : 80;
+      mouthVel += ((target.mouthOpen - state.mouthOpen) * mouthStiffness - mouthVel * 22.8) * clampedDt;
       state.mouthOpen = clamp01(state.mouthOpen + mouthVel * clampedDt);
 
-      jawVel += ((target.jawDrop - state.jawDrop) * 132 - jawVel * 23) * clampedDt;
+      jawVel += ((target.jawDrop - state.jawDrop) * 102 - jawVel * 22.5) * clampedDt;
       state.jawDrop = clamp01(state.jawDrop + jawVel * clampedDt);
 
-      state.mouthWidth = expApproach(state.mouthWidth, target.mouthWidth, 16, clampedDt);
-      state.mouthRound = expApproach(state.mouthRound, target.mouthRound, 16, clampedDt);
-      state.smile = expApproach(state.smile, target.smile, 12, clampedDt);
-      state.teethTop = expApproach(state.teethTop, target.teethTop, 20, clampedDt);
-      state.teethBottom = expApproach(state.teethBottom, target.teethBottom, 19, clampedDt);
-      state.tongueShow = expApproach(state.tongueShow, target.tongueShow, 19, clampedDt);
-      state.tongueLift = expApproach(state.tongueLift, target.tongueLift, 19, clampedDt);
-      state.lipPress = expApproach(state.lipPress, target.lipPress, 20, clampedDt);
-      state.lipBite = expApproach(state.lipBite, target.lipBite, 20, clampedDt);
-      state.puckerRing = expApproach(state.puckerRing, target.puckerRing, 19, clampedDt);
-      state.restPart = expApproach(state.restPart, target.restPart, 18, clampedDt);
+      state.mouthWidth = expApproach(state.mouthWidth, target.mouthWidth, 13.0, clampedDt);
+      state.mouthRound = expApproach(state.mouthRound, target.mouthRound, 13.0, clampedDt);
+      state.smile = expApproach(state.smile, target.smile, 11, clampedDt);
+      state.teethTop = expApproach(state.teethTop, target.teethTop, 14.0, clampedDt);
+      state.teethBottom = expApproach(state.teethBottom, target.teethBottom, 13.5, clampedDt);
+      state.tongueShow = expApproach(state.tongueShow, target.tongueShow, 13.5, clampedDt);
+      state.tongueLift = expApproach(state.tongueLift, target.tongueLift, 13.5, clampedDt);
+      state.lipPress = expApproach(state.lipPress, target.lipPress, 14.0, clampedDt);
+      state.lipBite = expApproach(state.lipBite, target.lipBite, 14.0, clampedDt);
+      state.puckerRing = expApproach(state.puckerRing, target.puckerRing, 13.5, clampedDt);
+      state.restPart = expApproach(state.restPart, target.restPart, 13.5, clampedDt);
 
       // Crisp eye saccades between fixation points
       state.gazeX = expApproach(state.gazeX, target.gazeX, 18, clampedDt);
@@ -632,39 +652,47 @@ export function createPortraitAnimator() {
         impulsePitchOffset = 0;
         impulsePitchVel = 0;
       } else {
-        impulseNodVel += (-impulseNodOffset * 135 - impulseNodVel * 16) * clampedDt;
-        impulseNodOffset = clamp(impulseNodOffset + impulseNodVel * clampedDt, -0.024, 0.024);
+        impulseNodVel += (-impulseNodOffset * 135 - impulseNodVel * 17) * clampedDt;
+        impulseNodOffset = clamp(impulseNodOffset + impulseNodVel * clampedDt, -0.022, 0.022);
 
-        impulsePitchVel += (-impulsePitchOffset * 120 - impulsePitchVel * 15) * clampedDt;
-        impulsePitchOffset = clamp(impulsePitchOffset + impulsePitchVel * clampedDt, -0.09, 0.09);
+        impulsePitchVel += (-impulsePitchOffset * 120 - impulsePitchVel * 16) * clampedDt;
+        impulsePitchOffset = clamp(impulsePitchOffset + impulsePitchVel * clampedDt, -0.085, 0.085);
 
-        state.headYaw = expApproach(state.headYaw, target.headYaw, 7.2, clampedDt);
+        state.headYaw = expApproach(state.headYaw, target.headYaw, 6.2, clampedDt);
         state.headPitch = clamp(
-          expApproach(state.headPitch, target.headPitch, 7.8, clampedDt) + impulsePitchOffset,
+          expApproach(state.headPitch, target.headPitch, 6.6, clampedDt) + impulsePitchOffset,
           -0.24,
           0.24
         );
-        state.headTilt = expApproach(state.headTilt, target.headTilt, 8.2, clampedDt);
+        state.headTilt = expApproach(state.headTilt, target.headTilt, 7.2, clampedDt);
         state.headNodY =
-          expApproach(state.headNodY, target.headNodY, 9.6, clampedDt) +
+          expApproach(state.headNodY, target.headNodY, 8.4, clampedDt) +
           impulseNodOffset -
-          Math.max(0, jawVel) * 0.0022;
-        state.headSwayX = expApproach(state.headSwayX, target.headSwayX, 8, clampedDt);
+          Math.max(0, jawVel) * 0.0012;
+        state.headSwayX = expApproach(state.headSwayX, target.headSwayX, 7.4, clampedDt);
         state.shoulderY = expApproach(state.shoulderY, target.shoulderY, 5.5, clampedDt);
 
-        // Spring-damper secondary follow-through on lower hair curls reacting to head yaw, tilt & nod velocity
-        const tiltVel = (state.headTilt - prevHeadTilt) / clampedDt;
-        const yawVel = (state.headYaw - prevHeadYaw) / clampedDt;
-        const nodVel = (state.headNodY - prevHeadNodY) / clampedDt;
-        const desiredLagX = target.hairLagX - tiltVel * 0.052 - yawVel * 0.064;
-        const desiredLagY = target.hairLagY - nodVel * 0.044;
+        // Spring-damper secondary follow-through on lower hair curls reacting smoothly to head motion
+        const tiltVel = clamp((state.headTilt - prevHeadTilt) / clampedDt, -1.2, 1.2);
+        const yawVel = clamp((state.headYaw - prevHeadYaw) / clampedDt, -1.4, 1.4);
+        const nodVel = clamp((state.headNodY - prevHeadNodY) / clampedDt, -0.8, 0.8);
+        const desiredLagX = target.hairLagX - tiltVel * 0.044 - yawVel * 0.056;
+        const desiredLagY = target.hairLagY - nodVel * 0.036;
 
-        const stiffness = 64;
-        const damping = 9.2;
-        hairVelX += ((desiredLagX - state.hairLagX) * stiffness - hairVelX * damping) * clampedDt;
-        hairVelY += ((desiredLagY - state.hairLagY) * stiffness - hairVelY * damping) * clampedDt;
-        state.hairLagX = clamp(state.hairLagX + hairVelX * clampedDt, -0.095, 0.095);
-        state.hairLagY = clamp(state.hairLagY + hairVelY * clampedDt, -0.062, 0.062);
+        const stiffness = 54;
+        const damping = 10.6;
+        hairVelX = clamp(
+          hairVelX + ((desiredLagX - state.hairLagX) * stiffness - hairVelX * damping) * clampedDt,
+          -0.36,
+          0.36
+        );
+        hairVelY = clamp(
+          hairVelY + ((desiredLagY - state.hairLagY) * stiffness - hairVelY * damping) * clampedDt,
+          -0.24,
+          0.24
+        );
+        state.hairLagX = clamp(state.hairLagX + hairVelX * clampedDt, -0.092, 0.092);
+        state.hairLagY = clamp(state.hairLagY + hairVelY * clampedDt, -0.060, 0.060);
       }
 
       state.listenPulse = expApproach(state.listenPulse, target.listenPulse, 9, clampedDt);
@@ -1312,6 +1340,8 @@ interface PrecomputedReferenceFrame {
 function buildReferenceFrameConstants(params: PortraitParams): PrecomputedReferenceFrame {
   const motion = params.motion ?? getTargetMotionFromParams(params);
   const { time, energy, isSpeaking, isListening } = params;
+  const effEnergy = motion.smoothEnergy ?? energy;
+  const speakEnv = motion.speakEnvelope ?? (isSpeaking ? 1 : 0);
   const speed = isSpeaking ? 0.28 : 0.16;
   const hasTurn =
     motion.headYaw > 0.004 ||
@@ -1319,19 +1349,22 @@ function buildReferenceFrameConstants(params: PortraitParams): PrecomputedRefere
     motion.headPitch > 0.004 ||
     motion.headPitch < -0.004;
 
+  const waveAmpScale = isListening ? Math.max(speakEnv, 1) : speakEnv;
+  const waveGain = clamp01(effEnergy * 1.05 * waveAmpScale);
+
   return {
     time,
-    energy,
+    energy: effEnergy,
     isSpeaking,
     isListening,
     hasTurn,
-    hasWaveform: (isSpeaking || isListening) && energy > 0.14,
+    hasWaveform: waveGain > 0.08 && effEnergy > 0.14,
     hasHeadYawShading: motion.headYaw > 0.02 || motion.headYaw < -0.02,
     hasBrowLift: motion.browLift > 0.08 || motion.browLift < -0.08,
     motion,
     ct: Math.cos(motion.headTilt),
     st: Math.sin(motion.headTilt),
-    glintSweep: (time * 0.46) % 1.15,
+    glintSweep: (time * 0.52) % 1.15,
     sinT38: Math.sin(time * 3.8),
     cosT38: Math.cos(time * 3.8),
     sinT24: Math.sin(time * 2.4),
@@ -1340,9 +1373,9 @@ function buildReferenceFrameConstants(params: PortraitParams): PrecomputedRefere
     cosT45: Math.cos(time * 4.5),
     sinHairWave: Math.sin(time * 2.45),
     cosHairWave: Math.cos(time * 2.45),
-    hairWaveAmp: 0.0055 + Math.abs(motion.hairLagX) * 0.12 + energy * 0.003,
-    waveGain: clamp01(energy * 1.15),
-    waveAmp: 0.012 + energy * 0.014,
+    hairWaveAmp: 0.0085 + Math.abs(motion.hairLagX) * 0.13 + effEnergy * 0.0028,
+    waveGain,
+    waveAmp: 0.011 + effEnergy * 0.012,
     mote1X: 0.08 + Math.sin(time * 3.0) * 0.022,
     mote1Y: 0.44 - ((time * speed) % 0.32),
     mote2X: 0.91 + Math.cos(time * 2.5) * 0.02,
@@ -1568,14 +1601,20 @@ function applyReferenceMouthExpression(
     return lum;
   }
 
-  const isRoundO = roundAmt > 0.50;
-  const isWideEe = !isRoundO && (motion.teethBottom > 0.35 || wideStretch > 0.48);
-  const isFv = !isRoundO && lipBite > 0.42;
-  const isRest = !isRoundO && restPart > 0.45 && openAmt < 0.16;
+  const roundW = smoothstep(0.30, 0.72, roundAmt);
+  const notRound = 1 - roundW;
+  const eeW = notRound * smoothstep(0.22, 0.65, Math.max(motion.teethBottom, wideStretch));
+  const fvW = notRound * smoothstep(0.25, 0.65, lipBite);
+  const restW = notRound * smoothstep(0.25, 0.65, restPart) * (1 - smoothstep(0.08, 0.22, openAmt));
 
-  const mx = isWideEe ? 0.283 : mxBase;
+  const mx = lerp(mxBase, 0.283, eeW);
   const activeBlend = clamp01(
-    Math.max(openAmt * 3.0, lipPress * 1.4, lipBite * 1.4, restPart * 1.2)
+    Math.max(
+      smoothstep(0.015, 0.28, openAmt),
+      smoothstep(0.08, 0.65, lipPress),
+      smoothstep(0.08, 0.65, lipBite),
+      smoothstep(0.08, 0.65, restPart)
+    )
   );
 
   const cleanW = lerp(0.038, 0.052, Math.max(openAmt, wideStretch, lipPress * 0.72));
@@ -1589,8 +1628,8 @@ function applyReferenceMouthExpression(
     }
   }
 
-  if (lipPress > 0.45 && openAmt < 0.14) {
-    const pressBlend = smoothstep(0.2, 0.75, lipPress);
+  if (lipPress > 0.22 && openAmt < 0.20) {
+    const pressBlend = smoothstep(0.22, 0.75, lipPress) * (1 - smoothstep(0.08, 0.20, openAmt));
     const cornerX = (ax - 0.274) * 30;
     const cornerCurve = cornerX * cornerX * 0.0014;
     const dSeal = sdCapsule2(ax, ay - cornerCurve, 0.241, 0.615, 0.308, 0.613, 0.0034);
@@ -1610,106 +1649,97 @@ function applyReferenceMouthExpression(
       const gMask = (1 - smoothstep(-0.002, 0.0035, dPressGlow)) * pressBlend;
       lum = Math.max(lum, gMask * 0.84);
     }
-    return lum;
+    if (pressBlend > 0.88) return lum;
   }
 
-  const rx = isRoundO
-    ? lerp(0.014, 0.022, openAmt)
-    : isWideEe
-    ? lerp(0.034, 0.038, Math.max(openAmt, wideStretch))
-    : isFv
-    ? 0.030
-    : isRest
-    ? 0.022
-    : openAmt < 0.45
-    ? lerp(0.028, 0.031, openAmt / 0.45)
-    : lerp(0.031, 0.036, (openAmt - 0.45) / 0.55);
+  const openHigh = smoothstep(0.35, 0.55, openAmt);
+  const baseRx = lerp(lerp(0.028, 0.031, clamp01(openAmt / 0.45)), lerp(0.031, 0.036, clamp01((openAmt - 0.45) / 0.55)), openHigh);
+  const rx = lerp(
+    lerp(lerp(lerp(baseRx, 0.022, restW), 0.030, fvW), lerp(0.034, 0.038, Math.max(openAmt, wideStretch)), eeW),
+    lerp(0.014, 0.022, openAmt),
+    roundW
+  );
 
-  const ry = isRoundO
-    ? lerp(0.016, 0.026, openAmt)
-    : isWideEe
-    ? lerp(0.0165, 0.020, openAmt)
-    : isFv
-    ? 0.0125
-    : isRest
-    ? 0.0062
-    : openAmt < 0.45
-    ? lerp(0.011, 0.014, openAmt / 0.45)
-    : lerp(0.018, 0.035, (openAmt - 0.45) / 0.55);
+  const baseRy = lerp(lerp(0.011, 0.014, clamp01(openAmt / 0.45)), lerp(0.018, 0.035, clamp01((openAmt - 0.45) / 0.55)), openHigh);
+  const ry = lerp(
+    lerp(lerp(lerp(baseRy, 0.0062, restW), 0.0125, fvW), lerp(0.0165, 0.020, openAmt), eeW),
+    lerp(0.016, 0.026, openAmt),
+    roundW
+  );
 
   const cy = my + lerp(0.000, 0.012, motion.jawDrop);
-  const slantY = isWideEe ? (ax - mx) * -0.032 : isFv ? (ax - mx) * -0.018 : 0;
+  const slantScale = lerp(lerp(0, -0.018, fvW), -0.032, eeW);
+  const slantY = (ax - mx) * slantScale;
   const mouthLocalY = ay - slantY;
 
   const normX = (ax - mx) / (rx || 0.01);
-  const cornerLift = isWideEe ? Math.max(0, normX * normX - 0.20) * -0.0028 : 0;
-  const topFlatten = isWideEe
-    ? Math.max(0, 1 - normX * normX) * 0.0024 + cornerLift
-    : isFv
-    ? Math.max(0, 1 - normX * normX) * 0.0018
-    : 0;
+  const cornerLift = eeW * Math.max(0, normX * normX - 0.20) * -0.0028;
+  const archW = Math.max(0, 1 - normX * normX);
+  const topFlatten = eeW * (archW * 0.0024 + cornerLift) + fvW * (archW * 0.0018);
 
-  const lipBorder = isWideEe ? 0.0034 : isRest || isFv ? 0.0024 : 0.0036;
+  const lipBorder = lerp(lerp(0.0036, 0.0024, Math.max(restW, fvW)), 0.0034, eeW);
   const dOuterLip = sdEllipse(ax, mouthLocalY + topFlatten * 0.5, mx, cy, rx + lipBorder, ry + lipBorder);
   const dCavity = sdEllipse(ax, mouthLocalY + topFlatten, mx, cy, rx, ry);
 
   if (dOuterLip < 0.0055 && ax >= 0.230) {
     const lipRim = (1 - smoothstep(-0.002, 0.0034, dOuterLip)) * activeBlend;
-    if (isWideEe) lum = lerp(lum, 0.02, lipRim * 0.90);
-    else if (isRest) lum *= 1 - lipRim * 0.58;
-    else lum *= 1 - lipRim * 0.80;
+    const rimDarken = lerp(0.80, 0.58, restW);
+    const eeTarget = lerp(lum, 0.02, lipRim * 0.90);
+    const stdTarget = lum * (1 - lipRim * rimDarken);
+    lum = lerp(stdTarget, eeTarget, eeW);
   }
 
   if (dCavity < 0.005 && ax >= 0.230) {
     const cMask = (1 - smoothstep(-0.002, 0.0030, dCavity)) * activeBlend;
     lum = lerp(lum, 0.012, cMask * 0.98);
 
-    if (motion.teethTop > 0.12 && !isRoundO) {
-      const teethCutoff = isFv
-        ? cy + 0.0008
-        : isWideEe
-        ? cy - 0.0020
-        : isRest
-        ? cy + ry * 0.06
-        : openAmt < 0.45
-        ? cy - ry * 0.10
-        : cy - ry * 0.40;
-      const teethSpan = isFv ? 0.86 : isWideEe ? 0.88 : 0.85;
+    if (motion.teethTop > 0.12 && roundW < 0.92) {
+      const openCutoff = lerp(cy - ry * 0.10, cy - ry * 0.40, openHigh);
+      const teethCutoff = lerp(
+        lerp(lerp(openCutoff, cy + ry * 0.06, restW), cy - 0.0020, eeW),
+        cy + 0.0008,
+        fvW
+      );
+      const teethSpan = lerp(lerp(0.85, 0.88, eeW), 0.86, fvW);
       if (mouthLocalY < teethCutoff && Math.abs(normX) < teethSpan) {
         const tEdge = 1 - smoothstep(teethCutoff - 0.0020, teethCutoff + 0.0004, mouthLocalY);
-        const tBright = isRest ? 0.72 : lerp(0.88, 0.98, motion.teethTop);
-        lum = Math.max(lum, tBright * tEdge * cMask);
+        const tBright = lerp(lerp(0.88, 0.98, motion.teethTop), 0.72, restW);
+        lum = Math.max(lum, tBright * tEdge * cMask * (1 - roundW));
       }
     }
 
-    if (motion.teethBottom > 0.2 && !isRoundO && !isFv) {
+    const nonRoundFv = notRound * (1 - fvW);
+    if (motion.teethBottom > 0.2 && nonRoundFv > 0.05) {
       const lowTeethTop = cy + 0.0022;
       if (mouthLocalY > lowTeethTop && Math.abs(normX) < 0.84) {
         const ltEdge = smoothstep(lowTeethTop, lowTeethTop + 0.0022, mouthLocalY);
-        lum = Math.max(lum, 0.96 * motion.teethBottom * ltEdge * cMask);
+        lum = Math.max(lum, 0.96 * motion.teethBottom * ltEdge * cMask * nonRoundFv);
       }
     }
 
-    if (motion.tongueShow > 0.18 && !isRoundO && !isFv) {
-      if (motion.tongueLift > 0.35) {
+    if (motion.tongueShow > 0.18 && nonRoundFv > 0.05) {
+      const liftW = smoothstep(0.18, 0.58, motion.tongueLift);
+      if (liftW > 0.02) {
         const dTongueTip = sdEllipse(ax, mouthLocalY, mx, cy + ry * 0.26, rx * 0.38, ry * 0.48);
         if (dTongueTip < 0.005) {
-          const tgMask = (1 - smoothstep(-0.002, 0.0028, dTongueTip)) * motion.tongueShow * cMask;
+          const tgMask = (1 - smoothstep(-0.002, 0.0028, dTongueTip)) * motion.tongueShow * cMask * nonRoundFv * liftW;
           lum = Math.max(lum, 0.84 * tgMask);
         }
-      } else {
+      }
+      if (liftW < 0.98) {
         const dFloorTongue = sdEllipse(ax, mouthLocalY, mx + 0.002, cy + ry * 0.66, rx * 0.56, ry * 0.30);
         if (dFloorTongue < 0.005) {
-          const tgMask = (1 - smoothstep(-0.002, 0.003, dFloorTongue)) * motion.tongueShow * cMask;
+          const tgMask = (1 - smoothstep(-0.002, 0.003, dFloorTongue)) * motion.tongueShow * cMask * nonRoundFv * (1 - liftW);
           lum = Math.max(lum, 0.43 * tgMask);
         }
       }
     }
 
-    if (lipBite > 0.35) {
+    if (lipBite > 0.18) {
+      const biteW = smoothstep(0.18, 0.52, lipBite);
       const dTuckLip = sdEllipse(ax, mouthLocalY, mx, cy + ry * 0.44, rx * 0.84, ry * 0.48);
       if (dTuckLip < 0.005 && mouthLocalY > cy + 0.0020) {
-        const bMask = (1 - smoothstep(-0.002, 0.0026, dTuckLip)) * lipBite * cMask;
+        const bMask = (1 - smoothstep(-0.002, 0.0026, dTuckLip)) * biteW * cMask;
         lum = Math.max(lum, 0.96 * bMask);
       }
     }
@@ -1723,8 +1753,8 @@ function applyReferenceMouthExpression(
     }
   }
 
-  const lowerOffset = isFv ? ry * 0.68 + 0.0024 : ry + 0.0056;
-  const dLowerLipRim = sdEllipse(ax, mouthLocalY, mx + 0.001, cy + lowerOffset, rx * (isRoundO ? 0.72 : 0.80), 0.0038);
+  const lowerOffset = lerp(ry + 0.0056, ry * 0.68 + 0.0024, fvW);
+  const dLowerLipRim = sdEllipse(ax, mouthLocalY, mx + 0.001, cy + lowerOffset, rx * lerp(0.80, 0.72, roundW), 0.0038);
   if (dLowerLipRim < 0.005 && ax >= 0.228) {
     const lMask = (1 - smoothstep(-0.002, 0.0035, dLowerLipRim)) * activeBlend;
     lum = Math.max(lum, lMask * 0.86);
@@ -1886,9 +1916,9 @@ function sampleReferenceWithExpression(
     return fc.hasWaveform && ay < 0.86 ? sampleWaveformHalo(ax, ay, fc) : 0;
   }
 
-  if (ink < 0.35 && faceZone > 0.1 && fc.hasHeadYawShading && ay > 0.36 && ay < 0.76 && ax > 0.17 && ax < 0.48) {
+  if (ink < 0.35 && faceZone > 0.1 && (fc.hasHeadYawShading || motion.headPitch !== 0) && ay > 0.36 && ay < 0.76 && ax > 0.17 && ax < 0.48) {
     const cheekArea = smoothstep(0.18, 0.46, ax) * smoothstep(0.38, 0.65, ay) * (1 - smoothstep(0.65, 0.76, ay));
-    lum = clamp01(lum + motion.headYaw * 0.20 * cheekArea);
+    lum = clamp01(lum + (motion.headYaw * 0.20 - motion.headPitch * 0.08) * cheekArea);
   }
 
   if (fc.hasBrowLift && ink < 0.55 && ay > 0.35 && ay < 0.42 && ax > 0.18 && ax < 0.44) {
@@ -1915,7 +1945,7 @@ function sampleReferenceWithExpression(
     const gx = (ax - fc.glintSweep) * 7.5;
     const gSq = gx * gx;
     if (gSq < 8) {
-      lum = clamp01(lum + fastExpNeg(gSq) * aura * (0.15 + energy * 0.16));
+      lum = clamp01(lum + fastExpNeg(gSq) * aura * (0.14 + energy * 0.14));
     }
   }
 
@@ -2443,13 +2473,13 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
         for (let sx = sxLo; sx <= sxHi; sx++) {
           const idx = rowOff + sx;
           const c = raw[idx];
-          if (c >= 0.94 || c <= 0.025) {
+          if (c >= 0.975 || c <= 0.025) {
             work[idx] = c;
             continue;
           }
           const avg = (raw[idx - 1] + raw[idx + 1] + raw[upOff + sx] + raw[dnOff + sx]) * 0.25;
           const sharpened = c + (c - avg) * 0.34;
-          let t = (sharpened - 0.025) * 1.0638298;
+          let t = (sharpened - 0.025) * 1.0526316;
           if (t <= 0) t = 0;
           else if (t >= 1) t = 1;
           else t = t * t * (3 - 2 * t);
@@ -2459,7 +2489,7 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
         for (let sx = sxLo; sx <= sxHi; sx++) {
           const idx = rowOff + sx;
           const c = raw[idx];
-          if (c >= 0.94 || c <= 0.025) {
+          if (c >= 0.975 || c <= 0.025) {
             work[idx] = c;
             continue;
           }
@@ -2469,7 +2499,7 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
           const d = raw[dnOff + sx];
           const avg = (l + r + u + d) * 0.25;
           const sharpened = c + (c - avg) * 0.34;
-          let t = (sharpened - 0.025) * 1.0638298;
+          let t = (sharpened - 0.025) * 1.0526316;
           if (t <= 0) t = 0;
           else if (t >= 1) t = 1;
           else t = t * t * (3 - 2 * t);
@@ -2500,7 +2530,7 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
             work[idx] = 0;
             continue;
           }
-          if (rawVal >= 0.94) {
+          if (rawVal >= 0.975) {
             work[idx] = 1;
             continue;
           }
@@ -2528,7 +2558,7 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
             work[idx] = 0;
             continue;
           }
-          if (rawVal >= 0.94) {
+          if (rawVal >= 0.975) {
             work[idx] = 1;
             continue;
           }

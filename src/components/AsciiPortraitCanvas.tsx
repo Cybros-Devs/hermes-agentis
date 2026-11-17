@@ -312,8 +312,8 @@ export function AsciiPortraitCanvas({
     const isStage = variant === 'stage';
     const cols = isThumb ? 22 : isSidebar ? 44 : isCompact ? 48 : isStage ? 92 : 62;
     const rows = isThumb ? 11 : isSidebar ? 20 : isCompact ? 22 : isStage ? 42 : 28;
-    const defaultW = isThumb ? 42 : isSidebar ? 84 : isCompact ? 116 : isStage ? 360 : 216;
-    const defaultH = isThumb ? 42 : isSidebar ? 77 : isCompact ? 106 : isStage ? 330 : 198;
+    const defaultW = isThumb ? 42 : isSidebar ? 72 : isCompact ? 116 : isStage ? 360 : 216;
+    const defaultH = isThumb ? 42 : isSidebar ? 66 : isCompact ? 106 : isStage ? 330 : 198;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     let width = defaultW;
@@ -335,7 +335,7 @@ export function AsciiPortraitCanvas({
     let dotH = cellH / 4;
     let dotRadius = isThumb
       ? 0.42
-      : Math.min(dotW, dotH) * (isStage || isSidebar || isCompact ? 0.44 : 0.42);
+      : Math.min(dotW, dotH) * (isStage || isSidebar || isCompact ? 0.435 : 0.42);
 
     const syncStageSurface = () => {
       if (!isStage) return;

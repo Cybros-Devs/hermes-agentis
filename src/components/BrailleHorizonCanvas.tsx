@@ -112,6 +112,13 @@ export function BrailleHorizonCanvas({
 
     resize();
     window.addEventListener('resize', resize);
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            resize();
+          })
+        : null;
+    resizeObserver?.observe(canvas);
 
     const startTime = performance.now();
     let lastDraw = startTime;
@@ -357,6 +364,7 @@ export function BrailleHorizonCanvas({
     rafId = window.requestAnimationFrame(loop);
     return () => {
       window.removeEventListener('resize', resize);
+      resizeObserver?.disconnect();
       window.cancelAnimationFrame(rafId);
       if (hiddenTimerId) window.clearTimeout(hiddenTimerId);
     };

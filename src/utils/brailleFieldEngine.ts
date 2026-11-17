@@ -411,10 +411,10 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
     const uy = (sy + 0.5) * invSubH; // 0 (top) .. 1 (bottom)
     // Guarantee row 0 (sy < 4) stays completely clean while bottom telemetry flows all the way to uy=1.0
     const topFade = isRibbon
-      ? smoothstep(0.04, 0.24, uy)
+      ? smoothstep(0.04, 0.28, uy)
       : sy < 4
       ? 0
-      : smoothstep(0.075, 0.26, uy);
+      : smoothstep(0.08, 0.38, uy);
     const bottomTaper = isRibbon
       ? 1 - smoothstep(0.76, 0.96, uy)
       : 1 - 0.10 * smoothstep(0.93, 1.0, uy);
@@ -454,7 +454,7 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
 
       const s1 = (uy > crest1 ? d1 * 0.84 : d1) * stroke1;
       const s2 = (uy > crest2 ? d2 * 0.86 : d2) * stroke2;
-      const line1 = s1 < 2.83 ? fastFieldExpNeg(s1 * s1) * Math.min(1.12, colShimmer[sx] * 1.10) : 0;
+      const line1 = s1 < 2.83 ? fastFieldExpNeg(s1 * s1) * Math.min(1.16, colShimmer[sx] * 1.14) : 0;
 
       if (isRibbon) {
         const edgeMask = colShimmer[sx] > 0 ? Math.min(1, colShimmer[sx] / 0.94) : 0;
@@ -487,10 +487,10 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       const s4 = (uy > crest4 ? d4 * 0.88 : d4) * 40;
       const s5 = (uy > crest5 ? d5 * 0.90 : d5) * 38;
 
-      const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * 0.84 : 0;
-      const line3 = s3 < 2.83 ? fastFieldExpNeg(s3 * s3) * 0.72 : 0;
-      const line4 = s4 < 2.83 ? fastFieldExpNeg(s4 * s4) * 0.64 : 0;
-      const line5 = s5 < 2.83 ? fastFieldExpNeg(s5 * s5) * 0.58 : 0;
+      const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * 0.80 : 0;
+      const line3 = s3 < 2.83 ? fastFieldExpNeg(s3 * s3) * 0.64 : 0;
+      const line4 = s4 < 2.83 ? fastFieldExpNeg(s4 * s4) * 0.54 : 0;
+      const line5 = s5 < 2.83 ? fastFieldExpNeg(s5 * s5) * 0.46 : 0;
 
       // Quantized vertical sample-and-hold stems + bright crest sample pins every sampleStep columns
       let telemetryStem = 0;
@@ -499,7 +499,7 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
         const upperSpan = Math.min(crest1, crest2);
         const lowerSpan = Math.max(crest1, crest2);
         if (uy >= upperSpan && uy <= lowerSpan && sy % 3 === 0) {
-          telemetryStem = 0.58;
+          telemetryStem = 0.44;
         }
         if (d1 < invSubH * 0.9 || d2 < invSubH * 0.8) {
           samplePin = 0.98;
@@ -510,13 +510,13 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       let graticule = 0;
       const modX = sx % gridStepX;
       if (isGridRow && modX === 0) {
-        graticule = 0.72;
+        graticule = 0.46;
       } else if ((isGridRow && (modX === 1 || modX === gridStepX - 1)) || (isCrossArmY && modX === 0)) {
-        graticule = 0.44;
+        graticule = 0.26;
       } else if (isBaselineRule && sx % 4 === 0) {
-        graticule = 0.36;
+        graticule = 0.22;
       } else if (sx % gridStepX === 0 && sy % 4 === 0) {
-        graticule = 0.34;
+        graticule = 0.20;
       }
 
       // Precision vertical cursor-lock tracking reticle at active pointer column
