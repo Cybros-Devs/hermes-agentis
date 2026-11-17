@@ -1,0 +1,9 @@
+[package]
+name = "voxcell-halftone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+voxcell-core = { path = "../voxcell-core" }
+image.workspace = true

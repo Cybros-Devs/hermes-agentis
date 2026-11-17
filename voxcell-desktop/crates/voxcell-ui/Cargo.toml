@@ -1,0 +1,16 @@
+[package]
+name = "voxcell-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+voxcell-core = { path = "../voxcell-core" }
+voxcell-halftone = { path = "../voxcell-halftone" }
+voxcell-audio = { path = "../voxcell-audio" }
+voxcell-hermes = { path = "../voxcell-hermes" }
+rune.workspace = true
+rune-kit.workspace = true
+rune-fx.workspace = true
+rune-motion.workspace = true
+serde_json.workspace = true
