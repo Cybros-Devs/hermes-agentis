@@ -45,6 +45,122 @@ export function parseHexRgb(hex: string): [number, number, number] {
   return [230, 240, 236];
 }
 
+export function mixHexColors(hexA: string, hexB: string, t: number): string {
+  const cleanA = hexA.charCodeAt(0) === 35 ? hexA.slice(1) : hexA;
+  const cleanB = hexB.charCodeAt(0) === 35 ? hexB.slice(1) : hexB;
+  if (cleanA.length !== 6 || cleanB.length !== 6) return hexA;
+  const [r1, g1, b1] = parseHexRgb(hexA);
+  const [r2, g2, b2] = parseHexRgb(hexB);
+  const w = Math.max(0, Math.min(1, t));
+  const r = Math.round(r1 + (r2 - r1) * w);
+  const g = Math.round(g1 + (g2 - g1) * w);
+  const b = Math.round(b1 + (b2 - b1) * w);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+export interface PortraitToneParams {
+  mood: string;
+  isSpeaking: boolean;
+  isListening: boolean;
+  isLoading: boolean;
+  isThumb?: boolean;
+  energy: number;
+  tintHex?: string | null;
+}
+
+export interface PortraitTonePalette {
+  hexes: [string, string, string, string, string];
+  alphas: [number, number, number, number, number];
+}
+
+/**
+ * Computes state-reactive 5-tier halftone dot colors & opacities for the Braille portrait
+ * so cognitive states (thinking amber phosphor, listening/speaking emerald glow, alert rose)
+ * read naturally within the dot matrix itself.
+ */
+export function resolvePortraitTonePalette(params: PortraitToneParams): PortraitTonePalette {
+  const { mood, isSpeaking, isListening, isLoading, isThumb = false, energy, tintHex } = params;
+  const speakingHot = !isThumb && isSpeaking && energy > 0.22;
+  const activeVoiceTint = !isThumb && (isLoading || isListening || speakingHot);
+  const isThinkingState = !isThumb && !activeVoiceTint && mood === 'thinking';
+  const isAlertState = !isThumb && !activeVoiceTint && mood === 'alert';
+
+  const baseHexes: [string, string, string, string, string] = isThinkingState
+    ? ['#B48448', '#D9B26F', '#EFE2C4', '#F8F3E8', '#FFFFFF']
+    : isAlertState
+    ? ['#B0707C', '#D89AA6', '#EFD4D9', '#F9ECEF', '#FFFFFF']
+    : activeVoiceTint
+    ? ['#6EE7B7', '#A7F3D0', '#DCE8E3', '#F1F7F4', '#FFFFFF']
+    : ['#8FA69E', '#B9CCC5', '#DCE8E3', '#F1F7F4', '#FFFFFF'];
+
+  const hexes: [string, string, string, string, string] = tintHex
+    ? [
+        mixHexColors(baseHexes[0], tintHex, activeVoiceTint ? 0.85 : 0.52),
+        mixHexColors(baseHexes[1], tintHex, activeVoiceTint ? 0.72 : 0.44),
+        mixHexColors(baseHexes[2], tintHex, 0.52),
+        mixHexColors(baseHexes[3], tintHex, 0.34),
+        mixHexColors(baseHexes[4], tintHex, 0.16),
+      ]
+    : baseHexes;
+
+  const boost = activeVoiceTint ? Math.min(0.06, energy * 0.05) : 0;
+  const alphas: [number, number, number, number, number] = isLoading
+    ? [0.42, 0.58, 0.74, 0.86, 0.95]
+    : [
+        Math.min(0.99, 0.48 + boost),
+        Math.min(0.99, 0.68 + boost),
+        Math.min(0.99, 0.84 + boost * 0.5),
+        0.94,
+        0.99,
+      ];
+
+  return { hexes, alphas };
+}
+
+export interface ShapeToneParams {
+  low: string;
+  mid: string;
+  high: string;
+  isThinking: boolean;
+  isSpeaking: boolean;
+  energy: number;
+}
+
+export function resolveShapeTonePalette(params: ShapeToneParams): {
+  hexes: [string, string, string, string, string];
+  alphas: [number, number, number, number, number];
+} {
+  const { low, mid, high, isThinking, isSpeaking, energy } = params;
+  const warmAmberMid = '#FBBF24';
+  const warmAmberHigh = '#FEF3C7';
+
+  const hex0 = isThinking ? mixHexColors(low, '#D97706', 0.22) : low;
+  const hex1 = isThinking
+    ? mixHexColors(mixHexColors(low, mid, 0.58), warmAmberMid, 0.2)
+    : mixHexColors(low, mid, 0.58);
+  const hex2 = isThinking ? mixHexColors(mid, warmAmberMid, 0.28) : mid;
+  const hex3 = isThinking
+    ? mixHexColors(mixHexColors(mid, high, 0.55), warmAmberHigh, 0.32)
+    : mixHexColors(mid, high, 0.55);
+  const hex4 = isSpeaking
+    ? mixHexColors(high, '#FFFFFF', Math.min(0.55, 0.18 + energy * 0.35))
+    : isThinking
+    ? mixHexColors(high, warmAmberHigh, 0.35)
+    : high;
+
+  const speakBoost = isSpeaking ? Math.min(0.05, energy * 0.04) : 0;
+  return {
+    hexes: [hex0, hex1, hex2, hex3, hex4],
+    alphas: [
+      Math.min(0.99, 0.74 + speakBoost),
+      Math.min(0.99, 0.86 + speakBoost),
+      0.93,
+      0.96,
+      0.99,
+    ],
+  };
+}
+
 export function createRasterSurface(
   ctx: CanvasRenderingContext2D,
   width: number,

@@ -1,0 +1,12 @@
+[package]
+name = "voxcell-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+voxcell-core = { path = "../voxcell-core" }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true

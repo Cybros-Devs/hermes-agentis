@@ -6,6 +6,7 @@ import {
   SessionChatStreamParser,
   buildGatewayUrl,
   chooseGatewayTransport,
+  classifyGatewaySessionOrigin,
   createIdempotencyKey,
   extractModelOptions,
   fetchWithConcurrentRetry,
@@ -253,6 +254,61 @@ test('RunsEventStreamParser parses approval.request, reasoning, subagent events,
   assert.equal(reasoningChunks.length, 1);
 });
 
+test('RunsEventStreamParser reads the gateway wire shape (event name in payload, no SSE event: line)', () => {
+  // Exact shape emitted by /v1/runs/{id}/events: `_sse_frame(payload, id=seq)`
+  // writes `id:` + `data:` only; the event name lives in the JSON `event` field.
+  const gatewayFrames = (output: string) =>
+    [
+      ': open',
+      '',
+      'id: 0',
+      'data: {"event":"message.delta","run_id":"run_1","delta":"S","seq":0}',
+      '',
+      'id: 1',
+      'data: {"event":"message.delta","run_id":"run_1","delta":"SE wire check","seq":1}',
+      '',
+      `id: 2`,
+      `data: {"event":"run.completed","run_id":"run_1","output":"${output}","completed":true,"partial":false,"interrupted":false,"seq":2}`,
+      '',
+      ': stream closed',
+      '',
+    ].join('\n');
+
+  const withOutput = new RunsEventStreamParser();
+  const deltas: string[] = [];
+  withOutput.push(gatewayFrames('SSE wire check'), {
+    onDelta: (_acc, chunk) => deltas.push(chunk),
+  });
+  const first = withOutput.finish();
+  assert.equal(first.output, 'SSE wire check');
+  assert.equal(first.outcome, 'completed');
+  assert.deepEqual(deltas, ['S', 'SE wire check']);
+
+  // A run.completed with an empty `output` must not erase streamed text.
+  const emptyOutput = new RunsEventStreamParser();
+  emptyOutput.push(gatewayFrames(''));
+  const second = emptyOutput.finish();
+  assert.equal(second.output, 'SSE wire check');
+  assert.equal(second.outcome, 'completed');
+});
+
+test('SessionChatStreamParser reads event names from payload.event too', () => {
+  const parser = new SessionChatStreamParser();
+  parser.push(
+    [
+      'data: {"event":"assistant.delta","delta":"Hello ","seq":0}',
+      '',
+      'data: {"event":"assistant.delta","delta":"world","seq":1}',
+      '',
+      'data: {"event":"run.completed","output":"","completed":true,"seq":2}',
+      '',
+    ].join('\n')
+  );
+  const res = parser.finish();
+  assert.equal(res.content, 'Hello world');
+  assert.equal(res.outcome, 'completed');
+});
+
 test('fetchWithConcurrentRetry retries HTTP 429 with backoff and preserves Idempotency-Key', async () => {
   let calls = 0;
   const delays: number[] = [];
@@ -336,4 +392,85 @@ test('Gateway payload mappers normalize skills, toolsets, jobs, sessions, messag
   assert.equal(modelOpts.activeModel, 'hermes-4');
   assert.equal(modelOpts.activeProvider, 'nous');
   assert.deepEqual(modelOpts.models, ['hermes-4', 'hermes-4-mini']);
+});
+
+test('classifyGatewaySessionOrigin separates workspace sessions from external CLI/API/Local API/Cron sessions', () => {
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'hermes-github-com-mattt-plong',
+      sessionKey: 'voxcell-github-com-mattt-plong',
+      channelId: 'github-com-mattt-plong',
+      source: 'api',
+    }),
+    'workspace'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'hermes-fill-me-in',
+      channelId: 'fill-me-in',
+      source: 'api_server',
+    }),
+    'workspace'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'custom-gw-id',
+      source: 'web',
+    }),
+    'workspace'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'local:07ee2d7b545bd3db563f9fcd83fb72482',
+      channelId: 'local-07ee2d7b545bd3db563f9fcd83fb72482',
+      source: 'api',
+    }),
+    'external'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: '20260501_142311_abcd1234',
+      channelId: '20260501_142311_abcd1234',
+      source: 'api',
+    }),
+    'external'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'hermes-cli-thread',
+      source: 'cli',
+    }),
+    'external'
+  );
+
+  assert.equal(
+    classifyGatewaySessionOrigin({
+      sessionId: 'cron_watch_1',
+      source: 'cron',
+    }),
+    'external'
+  );
+
+  const gwMapped = mapGatewaySessions({
+    sessions: [
+      {
+        session_id: 'hermes-my-task',
+        session_key: 'voxcell-my-task',
+        title: 'My Task',
+        source: 'api',
+      },
+      {
+        session_id: 'local:5e52c0948b0bfd7907bf92990a4140f94',
+        title: 'Explain local Forgejo CI',
+        source: 'api',
+      },
+    ],
+  });
+  assert.equal(gwMapped[0].sessionKey, 'voxcell-my-task');
+  assert.equal(gwMapped[1].sessionKey, undefined);
 });

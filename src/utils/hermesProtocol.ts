@@ -385,13 +385,82 @@ export function mapGatewayJobs(raw: unknown): HermesCronJob[] {
 
 export interface GatewaySessionRecord {
   id: string;
+  sessionKey?: string;
   title?: string;
   source?: string;
   model?: string;
   parentSessionId?: string;
   messageCount?: number;
+  lastMessage?: string;
   createdAtMs?: number;
   updatedAtMs?: number;
+}
+
+const OPAQUE_LOCAL_HASH_RE = /^(?:#?hermes-)?local[-_:]([0-9a-f]{6,})$/i;
+const OPAQUE_RUN_HASH_RE = /^#?(?:hermes-)?run[-_:]([0-9a-f]{6,})$/i;
+const OPAQUE_CRON_ID_RE = /^#?(?:hermes-)?cron[-_:](.+)$/i;
+const OPAQUE_UUID_RE = /^#?(?:hermes-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OPAQUE_RAW_HEX_RE = /^#?(?:hermes-)?([0-9a-f]{20,})$/i;
+
+export function isOpaqueSessionIdentifier(raw?: string | null): boolean {
+  const s = String(raw ?? '').trim().replace(/^#/, '');
+  if (!s) return false;
+  return (
+    OPAQUE_LOCAL_HASH_RE.test(s) ||
+    OPAQUE_RUN_HASH_RE.test(s) ||
+    OPAQUE_CRON_ID_RE.test(s) ||
+    OPAQUE_UUID_RE.test(s) ||
+    OPAQUE_RAW_HEX_RE.test(s)
+  );
+}
+
+/**
+ * Distinguishes sessions created by this Web UI workspace (`voxcell-*` session keys,
+ * `hermes-<slug>` web session IDs, `web`/`voxcell`/`ui` sources, or explicitly tracked
+ * workspace IDs) from external `hermes-agent` sessions (`cli`, `local:*` API callers,
+ * external `/v1/chat/completions` clients, `cron`, `telegram`, `discord`, etc.).
+ */
+export function classifyGatewaySessionOrigin(params: {
+  sessionId?: string | null;
+  sessionKey?: string | null;
+  channelId?: string | null;
+  source?: string | null;
+  createdInWorkspace?: boolean;
+}): 'workspace' | 'external' {
+  if (params.createdInWorkspace) return 'workspace';
+
+  const key = String(params.sessionKey ?? '').trim().toLowerCase();
+  if (key.startsWith('voxcell-')) return 'workspace';
+
+  const rawSource = String(params.source ?? '').trim().toLowerCase();
+  if (rawSource === 'web' || rawSource === 'voxcell' || rawSource === 'ui') {
+    return 'workspace';
+  }
+  if (
+    rawSource === 'cli' ||
+    rawSource === 'cron' ||
+    rawSource === 'scheduler' ||
+    rawSource === 'daemon' ||
+    rawSource === 'telegram' ||
+    rawSource === 'discord' ||
+    rawSource === 'slack' ||
+    rawSource === 'whatsapp' ||
+    rawSource === 'signal'
+  ) {
+    return 'external';
+  }
+
+  const sid = String(params.sessionId ?? '').trim();
+  const cid = String(params.channelId ?? '').trim();
+  if (
+    sid.toLowerCase().startsWith('hermes-') &&
+    !isOpaqueSessionIdentifier(sid) &&
+    !isOpaqueSessionIdentifier(cid)
+  ) {
+    return 'workspace';
+  }
+
+  return 'external';
 }
 
 function toEpochMs(val: unknown): number | undefined {
@@ -428,8 +497,18 @@ export function mapGatewaySessions(raw: unknown): GatewaySessionRecord[] {
       (typeof obj.id === 'string' && obj.id) ||
       '';
     if (!id.trim()) continue;
+    const sessionKey =
+      (typeof obj.session_key === 'string' && obj.session_key.trim()) ||
+      (typeof obj.sessionKey === 'string' && obj.sessionKey.trim()) ||
+      undefined;
+    const preview =
+      (typeof obj.last_message === 'string' && obj.last_message.trim()) ||
+      (typeof obj.preview === 'string' && obj.preview.trim()) ||
+      (typeof obj.first_prompt === 'string' && obj.first_prompt.trim()) ||
+      undefined;
     result.push({
       id: id.trim(),
+      sessionKey,
       title: typeof obj.title === 'string' ? obj.title : undefined,
       source: typeof obj.source === 'string' ? obj.source : undefined,
       model: typeof obj.model === 'string' ? obj.model : undefined,
@@ -437,6 +516,7 @@ export function mapGatewaySessions(raw: unknown): GatewaySessionRecord[] {
         typeof obj.parent_session_id === 'string' ? obj.parent_session_id : undefined,
       messageCount:
         typeof obj.message_count === 'number' ? obj.message_count : undefined,
+      lastMessage: preview,
       createdAtMs: toEpochMs(obj.created_at ?? obj.started_at),
       updatedAtMs: toEpochMs(obj.updated_at ?? obj.last_active_at ?? obj.created_at),
     });
@@ -891,7 +971,13 @@ export class SessionChatStreamParser {
       return;
     }
 
-    const evType = (typeof payload.type === 'string' && payload.type) || frame.event;
+    // The gateway's /v1/runs and session event streams carry the event name in the
+    // payload's `event` field, not in an SSE `event:` line; `frame.event` is the
+    // fallback for endpoints that do emit one.
+    const evType =
+      (typeof payload.type === 'string' && payload.type) ||
+      (typeof payload.event === 'string' && payload.event) ||
+      frame.event;
 
     switch (evType) {
       case 'assistant.delta': {
@@ -1031,7 +1117,9 @@ export class RunsEventStreamParser {
       this.handleFrame(frame, cb);
     }
     return {
-      output: this.finalOutput ?? this.content,
+      // A terminal event with an empty `output` must not erase text streamed via
+      // message.delta frames — only a non-empty authoritative answer wins.
+      output: this.finalOutput || this.content,
       reasoning: this.reasoning,
       outcome: this.outcome ?? (this.error ? 'failed' : 'completed'),
       error: this.error,
@@ -1051,7 +1139,12 @@ export class RunsEventStreamParser {
       return;
     }
 
-    const evType = (typeof payload.type === 'string' && payload.type) || frame.event;
+    // The /v1/runs/{id}/events endpoint puts the event name in the JSON payload
+    // (there is no SSE `event:` line on that wire), so check payload.event first.
+    const evType =
+      (typeof payload.type === 'string' && payload.type) ||
+      (typeof payload.event === 'string' && payload.event) ||
+      frame.event;
 
     switch (evType) {
       case 'message.reasoning':

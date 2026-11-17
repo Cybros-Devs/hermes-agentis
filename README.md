@@ -15,7 +15,7 @@ with a real-time, audio-synced, animated ASCII character as your call screen.
 [![TypeScript](https://img.shields.io/badge/TypeScript-7-34D399?style=flat-square&labelColor=050C0A)](https://www.typescriptlang.org)
 [![Vite 8](https://img.shields.io/badge/Vite-8-050C0A?style=flat-square)](https://vite.dev)
 [![Tailwind 4](https://img.shields.io/badge/Tailwind-4-050C0A?style=flat-square)](https://tailwindcss.com)
-[![tests](https://img.shields.io/badge/engines-17%2F17%20tested-34D399?style=flat-square&labelColor=050C0A)](#the-engine-bay)
+[![tests](https://img.shields.io/badge/engines-18%2F18%20tested-34D399?style=flat-square&labelColor=050C0A)](#the-engine-bay)
 
 *Repo: `hermes-agentis` · Brand kit: [`branding/`](branding/)*
 
@@ -37,10 +37,11 @@ the audio**. Every word, rendered live.
 One backend, no fallbacks: the gateway is the *only* reply source. If it is
 down, Voxcell says so — no canned personas, no second model quietly answering.
 
-Two surfaces ship in one app:
+Multiple surfaces ship in one app:
 
-- **The phone widget** — a portrait video-call-style surface with the character on screen.
-- **The command terminal** — an interactive CLI for sessions, tasks, approvals, and agent control.
+- **Home & Thread workspace** — the animated halftone character stage paired with live conversation, thinking traces, and background task banners.
+- **Braille Sessions Canvas** — draggable parallel session Dots with orbital/constellation formations and inline lane prompts.
+- **Command terminal & Operations queue** — an interactive CLI alongside Gateway, Approvals (`/v1/runs`), and Jobs (`/api/jobs`) controls.
 
 <table>
 <tr>
@@ -83,13 +84,14 @@ One spoken sentence becomes an animated character in six stages:
 
 Wiring — all real, no placeholders:
 
-- **Hermes Agent gateway** `127.0.0.1:8642` — agent chat (`/v1/chat/completions`), model `hermes-agent`, one persistent conversation per session key
+- **Hermes Agent gateway** `127.0.0.1:8642` — capability-probed (`GET /v1/capabilities`, `GET /api/model/options`, `GET /health`), supporting `/v1/runs` (plus `/v1/runs/{id}/approval` & `/events`), `/api/sessions/{id}/chat/stream`, and `/v1/chat/completions` (`reasoning_content` + `content`), with `X-Hermes-Session-Id` continuity, `X-Hermes-Session-Key` memory scoping, `Idempotency-Key`, `429` retry, and `/p/<profile>/` routing
+- **Live gateway resources** — `GET /v1/skills`, `GET /v1/toolsets`, `GET /api/sessions`, and scheduled jobs (`/api/jobs`)
 - **Deepgram Aura-2** — synthesized WAV replies for audio-synced animation (browser `speechSynthesis` fallback)
-- Everything else — sessions, lanes, task lifecycle, approvals, live events — runs inside this repo's own server
+- **`server.ts` Express proxy** — handles SSE parsing, gateway auth headers, TTS audio synthesis, and canvas dot/channel storage
 
 ## The engine bay
 
-Seventeen engines under `src/utils/` — every single one carries a `.test.ts`. Run them: `bun test`.
+Eighteen engines under `src/utils/` — every single one carries a `.test.ts`. Run them: `bun test` (or `npx tsx --test src/utils/*.test.ts`).
 
 | Engine | What it does |
 |---|---|
@@ -102,6 +104,7 @@ Seventeen engines under `src/utils/` — every single one carries a `.test.ts`. 
 | `brailleShapesEngine` | session shapes |
 | `canvasSessions` | sessions as canvas nodes |
 | `cliEngine` | the command terminal |
+| `hermesProtocol` | capability discovery, `/p/<profile>/` routing, SSE parsers, retry & idempotency |
 | `homeSession` | home session state |
 | `motionChoreography` | shared UI motion — sliding indicators, stagger, collapsible timing |
 | `portraitLoadingEngine` | character loading state |
@@ -119,7 +122,7 @@ Seventeen engines under `src/utils/` — every single one carries a `.test.ts`. 
 
 - 🎙 **Voice activation** — browser `SpeechRecognition`, always-listening phone experience
 - 📞 **Phone video widget** — the character on a call-style screen
-- ⌨️ **Command terminal** — `/skills`, `/memory`, `/cron`, `/resume`, session control, approvals
+- ⌨️ **Command terminal** — `/gateway`, `/skills`, `/toolsets`, `/cron`, `/sessions`, `/tasks`, `/resume`, session control, approvals
 - 🧠 **Thinking trace** — watch the agent's reasoning as a live tree
 - 📋 **Task lifecycle** — confirm, reopen, cancel, and steer running tasks; banners auto-expand while active
 - 🎨 **UI customizer studio** — talk or type UI changes in natural language
@@ -170,9 +173,10 @@ local gateway answers — through the character.
 |---|---|---|
 | `HERMES_API_URL` | `http://127.0.0.1:8642` | Hermes Agent gateway |
 | `HERMES_API_KEY` | — | gateway bearer token (its `API_SERVER_KEY`) |
-| `HERMES_PROFILE` | `default` | Hermes profile |
+| `HERMES_PROFILE` | `default` | Hermes profile (`default` or named `/p/<profile>/`) |
+| `HERMES_PROFILE_API_KEY` | — | optional bearer token for non-default `HERMES_PROFILE` |
 | `HERMES_CHAT_TIMEOUT_MS` | `300000` | gateway chat timeout |
-| `API_SERVER_MODEL_NAME` | `hermes-agent` | model id sent to the gateway |
+| `API_SERVER_MODEL_NAME` | `hermes-agent` | model id fallback when gateway options are unavailable |
 | `DEEPGRAM_API_KEY` | — | TTS provider (Aura-2 WAV for audio-synced animation) |
 | `PORT` | `3000` | server port |
 
@@ -181,24 +185,26 @@ local gateway answers — through the character.
 | Command | Does |
 |---|---|
 | `bun run dev` | dev server (`tsx server.ts`) — accepts `--port <n>` and `--host <addr>` flags |
+| `bun run start` | production Node server (`node server.ts`) |
 | `bun run build` | production build (`vite build`) |
 | `bun run preview` | preview the build |
 | `bun run lint` | typecheck (`tsc --noEmit`) |
-| `bun test` | run the engine test suite |
+| `bun test` | run the engine test suite (or `npx tsx --test src/utils/*.test.ts`) |
 
 ## Repo layout
 
 ```text
 src/
-  components/    17 UI components — AsciiPortraitCanvas, PhoneVideoWidget,
-                 CommandTerminal, ThreadTaskBanner, UiCustomizerStudio, ...
-  utils/         17 engines + tests (the engine bay)
+  components/    14 UI components — AsciiPortraitCanvas, BrailleSessionsCanvas,
+                 CommandTerminal, HermesOperationsPanel, SidebarWorkspace,
+                 ThreadTaskBanner, UiCustomizerStudio, VoiceWorkspacePane, ... + ui/
+  utils/         18 engines + tests (the engine bay)
   hooks/         useHermesAgent, useVoiceAgent
   backgrounds/   glass background system
   onboarding/    guided tour, hosted by the character
-server.ts        Express: gateway chat, sessions & lanes, task lifecycle,
-                 approvals, SSE events, Deepgram TTS
-tools/blueprint/ reproducible character capture + frame-diff harness
+server.ts        Express: Hermes gateway proxy, SSE stream parsing, runs/approvals,
+                 jobs/skills/toolsets, Deepgram TTS
+tools/blueprint/ reproducible character capture + frame-diff & uphill eval harness
 branding/        the Voxcell brand kit (mark, wordmark, art)
 ```
 

@@ -266,7 +266,7 @@ export function UiCustomizerStudio({
       maxWidthClass="w-[min(780px,96vw)]"
     >
       {/* Modal Header */}
-      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 shrink-0">
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/10 shrink-0">
         <div>
           <h2 className="text-[15px] font-semibold text-white tracking-tight flex items-center gap-2">
             <Settings className="w-4 h-4 text-[#6EE7B7]" />
@@ -288,7 +288,7 @@ export function UiCustomizerStudio({
       </div>
 
       {/* Natural-Language UI Update Prompt inside Settings */}
-      <div className="px-5 py-3 border-b border-white/8 bg-white/[0.02] space-y-2 shrink-0">
+      <div className="px-5 py-2.5 border-b border-white/8 bg-white/[0.02] space-y-1.5 shrink-0">
         <form onSubmit={submitAgentPrompt} className="flex items-center gap-2">
           <label htmlFor="ui-studio-agent-prompt" className="sr-only">
             Ask Hermes to update the interface
@@ -311,13 +311,14 @@ export function UiCustomizerStudio({
           </button>
         </form>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto cyber-scroll pb-0.5">
+        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px]">
+          <span className="text-emerald-100/40 font-mono">Try:</span>
           {AGENT_PROMPT_EXAMPLES.map((example) => (
             <button
               key={example}
               type="button"
               onClick={() => onAskAgent(example)}
-              className="ui-tactile shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-white/10 bg-white/[0.03] text-emerald-100/70 hover:text-white hover:border-[#34D399]/50 cursor-pointer"
+              className="ui-tactile text-emerald-100/65 hover:text-[#6EE7B7] underline underline-offset-4 decoration-white/15 hover:decoration-[#34D399]/50 transition-colors cursor-pointer"
             >
               {example}
             </button>
@@ -339,10 +340,10 @@ export function UiCustomizerStudio({
         </div>
 
         {/* Scrollable Settings Controls */}
-        <div key={activeTab} className="ui-card-enter flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 sm:p-5 space-y-5">
+        <div key={activeTab} className="ui-card-enter flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 sm:px-5 sm:py-3.5 pb-5 space-y-3.5">
             {activeTab === 'theme' && (
               <>
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   <div className="text-xs font-medium text-emerald-100/65">
                     Curated themes
                   </div>
@@ -359,7 +360,7 @@ export function UiCustomizerStudio({
                         type="button"
                         data-testid={`ui-preset-${preset.id}`}
                         onClick={() => onApplyPatch({ presetId: preset.id }, 'studio')}
-                        className={`text-left rounded-xl border p-2.5 transition-colors cursor-pointer ${
+                        className={`text-left rounded-xl border px-2.5 py-2 transition-colors cursor-pointer ${
                           active
                             ? 'ui-active-card'
                             : 'border-white/10 bg-white/[0.025] hover:border-white/25'
@@ -375,10 +376,10 @@ export function UiCustomizerStudio({
                           </span>
                           {active && <Check className="w-3.5 h-3.5 text-[#6EE7B7]" />}
                         </div>
-                        <div className="mt-2 text-xs font-semibold text-white truncate">
+                        <div className="mt-1.5 text-xs font-semibold text-white truncate">
                           {preset.name}
                         </div>
-                        <div className="text-[10.5px] text-emerald-100/60 leading-snug line-clamp-2 mt-0.5">
+                        <div className="text-[10.5px] text-emerald-100/60 leading-snug line-clamp-1 mt-0.5">
                           {preset.subtitle}
                         </div>
                       </button>
@@ -387,7 +388,7 @@ export function UiCustomizerStudio({
                 </div>
               </div>
 
-              <div className="space-y-2.5 pt-2 border-t border-white/8">
+              <div className="space-y-2 pt-2.5 border-t border-white/8">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-emerald-100/65">
                     Accent palette
@@ -405,7 +406,7 @@ export function UiCustomizerStudio({
                         onClick={() => onApplyPatch({ accentPreset: swatch.id }, 'studio')}
                         aria-label={`Set accent color to ${swatch.label}`}
                         title={swatch.label}
-                        className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-transform cursor-pointer ${
+                        className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-transform cursor-pointer ${
                           active ? 'scale-105 border-white' : 'border-white/20 hover:scale-105'
                         }`}
                         style={{ backgroundColor: swatch.accentHex }}
@@ -415,19 +416,19 @@ export function UiCustomizerStudio({
                     );
                   })}
 
-                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/14 bg-white/[0.04] px-2.5 h-8 text-[11px] text-emerald-100/80 cursor-pointer hover:border-white/30">
+                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/14 bg-white/[0.04] px-2.5 h-7 text-[11px] text-emerald-100/80 cursor-pointer hover:border-white/30">
                     <span>Custom</span>
                     <input
                       type="color"
                       aria-label="Custom accent hex color"
                       value={config.accentHex}
                       onChange={(e) => onApplyPatch({ accentHex: e.target.value }, 'studio')}
-                      className="w-4 h-4 rounded border-0 bg-transparent cursor-pointer p-0"
+                      className="w-3.5 h-3.5 appearance-none rounded border border-white/25 bg-transparent cursor-pointer p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-[3px]"
                     />
                   </label>
                 </div>
 
-                <label className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs cursor-pointer">
+                <label className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.025] px-3 py-1.5 text-xs cursor-pointer hover:border-white/20 transition-colors">
                   <span>Panel surface tint</span>
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[11px] text-emerald-100/60">
@@ -438,13 +439,13 @@ export function UiCustomizerStudio({
                       aria-label="Panel surface tint hex color"
                       value={config.surfaceHex}
                       onChange={(e) => onApplyPatch({ surfaceHex: e.target.value }, 'studio')}
-                      className="w-6 h-6 rounded border-0 bg-transparent cursor-pointer p-0"
+                      className="w-4 h-4 appearance-none rounded border border-white/25 bg-transparent cursor-pointer p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-[3px]"
                     />
                   </div>
                 </label>
               </div>
 
-              <div className="space-y-3 pt-2 border-t border-white/8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 pt-2.5 border-t border-white/8">
                 <SliderRow
                   label="Panel glass opacity"
                   valueLabel={`${Math.round(config.panelAlpha * 100)}%`}
@@ -464,15 +465,17 @@ export function UiCustomizerStudio({
                   value={config.borderOpacity}
                   onChange={(val) => onApplyPatch({ borderOpacity: val }, 'studio')}
                 />
-                <SliderRow
-                  label="Stage glow intensity"
-                  valueLabel={`${Math.round(config.glowIntensity * 100)}%`}
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  value={config.glowIntensity}
-                  onChange={(val) => onApplyPatch({ glowIntensity: val }, 'studio')}
-                />
+                <div className="sm:col-span-2">
+                  <SliderRow
+                    label="Stage glow intensity"
+                    valueLabel={`${Math.round(config.glowIntensity * 100)}%`}
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={config.glowIntensity}
+                    onChange={(val) => onApplyPatch({ glowIntensity: val }, 'studio')}
+                  />
+                </div>
               </div>
             </>
           )}

@@ -115,7 +115,7 @@ export function GuidedOnboarding() {
     return () => window.removeEventListener(ONBOARDING_REPLAY_EVENT, onReplay);
   }, []);
 
-  // Keep synced with BackgroundPicker if changed externally
+  // Keep synced with Settings -> Backdrop if changed externally
   useEffect(() => {
     return subscribeBackgroundSettings((next) => setBgSettings(next));
   }, []);

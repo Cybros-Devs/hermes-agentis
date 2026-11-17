@@ -1,4 +1,4 @@
-export type BrailleHorizonStyle = 'silk' | 'peaks' | 'pulse';
+export type BrailleHorizonStyle = 'silk' | 'peaks' | 'pulse' | 'ribbon';
 
 export interface HorizonMotionState {
   energy: number;
@@ -191,7 +191,7 @@ function ensureHorizonBuffers(subLen: number, subW: number, cols: number): Float
 
 /**
  * Renders a fluid, modern 2x4 Unicode Braille wave & acoustic topography field
- * with 8x8 Bayer dithering, directional cursor wake ripples, subtle mist, and Silk/Peaks/Pulse styles.
+ * with 8x8 Bayer dithering, directional cursor wake ripples, subtle mist, and Silk/Peaks/Pulse/Ribbon styles.
  */
 export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHorizonFrame {
   const { cols, rows, time, motion, style = 'silk' } = params;
@@ -218,10 +218,11 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
   const cursorWeight = 0.12 + pyBoost;
   const wakeAmp = clamp(Math.abs(pointerVelX) * 0.055, 0, 0.09);
   const wakeDir = pointerVelX >= 0 ? -1 : 1;
-  const c1Amp = 0.14 + voiceAmp * 0.36;
-  const c2Amp = 0.11 + voiceAmp * 0.27;
-  const c3Amp = 0.07 + voiceAmp * 0.22;
-  const shimmerScale = 0.18 * (0.35 + energy * 0.65);
+  const isRibbon = style === 'ribbon';
+  const c1Amp = isRibbon ? 0.08 + energy * 0.28 : 0.14 + voiceAmp * 0.36;
+  const c2Amp = isRibbon ? 0.05 + energy * 0.2 : 0.11 + voiceAmp * 0.27;
+  const c3Amp = isRibbon ? 0.03 + energy * 0.12 : 0.07 + voiceAmp * 0.22;
+  const shimmerScale = 0.20 * (0.35 + energy * 0.65);
   const isPeaks = style === 'peaks';
   const isPulse = style === 'pulse';
   const barCount = Math.max(18, Math.round(cols * 0.28));

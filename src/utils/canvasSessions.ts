@@ -1,14 +1,28 @@
-import type { Channel, ChannelId, ExpressionMood } from '../types/hermes';
+import type {
+  Channel,
+  ChannelId,
+  ExpressionMood,
+  HermesAgentSession,
+  HermesSessionOrigin,
+} from '../types/hermes';
 import {
   BRAILLE_SHAPE_CATALOG,
   type BrailleShapeKind,
   type BrailleShapeTint,
 } from './brailleShapesEngine';
+import { classifyGatewaySessionOrigin } from './hermesProtocol';
+import {
+  classifySessionBucket,
+  formatDisplaySessionTitle,
+  formatSourceLabel,
+  isOpaqueSessionIdentifier,
+} from './sidebarSessions';
 
 export type DotAutonomyMode = 'manual' | 'scheduled' | 'watch';
 export type DotSandboxEnv = 'cloud-sandbox' | 'local-repo' | 'browser-worker';
+export type CanvasDotOrigin = 'workspace' | 'imported' | 'seed';
 export type CanvasFormationPreset = 'constellation' | 'orbit' | 'grid';
-export type CanvasSessionFilter = 'all' | 'live' | 'autonomous';
+export type CanvasSessionFilter = 'chats' | 'all' | 'live' | 'autonomous';
 
 export interface CanvasSession {
   id: string;
@@ -25,6 +39,7 @@ export interface CanvasSession {
   mood: ExpressionMood;
   eyeStyle: 'open' | 'sleepy';
   isCore?: boolean;
+  origin?: CanvasDotOrigin;
   /** OpenAI Dots-inspired autonomy & dedicated computer metadata */
   autonomyMode: DotAutonomyMode;
   scheduleLabel: string;
@@ -248,13 +263,125 @@ export function isDotAutonomous(session: Pick<CanvasSession, 'autonomyMode' | 'a
   return session.autonomyMode !== 'manual' && !session.autonomyPaused;
 }
 
+export function isCanvasBackgroundRun(
+  session: Pick<CanvasSession, 'channelId' | 'hermesSessionId' | 'name' | 'topic' | 'isCore' | 'autonomyMode'>,
+  hermesSession?: HermesAgentSession
+): boolean {
+  if (session.isCore) return false;
+  if (session.autonomyMode !== 'manual') return false;
+  const sourceLabel = formatSourceLabel(
+    hermesSession?.source,
+    session.hermesSessionId,
+    session.channelId
+  );
+  const titleInfo = formatDisplaySessionTitle({
+    topic: hermesSession?.topic || session.topic,
+    name: hermesSession?.name || session.name,
+    channelId: session.channelId,
+    sessionId: session.hermesSessionId,
+    lastMessage: hermesSession?.lastMessage,
+    sourceLabel,
+  });
+  const turnCount = hermesSession?.turnCount ?? 0;
+  const hasActiveWork =
+    hermesSession?.status === 'thinking' ||
+    hermesSession?.status === 'running' ||
+    hermesSession?.status === 'speaking';
+  return (
+    classifySessionBucket({
+      sessionId: session.hermesSessionId,
+      channelId: session.channelId,
+      source: hermesSession?.source,
+      isOpaqueTitle: titleInfo.isOpaque,
+      turnCount,
+      hasActiveWork,
+    }) === 'runs'
+  );
+}
+
+export function formatCanvasDotLabel(
+  session: Pick<CanvasSession, 'channelId' | 'hermesSessionId' | 'name' | 'topic'>,
+  hermesSession?: HermesAgentSession,
+  turnCount = 0
+): {
+  primaryLabel: string;
+  secondaryLabel: string;
+  promptTarget: string;
+  isOpaque: boolean;
+} {
+  const sourceLabel = formatSourceLabel(
+    hermesSession?.source,
+    session.hermesSessionId,
+    session.channelId
+  );
+  const titleInfo = formatDisplaySessionTitle({
+    topic: hermesSession?.topic || session.topic,
+    name: hermesSession?.name || session.name,
+    channelId: session.channelId,
+    sessionId: session.hermesSessionId,
+    lastMessage: hermesSession?.lastMessage,
+    sourceLabel,
+  });
+
+  const compactPrimary =
+    titleInfo.title.length > 24
+      ? `${titleInfo.title.slice(0, 22).trimEnd()}…`
+      : titleInfo.title;
+
+  const isSlugLike = /^[a-z0-9-_]+$/i.test(compactPrimary);
+
+  const shortPromptBase = titleInfo.isOpaque
+    ? titleInfo.title.split('·').pop()?.trim() || session.channelId.slice(0, 8)
+    : isSlugLike && session.channelId.length <= 16
+    ? session.channelId
+    : compactPrimary.includes('/')
+    ? compactPrimary.split('/')[0].slice(0, 14)
+    : compactPrimary.slice(0, 14).trimEnd();
+
+  const parts: string[] = [];
+  if (!titleInfo.isOpaque) {
+    parts.push(sourceLabel);
+  }
+  const effectiveTurns = Math.max(turnCount, hermesSession?.turnCount ?? 0);
+  if (effectiveTurns > 0) {
+    parts.push(`${effectiveTurns}t`);
+  }
+
+  if (hermesSession?.model && hermesSession.model !== 'hermes-agent') {
+    parts.push(hermesSession.model.split('/').pop() || hermesSession.model);
+  }
+  if (parts.length === 0) {
+    parts.push(`${effectiveTurns}t`);
+  }
+
+  return {
+    primaryLabel: !titleInfo.isOpaque && isSlugLike ? `#${compactPrimary}` : compactPrimary,
+    secondaryLabel: parts.join(' · '),
+    promptTarget: shortPromptBase,
+    isOpaque: titleInfo.isOpaque,
+  };
+}
+
 export function filterCanvasSessions(
   sessions: CanvasSession[],
   filter: CanvasSessionFilter,
   thinkingByChannel: Record<string, boolean>,
-  hermesStatusByChannel?: ReadonlyMap<string, string>
+  hermesStatusByChannel?: ReadonlyMap<string, string>,
+  hermesSessionsByChannel?: ReadonlyMap<string, HermesAgentSession>
 ): CanvasSession[] {
   if (filter === 'all') return sessions;
+  if (filter === 'chats') {
+    return sessions.filter((s) => {
+      if (
+        thinkingByChannel[s.channelId] ||
+        hermesStatusByChannel?.get(s.channelId) === 'thinking' ||
+        hermesStatusByChannel?.get(s.channelId) === 'running'
+      ) {
+        return true;
+      }
+      return !isCanvasBackgroundRun(s, hermesSessionsByChannel?.get(s.channelId));
+    });
+  }
   if (filter === 'live') {
     return sessions.filter(
       (s) =>
@@ -391,7 +518,7 @@ export function arrangeSessionsFormation(
   }
 
   if (formation === 'grid') {
-    const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
+    const cols = count <= 2 ? count : count <= 4 ? 2 : count <= 9 ? 3 : 4;
     const rows = Math.ceil(count / cols);
     return sessions.map((session, idx) => {
       const r = Math.floor(idx / cols);
@@ -399,10 +526,10 @@ export function arrangeSessionsFormation(
       const colsInRow = r === rows - 1 ? count - r * cols : cols;
       const tX = colsInRow === 1 ? 0.5 : c / (colsInRow - 1);
       const tY = rows === 1 ? 0.5 : r / (rows - 1);
-      const xMargin = colsInRow === 2 ? 26 : 18;
-      const xSpan = colsInRow === 2 ? 48 : 64;
-      const yMin = rows === 1 ? 45 : 26;
-      const ySpan = rows === 1 ? 0 : 40;
+      const xMargin = colsInRow === 2 ? 26 : cols >= 4 ? 13 : 18;
+      const xSpan = colsInRow === 2 ? 48 : cols >= 4 ? 74 : 64;
+      const yMin = rows === 1 ? 45 : rows >= 4 ? 19 : 24;
+      const ySpan = rows === 1 ? 0 : rows >= 4 ? 54 : 44;
       const clamped = clampCanvasPosition(xMargin + tX * xSpan, yMin + tY * ySpan);
       return { ...session, ...clamped };
     });
@@ -415,26 +542,61 @@ export function autoArrangeSessions(sessions: CanvasSession[]): CanvasSession[] 
   const count = sessions.length;
   if (count === 0) return sessions;
 
-  if (count <= 3) {
+  if (count === 1) {
+    return [{ ...sessions[0], ...clampCanvasPosition(50, 44) }];
+  }
+  if (count === 2) {
+    return [
+      { ...sessions[0], ...clampCanvasPosition(33, 46) },
+      { ...sessions[1], ...clampCanvasPosition(67, 46) },
+    ];
+  }
+  if (count === 3) {
     return sessions.map((session, idx) => {
-      const t = count === 1 ? 0.5 : idx / (count - 1);
-      const clamped = clampCanvasPosition(18 + t * 64, idx % 2 === 0 ? 44 : 52);
-      return { ...session, ...clamped };
+      const coords = [
+        { xPct: 22, yPct: 48 },
+        { xPct: 50, yPct: 38 },
+        { xPct: 78, yPct: 48 },
+      ][idx];
+      return { ...session, ...clampCanvasPosition(coords.xPct, coords.yPct) };
     });
   }
 
-  const topCount = Math.ceil(count / 2);
-  const bottomCount = count - topCount;
+  if (count <= 6) {
+    const topCount = Math.ceil(count / 2);
+    const bottomCount = count - topCount;
 
+    return sessions.map((session, idx) => {
+      const isTop = idx < topCount;
+      const rowIdx = isTop ? idx : idx - topCount;
+      const rowLen = isTop ? topCount : bottomCount;
+      const t = rowLen === 1 ? 0.5 : rowIdx / (rowLen - 1);
+      const xMargin = isTop ? 18 : 26;
+      const xSpan = isTop ? 64 : 48;
+      const yPct = isTop ? 28 : 66;
+      const clamped = clampCanvasPosition(xMargin + t * xSpan, yPct);
+      return {
+        ...session,
+        ...clamped,
+      };
+    });
+  }
+
+  // Multi-row staggered constellation for 7+ sessions so nodes never overlap horizontally
+  const cols = count <= 9 ? 3 : 4;
+  const rows = Math.ceil(count / cols);
   return sessions.map((session, idx) => {
-    const isTop = idx < topCount;
-    const rowIdx = isTop ? idx : idx - topCount;
-    const rowLen = isTop ? topCount : bottomCount;
-    const t = rowLen === 1 ? 0.5 : rowIdx / (rowLen - 1);
-    const xMargin = isTop ? 18 : 26;
-    const xSpan = isTop ? 64 : 48;
-    const yPct = isTop ? 28 : 66;
-    const clamped = clampCanvasPosition(xMargin + t * xSpan, yPct);
+    const r = Math.floor(idx / cols);
+    const c = idx % cols;
+    const colsInRow = r === rows - 1 ? count - r * cols : cols;
+    const tX = colsInRow === 1 ? 0.5 : c / (colsInRow - 1);
+    const tY = rows === 1 ? 0.5 : r / (rows - 1);
+    const rowStagger = r % 2 === 1 && colsInRow < cols ? 4 : 0;
+    const xMargin = colsInRow === 2 ? 26 : 14;
+    const xSpan = colsInRow === 2 ? 48 : 72;
+    const yMin = rows >= 4 ? 19 : 22;
+    const ySpan = rows >= 4 ? 54 : 48;
+    const clamped = clampCanvasPosition(xMargin + rowStagger + tX * xSpan, yMin + tY * ySpan);
     return {
       ...session,
       ...clamped,
@@ -562,6 +724,100 @@ function defaultAutonomyForChannel(channelId: string): {
   };
 }
 
+const VALID_DOT_ORIGINS = new Set<CanvasDotOrigin>(['workspace', 'imported', 'seed']);
+const LEGACY_SEED_CHANNEL_IDS = new Set([
+  'general',
+  'ops',
+  'research',
+  'launch',
+  'daemon',
+  'memory',
+]);
+
+export function pruneAndMigrateCanvasSessions(
+  sessions: CanvasSession[],
+  gatewaySessions: HermesAgentSession[],
+  options?: {
+    migrateLegacySeeds?: boolean;
+  }
+): { sessions: CanvasSession[]; changed: boolean } {
+  const migrateLegacySeeds = options?.migrateLegacySeeds ?? true;
+  const gwByKey = new Map<string, HermesAgentSession>();
+  for (const hs of gatewaySessions) {
+    if (hs.channelId) gwByKey.set(hs.channelId, hs);
+    if (hs.sessionId) gwByKey.set(hs.sessionId, hs);
+  }
+
+  let changed = false;
+  const kept: CanvasSession[] = [];
+
+  for (const s of sessions) {
+    const hs = gwByKey.get(s.channelId) ?? gwByKey.get(s.hermesSessionId);
+    const resolvedGwOrigin: HermesSessionOrigin | undefined = hs
+      ? hs.origin ??
+        classifyGatewaySessionOrigin({
+          sessionId: hs.sessionId,
+          sessionKey: hs.sessionKey,
+          channelId: hs.channelId,
+          source: hs.source,
+        })
+      : undefined;
+
+    // 1. Explicitly pinned external Dots stay on Canvas until user removes them.
+    if (s.origin === 'imported') {
+      kept.push(s);
+      continue;
+    }
+
+    // 2. Always strip opaque gateway run/local/cron IDs (they are external gateway artifacts).
+    if (
+      (isOpaqueSessionIdentifier(s.channelId) || isOpaqueSessionIdentifier(s.hermesSessionId)) &&
+      resolvedGwOrigin !== 'workspace' &&
+      s.origin !== 'workspace'
+    ) {
+      changed = true;
+      continue;
+    }
+
+    // 3. Strip legacy hardcoded seed dots (#general, #ops, #research, #launch, #daemon) unless active in workspace.
+    const looksLikeLegacySeed =
+      s.isCore === true ||
+      s.origin === 'seed' ||
+      (LEGACY_SEED_CHANNEL_IDS.has(s.channelId) && s.id === `session-${s.channelId}`);
+    if (
+      migrateLegacySeeds &&
+      looksLikeLegacySeed &&
+      s.origin !== 'workspace' &&
+      resolvedGwOrigin !== 'workspace'
+    ) {
+      changed = true;
+      continue;
+    }
+
+    // 4. If gateway confirmed this session is external (CLI, Telegram, Local API, Cron, external API),
+    //    prune it from Canvas so uncreated external history does not flood the stage.
+    if (resolvedGwOrigin === 'external') {
+      changed = true;
+      continue;
+    }
+
+    // 5. Backfill workspace origin on genuine workspace dots.
+    if (
+      s.origin !== 'workspace' &&
+      (resolvedGwOrigin === 'workspace' ||
+        (s.hermesSessionId.startsWith('hermes-') && !isOpaqueSessionIdentifier(s.hermesSessionId)))
+    ) {
+      changed = true;
+      kept.push({ ...s, origin: 'workspace', isCore: false });
+      continue;
+    }
+
+    kept.push(s);
+  }
+
+  return { sessions: kept, changed };
+}
+
 export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): CanvasSession[] {
   const seenChannels = new Set<string>();
   const normalized: CanvasSession[] = [];
@@ -610,6 +866,8 @@ export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): Canv
     const connectedTo = Array.isArray(item.connectedTo)
       ? item.connectedTo.filter((c): c is string => typeof c === 'string' && c !== channelId)
       : defaults.connectedTo;
+    const origin: CanvasDotOrigin | undefined =
+      item.origin && VALID_DOT_ORIGINS.has(item.origin) ? item.origin : undefined;
 
     normalized.push({
       id: typeof item.id === 'string' && item.id ? item.id : `session-${channelId}`,
@@ -636,6 +894,7 @@ export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): Canv
       mood,
       eyeStyle: item.eyeStyle === 'sleepy' ? 'sleepy' : item.eyeStyle === 'open' ? 'open' : meta.defaultEyeStyle,
       isCore: Boolean(item.isCore),
+      ...(origin ? { origin } : {}),
       autonomyMode,
       scheduleLabel,
       autonomyPaused: Boolean(item.autonomyPaused),
@@ -678,6 +937,7 @@ export function createSeedCanvasSessions(channels: Channel[]): CanvasSession[] {
       mood: preset?.mood ?? 'happy',
       eyeStyle: preset?.eyeStyle ?? shapeMeta.defaultEyeStyle,
       isCore: true,
+      origin: 'seed',
       autonomyMode: defaults.autonomyMode,
       scheduleLabel: defaults.scheduleLabel,
       autonomyPaused: false,
@@ -705,6 +965,7 @@ export function createSeedCanvasSessions(channels: Channel[]): CanvasSession[] {
       mood: p.mood,
       eyeStyle: p.eyeStyle,
       isCore: false,
+      origin: 'seed',
       autonomyMode: p.autonomyMode,
       scheduleLabel: p.scheduleLabel,
       autonomyPaused: false,

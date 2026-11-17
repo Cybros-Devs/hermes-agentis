@@ -9,6 +9,7 @@ import {
   finalizeTurnTaskSteps,
   formatElapsedDuration,
   formatStartClock,
+  formatTaskOutcomeSnippet,
   getTaskConfirmationLabel,
   getTaskConfirmationState,
   getTaskKindLabel,
@@ -20,6 +21,7 @@ import {
   resolveTaskProgress,
   resolveTaskStepBreakdown,
   summarizeChannelTaskActivity,
+  summarizeThreadTaskAggregate,
   summarizeThreadTasks,
 } from './taskInsights';
 
@@ -542,6 +544,45 @@ test('resolveTaskDisplayTitle promotes meaningful step context for vague convers
     'Audit CI checks on Maia-VM/hermes PR 392'
   );
 });
+
+test('resolveTaskStepBreakdown preserves pending steps on failed tasks and summarizeThreadTaskAggregate computes rollup', () => {
+  const failedTask: BackgroundTask = {
+    ...SAMPLE_TASKS[0],
+    id: 'task-failed-1',
+    channelId: 'launch',
+    status: 'completed',
+    rawStatus: 'failed',
+    result: 'Gateway returned 502 Bad Gateway during publish step after retries.',
+    steps: [
+      { text: 'Collect changed thread summaries', done: true },
+      { text: 'Publish final save_page artifact', done: false },
+    ],
+  };
+  const failedBreakdown = resolveTaskStepBreakdown(failedTask);
+  assert.equal(failedBreakdown.completedCount, 1);
+  assert.equal(failedBreakdown.totalCount, 2);
+  assert.equal(failedBreakdown.steps[0]?.state, 'done');
+  assert.equal(failedBreakdown.steps[1]?.state, 'pending');
+
+  assert.equal(
+    formatTaskOutcomeSnippet(failedTask, 45),
+    'Gateway returned 502 Bad Gateway during…'
+  );
+  assert.equal(
+    formatTaskOutcomeSnippet({ ...failedTask, result: failedTask.lastStep }),
+    null
+  );
+
+  const launchPlusFailed = partitionChannelTasks([SAMPLE_TASKS[0], failedTask], 'launch');
+  const agg = summarizeThreadTaskAggregate(launchPlusFailed, false);
+  assert.equal(agg.totalTasks, 2);
+  assert.equal(agg.activeCount, 1);
+  assert.equal(agg.completedCount, 1);
+  assert.equal(agg.failedCount, 1);
+  // SAMPLE_TASKS[0] is 67% (4/6), failedTask is 50% (1/2) -> average 59%
+  assert.equal(agg.aggregatePct, 59);
+});
+
 
 
 

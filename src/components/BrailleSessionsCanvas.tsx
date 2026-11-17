@@ -25,6 +25,7 @@ import type { BrailleHorizonStyle } from '../utils/brailleFieldEngine';
 import {
   CANVAS_ZOOM_BOUNDS,
   DEFAULT_CANVAS_VIEWPORT,
+  arrangeSessionsFormation,
   clampCanvasPan,
   clampCanvasPosition,
   clampPinPosition,
@@ -136,6 +137,7 @@ export function BrailleSessionsCanvas({
   const [isPanning, setIsPanning] = useState(false);
 
   const [openChats, setOpenChats] = useState<Record<string, boolean>>({});
+  const [movedFilterPos, setMovedFilterPos] = useState<Record<string, { xPct: number; yPct: number }>>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<{ id: string; xPct: number; yPct: number } | null>(
     null
@@ -190,10 +192,67 @@ export function BrailleSessionsCanvas({
     return map;
   }, [approvals]);
 
-  const visibleSessions = useMemo(
-    () => filterCanvasSessions(sessions, filterMode, thinkingByChannel, hermesStatusMap),
-    [sessions, filterMode, thinkingByChannel, hermesStatusMap]
+  const chatSessions = useMemo(
+    () =>
+      filterCanvasSessions(
+        sessions,
+        'chats',
+        thinkingByChannel,
+        hermesStatusMap,
+        hermesByChannel
+      ),
+    [sessions, thinkingByChannel, hermesStatusMap, hermesByChannel]
   );
+
+  const effectiveFilterMode: CanvasSessionFilter =
+    filterMode === 'chats' && sessions.length > 0 && chatSessions.length === 0
+      ? 'all'
+      : filterMode;
+
+  const visibleSessions = useMemo(
+    () =>
+      effectiveFilterMode === 'chats'
+        ? chatSessions
+        : filterCanvasSessions(
+            sessions,
+            effectiveFilterMode,
+            thinkingByChannel,
+            hermesStatusMap,
+            hermesByChannel
+          ),
+    [sessions, chatSessions, effectiveFilterMode, thinkingByChannel, hermesStatusMap, hermesByChannel]
+  );
+
+  const isFilteredSubset =
+    effectiveFilterMode !== 'all' &&
+    visibleSessions.length > 0 &&
+    visibleSessions.length < sessions.length;
+
+  const filterPosMap = useMemo(() => {
+    if (!isFilteredSubset) return null;
+    const arranged = arrangeSessionsFormation(visibleSessions, activeFormation);
+    return new Map(arranged.map((s) => [s.id, { xPct: s.xPct, yPct: s.yPct }]));
+  }, [isFilteredSubset, visibleSessions, activeFormation]);
+
+  const resolveSessionPos = (session: CanvasSession): { xPct: number; yPct: number } => {
+    if (dragPreview && dragPreview.id === session.id) {
+      return { xPct: dragPreview.xPct, yPct: dragPreview.yPct };
+    }
+    if (isFilteredSubset) {
+      return (
+        movedFilterPos[session.id] ??
+        filterPosMap?.get(session.id) ?? { xPct: session.xPct, yPct: session.yPct }
+      );
+    }
+    return { xPct: session.xPct, yPct: session.yPct };
+  };
+
+  const compactNodes = visibleSessions.length > 6;
+  const estRows =
+    visibleSessions.length <= 6
+      ? 2
+      : Math.ceil(visibleSessions.length / (visibleSessions.length <= 9 ? 3 : 4));
+  const minStagePx = estRows >= 3 ? estRows * 290 : undefined;
 
   const selectedSession = useMemo(
     () =>
@@ -357,14 +416,15 @@ export function BrailleSessionsCanvas({
     if (e.button !== 0) return;
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
+    const startPos = resolveSessionPos(session);
     dragMetaRef.current = {
       kind: 'session',
       id: session.id,
       pointerId: e.pointerId,
       startClientX: e.clientX,
       startClientY: e.clientY,
-      origXPct: session.xPct,
-      origYPct: session.yPct,
+      origXPct: startPos.xPct,
+      origYPct: startPos.yPct,
       moved: false,
     };
   };
@@ -385,6 +445,12 @@ export function BrailleSessionsCanvas({
     }
 
     if (drag.moved && dragPreview && dragPreview.id === session.id) {
+      if (isFilteredSubset) {
+        setMovedFilterPos((prev) => ({
+          ...prev,
+          [session.id]: { xPct: dragPreview.xPct, yPct: dragPreview.yPct },
+        }));
+      }
       onMoveSession(session.id, dragPreview.xPct, dragPreview.yPct);
     } else {
       onSelectSession(session);
@@ -455,7 +521,11 @@ export function BrailleSessionsCanvas({
     else return;
 
     e.preventDefault();
-    const clamped = clampCanvasPosition(session.xPct + dx, session.yPct + dy);
+    const cur = resolveSessionPos(session);
+    const clamped = clampCanvasPosition(cur.xPct + dx, cur.yPct + dy);
+    if (isFilteredSubset) {
+      setMovedFilterPos((prev) => ({ ...prev, [session.id]: clamped }));
+    }
     onMoveSession(session.id, clamped.xPct, clamped.yPct);
   };
 
@@ -577,123 +647,141 @@ export function BrailleSessionsCanvas({
       {/* Block Berd × OpenAI Dots Spatial Toolbar */}
       <div
         onPointerDown={(e) => e.stopPropagation()}
-        className="relative z-20 flex items-center justify-between gap-2 px-4 sm:px-6 pt-3 pb-2 shrink-0"
+        className="relative z-20 flex items-center justify-between gap-3 px-4 sm:px-6 pt-3 pb-2 shrink-0"
       >
         <div className="flex items-baseline gap-2.5 min-w-0">
           <h1 className="text-sm sm:text-base font-semibold text-white tracking-tight truncate">
             Hermes Dots
           </h1>
           <span className="font-mono text-[11px] text-emerald-100/55 tabular-nums whitespace-nowrap">
-            {sessions.length} dots
+            {sessions.length} {sessions.length === 1 ? 'dot' : 'dots'}
             {autonomousCount > 0 ? ` · ${autonomousCount} auto` : ''}
             {runningCount > 0 ? ` · ${runningCount} running` : ''}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Status Filter Segment (md+) */}
-          <div className="hidden lg:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
-            {(
-              [
-                { id: 'all', label: 'All' },
-                { id: 'autonomous', label: 'Auto' },
-                { id: 'live', label: 'Live' },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setFilterMode(opt.id)}
-                className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                  filterMode === opt.id
-                    ? 'bg-[#34D399]/18 text-[#6EE7B7]'
-                    : 'text-emerald-100/60 hover:text-white'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {sessions.length > 0 && (
+            <>
+              {/* Status Filter Segment (only shown when autonomous or live Dots exist) */}
+              {(autonomousCount > 0 || runningCount > 0) && (
+                <div className="hidden sm:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                  {(
+                    [
+                      { id: 'all', label: `All ${sessions.length}` },
+                      { id: 'autonomous', label: `Auto ${autonomousCount}` },
+                      { id: 'live', label: `Live ${runningCount}` },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      data-testid={`canvas-filter-${opt.id}`}
+                      onClick={() => {
+                        setMovedFilterPos({});
+                        setFilterMode(opt.id);
+                      }}
+                      className={`px-2 py-1 rounded-md text-[11px] font-medium tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                        effectiveFilterMode === opt.id
+                          ? 'bg-[#34D399]/18 text-[#6EE7B7]'
+                          : 'text-emerald-100/60 hover:text-white'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-          {/* Formation Switcher (Constellation | Orbit | Grid) */}
-          <div className="hidden md:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
-            {(
-              [
-                { id: 'constellation', label: 'Constellation', icon: Sparkles },
-                { id: 'orbit', label: 'Orbit', icon: Orbit },
-                { id: 'grid', label: 'Grid', icon: LayoutGrid },
-              ] as const
-            ).map((fmt) => {
-              const Icon = fmt.icon;
-              const active = activeFormation === fmt.id;
-              return (
+              {/* Formation Switcher (Constellation | Orbit | Grid) when 2+ Dots */}
+              {sessions.length >= 2 && (
+                <>
+                  <div className="hidden md:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                    {(
+                      [
+                        { id: 'constellation', label: 'Constellation', icon: Sparkles },
+                        { id: 'orbit', label: 'Orbit', icon: Orbit },
+                        { id: 'grid', label: 'Grid', icon: LayoutGrid },
+                      ] as const
+                    ).map((fmt) => {
+                      const Icon = fmt.icon;
+                      const active = activeFormation === fmt.id;
+                      return (
+                        <button
+                          key={fmt.id}
+                          type="button"
+                          data-testid={`canvas-arrange-${fmt.id}`}
+                          onClick={() => {
+                            setMovedFilterPos({});
+                            setActiveFormation(fmt.id);
+                            onArrangeFormation(fmt.id);
+                          }}
+                          aria-label={`Arrange dots in ${fmt.label} formation`}
+                          className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                            active
+                              ? 'bg-white/12 text-white'
+                              : 'text-emerald-100/60 hover:text-white'
+                          }`}
+                        >
+                          <Icon className="w-3 h-3" />
+                          <span>{fmt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Mobile/Compact Arrange Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMovedFilterPos({});
+                      onArrangeFormation(activeFormation);
+                    }}
+                    aria-label="Auto arrange sessions on canvas"
+                    className="md:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
+
+              {/* Pan & Zoom Controls (sm+) */}
+              <div className="hidden sm:flex items-center rounded-lg border border-white/10 bg-white/[0.03] px-1 py-0.5 gap-0.5 shrink-0">
                 <button
-                  key={fmt.id}
                   type="button"
-                  data-testid={`canvas-arrange-${fmt.id}`}
-                  onClick={() => {
-                    setActiveFormation(fmt.id);
-                    onArrangeFormation(fmt.id);
-                  }}
-                  aria-label={`Arrange dots in ${fmt.label} formation`}
-                  className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                    active
-                      ? 'bg-white/12 text-white'
-                      : 'text-emerald-100/60 hover:text-white'
+                  onClick={() => handleStepZoom(-CANVAS_ZOOM_BOUNDS.step)}
+                  aria-label="Zoom out canvas"
+                  title="Zoom out"
+                  className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
+                >
+                  <ZoomOut className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="canvas-zoom-reset"
+                  onClick={() => setViewport(DEFAULT_CANVAS_VIEWPORT)}
+                  aria-label="Reset canvas pan and zoom"
+                  title="Reset view to 100%"
+                  className={`px-1.5 py-0.5 rounded font-mono text-[10.5px] tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    isViewportModified
+                      ? 'text-[#6EE7B7] hover:bg-white/8'
+                      : 'text-emerald-100/65 hover:text-white'
                   }`}
                 >
-                  <Icon className="w-3 h-3" />
-                  <span>{fmt.label}</span>
+                  {Math.round(viewport.zoom * 100)}%
                 </button>
-              );
-            })}
-          </div>
-
-          {/* Mobile/Compact Arrange Button */}
-          <button
-            type="button"
-            onClick={() => onArrangeFormation(activeFormation)}
-            aria-label="Auto arrange sessions on canvas"
-            className="md:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Pan & Zoom Controls (sm+) */}
-          <div className="hidden sm:flex items-center rounded-lg border border-white/10 bg-white/[0.03] px-1 py-0.5 gap-0.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => handleStepZoom(-CANVAS_ZOOM_BOUNDS.step)}
-              aria-label="Zoom out canvas"
-              title="Zoom out"
-              className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              data-testid="canvas-zoom-reset"
-              onClick={() => setViewport(DEFAULT_CANVAS_VIEWPORT)}
-              aria-label="Reset canvas pan and zoom"
-              title="Reset view to 100%"
-              className={`px-1.5 py-0.5 rounded font-mono text-[10.5px] tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                isViewportModified
-                  ? 'text-[#6EE7B7] hover:bg-white/8'
-                  : 'text-emerald-100/65 hover:text-white'
-              }`}
-            >
-              {Math.round(viewport.zoom * 100)}%
-            </button>
-            <button
-              type="button"
-              onClick={() => handleStepZoom(CANVAS_ZOOM_BOUNDS.step)}
-              aria-label="Zoom in canvas"
-              title="Zoom in"
-              className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => handleStepZoom(CANVAS_ZOOM_BOUNDS.step)}
+                  aria-label="Zoom in canvas"
+                  title="Zoom in"
+                  className="p-1 rounded text-emerald-100/65 hover:text-white hover:bg-white/8 transition-colors cursor-pointer shrink-0"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </>
+          )}
 
           {/* Drop Workspace Pin (sm+) */}
           <button
@@ -715,7 +803,7 @@ export function BrailleSessionsCanvas({
             type="button"
             onClick={() => setIsAddOpen(true)}
             data-testid="canvas-add-button"
-            className="ui-tactile px-3.5 py-1.5 rounded-lg bg-[#34D399] hover:bg-[#6EE7B7] text-[#05140E] text-xs font-semibold flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+            className="ui-tactile px-3 py-1.5 rounded-lg border border-[#34D399]/45 bg-[#34D399]/14 hover:bg-[#34D399] hover:text-[#05140E] text-[#6EE7B7] text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <span>+ Add</span>
           </button>
@@ -779,16 +867,21 @@ export function BrailleSessionsCanvas({
       )}
 
       {/* Spatial Parallel Dots Stage (2-col mobile grid, Pan/Zoom spatial stage on sm+) */}
-      <div className="relative z-10 flex-1 min-h-0 w-full overflow-y-auto sm:overflow-hidden cyber-scroll">
+      <div
+        className={`relative z-10 flex-1 min-h-0 w-full overflow-y-auto ${
+          minStagePx ? 'sm:overflow-y-auto' : 'sm:overflow-hidden'
+        } cyber-scroll`}
+      >
         <div
           style={
             {
               '--canvas-pan-x': `${viewport.panX}px`,
               '--canvas-pan-y': `${viewport.panY}px`,
               '--canvas-zoom': String(viewport.zoom),
+              '--stage-min-h': minStagePx ? `${minStagePx}px` : '100%',
             } as React.CSSProperties
           }
-          className="relative w-full min-h-full sm:h-full grid grid-cols-2 grid-flow-dense items-start justify-items-center gap-x-2.5 gap-y-5 px-3 pb-24 pt-1 sm:block sm:p-0 sm:origin-center sm:[transform:translate3d(var(--canvas-pan-x),var(--canvas-pan-y),0)_scale(var(--canvas-zoom))]"
+          className="relative w-full min-h-full sm:min-h-[var(--stage-min-h)] sm:h-[var(--stage-min-h)] grid grid-cols-2 grid-flow-dense items-start justify-items-center gap-x-2.5 gap-y-5 px-3 pb-24 pt-1 sm:block sm:p-0 sm:origin-center sm:[transform:translate3d(var(--canvas-pan-x),var(--canvas-pan-y),0)_scale(var(--canvas-zoom))]"
         >
           {/* Optical Constellation & Pin Filaments on sm+ */}
           <svg
@@ -805,8 +898,8 @@ export function BrailleSessionsCanvas({
             </defs>
 
             {constellationEdges.map((edge) => {
-              const aPos = dragPreview && dragPreview.id === edge.a.id ? dragPreview : edge.a;
-              const bPos = dragPreview && dragPreview.id === edge.b.id ? dragPreview : edge.b;
+              const aPos = resolveSessionPos(edge.a);
+              const bPos = resolveSessionPos(edge.b);
               const aLive =
                 Boolean(thinkingByChannel[edge.a.channelId]) ||
                 hermesByChannel.get(edge.a.channelId)?.status === 'thinking' ||
@@ -843,7 +936,7 @@ export function BrailleSessionsCanvas({
               const owner = visibleSessions.find((s) => s.channelId === pin.linkedChannelId);
               if (!owner) return null;
               const pPos = dragPinPreview && dragPinPreview.id === pin.id ? dragPinPreview : pin;
-              const sPos = dragPreview && dragPreview.id === owner.id ? dragPreview : owner;
+              const sPos = resolveSessionPos(owner);
               return (
                 <line
                   key={`pin-link-${pin.id}`}
@@ -934,13 +1027,13 @@ export function BrailleSessionsCanvas({
               icon={<LayoutGrid className="w-4 h-4" />}
               title={
                 sessions.length === 0
-                  ? 'No isolated hermes-agent Dots on this canvas yet'
+                  ? 'No Dots on canvas yet'
                   : 'No Dots match this filter'
               }
               description={
                 sessions.length === 0
-                  ? 'Spawn an animated Dot character to orchestrate parallel always-on agents.'
-                  : 'Switch filter back to All or spawn a new autonomous Dot.'
+                  ? 'Start a chat from Home, pin a Gateway session, or spawn a Dot here.'
+                  : 'Switch filter back to All or spawn a new Dot.'
               }
               action={
                 sessions.length === 0 ? (
@@ -965,10 +1058,7 @@ export function BrailleSessionsCanvas({
           ) : (
             visibleSessions.map((session, idx) => {
               const isDragged = draggingId === session.id;
-              const livePos =
-                dragPreview && dragPreview.id === session.id
-                  ? dragPreview
-                  : { xPct: session.xPct, yPct: session.yPct };
+              const livePos = resolveSessionPos(session);
 
               const isSelected = session.channelId === activeChannel;
               const isChatOpen = Boolean(openChats[session.channelId]);
@@ -989,8 +1079,9 @@ export function BrailleSessionsCanvas({
 
               return (
                 <CanvasSessionNode
-                  key={session.id}
+                  key={`${session.id}::${session.channelId}`}
                   session={session}
+                  hermesSession={serverSession}
                   index={idx}
                   livePos={livePos}
                   isSelected={isSelected}
@@ -1004,7 +1095,8 @@ export function BrailleSessionsCanvas({
                   energy={activeSpeechEnergy}
                   entries={bucket?.entries ?? []}
                   turnCount={turnCount}
-                  canRemove={sessions.length > 1}
+                  canRemove
+                  compact={compactNodes}
                   dotProfile={dotProfile}
                   bloom={bloom}
                   speedScale={speedScale}

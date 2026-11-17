@@ -3,7 +3,6 @@ import {
   Brain,
   ChevronDown,
   LayoutGrid,
-  MoreHorizontal,
   PanelLeft,
   RotateCcw,
   Settings,
@@ -16,7 +15,8 @@ import type {
   ExpressionMood,
   MouthViseme,
 } from '../types/hermes';
-import type { CanvasSession } from '../utils/canvasSessions';
+import { formatCanvasDotLabel, type CanvasSession } from '../utils/canvasSessions';
+import { formatDisplaySessionTitle } from '../utils/sidebarSessions';
 import { summarizeChannelTaskActivity } from '../utils/taskInsights';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
 import { BrailleShapeCanvas } from './BrailleShapeCanvas';
@@ -94,7 +94,19 @@ export function MobileWorkspaceBar({
   const runningCount = canvasSessions.filter((s) =>
     Boolean(activityByChannel[s.channelId]?.hasActiveTask)
   ).length;
-  const isHomeNewDraft = panelView === 'home' && homeSessionDraft;
+  const hasChannel = Boolean(activeChannel);
+  const isHomeNewDraft = (panelView === 'home' && homeSessionDraft) || !hasChannel;
+  const activeCanvasSession = hasChannel
+    ? canvasSessions.find((s) => s.channelId === activeChannel)
+    : undefined;
+  const activeTitle = !hasChannel
+    ? 'new session'
+    : activeCanvasSession
+    ? formatCanvasDotLabel(activeCanvasSession, undefined, turnCount).primaryLabel
+    : formatDisplaySessionTitle({
+        channelId: activeChannel,
+        sessionId: activeSessionId,
+      }).title;
 
   const views: { id: WorkspacePanelView; label: string }[] = [
     { id: 'home', label: 'Home' },
@@ -137,7 +149,7 @@ export function MobileWorkspaceBar({
             className="flex-1 min-w-0 overflow-hidden text-left cursor-pointer"
           >
             <div className="text-[12px] font-semibold text-white leading-tight truncate">
-              {isHomeNewDraft ? 'new session' : `#${activeChannel}`}
+              {isHomeNewDraft ? 'new session' : activeTitle}
             </div>
             <div className="font-mono text-[10px] tracking-tight text-emerald-100/60 tabular-nums leading-tight mt-0.5 flex items-center gap-1 whitespace-nowrap overflow-hidden">
               {isHomeNewDraft ? (
@@ -212,15 +224,6 @@ export function MobileWorkspaceBar({
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={() => setViewMenuOpen((v) => !v)}
-            aria-label="Open view options"
-            className="ui-tactile w-7 h-7 rounded-full bg-white/[0.06] border border-white/10 text-emerald-100/80 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-          >
-            <MoreHorizontal className="w-3.5 h-3.5" />
-          </button>
-
           {viewMenuOpen && (
             <div
               role="menu"
@@ -292,7 +295,7 @@ export function MobileWorkspaceBar({
                   className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/80 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5 text-emerald-100/65" />
-                  <span>Reset #{activeChannel}</span>
+                  <span>{hasChannel ? `Reset #${activeChannel}` : 'Reset session'}</span>
                 </button>
               </div>
             </div>
@@ -300,8 +303,9 @@ export function MobileWorkspaceBar({
         </div>
       </div>
 
-      {/* Row 2: Overlapping Subagent / Parallel Braille Session Avatar Cluster */}
-      <div className="flex items-center justify-between gap-2">
+      {/* Row 2: Overlapping Subagent / Parallel Braille Session Avatar Cluster (shown when dots exist) */}
+      {canvasSessions.length > 0 && (
+        <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-2 rounded-full bg-[#0B1714]/86 border border-white/12 pl-1.5 pr-3 py-1 max-w-full overflow-hidden">
           <div className="flex items-center -space-x-2 shrink-0">
             {visibleSessions.map((session) => {
@@ -372,7 +376,8 @@ export function MobileWorkspaceBar({
           <LayoutGrid className="w-3 h-3" />
           <span>Canvas</span>
         </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

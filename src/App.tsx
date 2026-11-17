@@ -26,11 +26,13 @@ import {
   findOpenCanvasSpot,
   normalizeCanvasPins,
   normalizeCanvasSessions,
+  pruneAndMigrateCanvasSessions,
   slugifySessionName,
   type CanvasFormationPreset,
   type CanvasPin,
   type CanvasSession,
 } from './utils/canvasSessions';
+import { classifyGatewaySessionOrigin } from './utils/hermesProtocol';
 import { executeCliInput } from './utils/cliEngine';
 import {
   deriveSessionFromPrompt,
@@ -60,19 +62,40 @@ function nowTime(): string {
 const CANVAS_STORAGE_KEY = 'duet.canvasSessions.v2';
 const CANVAS_PINS_STORAGE_KEY = 'duet.canvasPins.v1';
 
+const CANVAS_DISMISSED_KEY = 'duet.dismissedCanvasIds.v1';
+
 export default function App() {
   const [activeChannel, setActiveChannel] = useState<ChannelId>('');
   const [approvals, setApprovals] = useState<ApprovalCard[]>([]);
   const [brief, setBrief] = useState<BriefDecision[]>([]);
   const [tasks, setTasks] = useState<BackgroundTask[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const dismissedChannelIdsRef = useRef<Set<string>>(
+    (() => {
+      try {
+        const raw = localStorage.getItem(CANVAS_DISMISSED_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as unknown;
+          if (Array.isArray(parsed)) {
+            return new Set(parsed.filter((v): v is string => typeof v === 'string'));
+          }
+        }
+      } catch {
+        // ignore storage errors
+      }
+      return new Set<string>();
+    })()
+  );
   const [canvasSessions, setCanvasSessions] = useState<CanvasSession[]>(() => {
     try {
       const raw = localStorage.getItem(CANVAS_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<CanvasSession>[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return normalizeCanvasSessions(parsed);
+          const normalized = normalizeCanvasSessions(parsed);
+          return pruneAndMigrateCanvasSessions(normalized, [], {
+            migrateLegacySeeds: true,
+          }).sessions;
         }
       }
     } catch {
@@ -432,19 +455,56 @@ export default function App() {
     }
   }, [canvasPins]);
 
-  // Sync real gateway channels into canvasSessions so Braille canvas mirrors GET /api/sessions
+  // Sync ONLY workspace-owned gateway sessions into canvasSessions and prune legacy/external dots
   useEffect(() => {
-    if (hermes.channels.length === 0) return;
+    if (hermes.channels.length === 0 && hermes.sessions.length === 0) return;
     setCanvasSessions((prev) => {
-      const existingIds = new Set(prev.map((s) => s.channelId));
+      const pruned = pruneAndMigrateCanvasSessions(prev, hermes.sessions, {
+        migrateLegacySeeds: true,
+      });
+      const baseList = pruned.sessions;
+      const chById = new Map(hermes.channels.map((c) => [c.id, c]));
+      let changed = pruned.changed;
+
+      const updated = baseList.map((cs) => {
+        const ch = chById.get(cs.channelId);
+        if (!ch) return cs;
+        const nextName = ch.name || cs.name;
+        const nextTopic = ch.description || cs.topic;
+        const nextSid = ch.sessionId || cs.hermesSessionId;
+        if (nextName !== cs.name || nextTopic !== cs.topic || nextSid !== cs.hermesSessionId) {
+          changed = true;
+          return { ...cs, name: nextName, topic: nextTopic, hermesSessionId: nextSid };
+        }
+        return cs;
+      });
+
+      const existingIds = new Set(updated.map((s) => s.channelId));
+      const existingRowIds = new Set(updated.map((s) => s.id));
       const additions: CanvasSession[] = [];
+
       for (const ch of hermes.channels) {
         if (existingIds.has(ch.id)) continue;
+        if (dismissedChannelIdsRef.current.has(ch.id)) continue;
+        const origin =
+          ch.origin ??
+          classifyGatewaySessionOrigin({
+            sessionId: ch.sessionId,
+            sessionKey: ch.sessionKey,
+            channelId: ch.id,
+          });
+        if (origin !== 'workspace') continue;
+
         existingIds.add(ch.id);
-        const visual = pickNextShapeAndTint([...prev, ...additions]);
-        const spot = findOpenCanvasSpot([...prev, ...additions]);
+        const visual = pickNextShapeAndTint([...updated, ...additions]);
+        const spot = findOpenCanvasSpot([...updated, ...additions]);
+        let rowId = `session-${ch.id}`;
+        if (existingRowIds.has(rowId)) {
+          rowId = `session-${ch.id}-${additions.length + 1}`;
+        }
+        existingRowIds.add(rowId);
         additions.push({
-          id: `session-${ch.id}`,
+          id: rowId,
           channelId: ch.id,
           hermesSessionId: ch.sessionId || createHermesSessionId(ch.id),
           agentPersona: ch.persona || 'Hermes Agent session synced from gateway.',
@@ -457,6 +517,7 @@ export default function App() {
           mood: 'happy',
           eyeStyle: visual.eyeStyle,
           isCore: false,
+          origin: 'workspace',
           autonomyMode: 'manual',
           scheduleLabel: 'On-demand',
           sandboxEnv: 'cloud-sandbox',
@@ -464,16 +525,23 @@ export default function App() {
           skills: [],
         });
       }
-      return additions.length > 0 ? [...prev, ...additions] : prev;
-    });
-  }, [hermes.channels]);
 
-  // Sync any user-created custom canvas sessions to the server hermes-agent registry.
+      if (additions.length > 0) {
+        if (updated.length === 0) {
+          return autoArrangeSessions(additions);
+        }
+        return [...updated, ...additions];
+      }
+      return changed ? updated : prev;
+    });
+  }, [hermes.channels, hermes.sessions]);
+
+  // Sync user-created workspace canvas sessions to the server hermes-agent registry.
   const syncedSessionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!hermesConnected) return;
     for (const cs of canvasSessions) {
-      if (cs.isCore !== false) continue;
+      if (cs.isCore !== false || cs.origin !== 'workspace') continue;
       if (syncedSessionsRef.current.has(cs.channelId)) continue;
       syncedSessionsRef.current.add(cs.channelId);
       if (!hermes.sessions.some((s) => s.channelId === cs.channelId)) {
@@ -499,13 +567,17 @@ export default function App() {
           sessionId: cs.hermesSessionId,
           description: cs.topic,
           persona: cs.agentPersona,
+          origin: cs.origin === 'imported' ? 'external' : 'workspace',
           unreadCount: 0,
         });
       }
     }
     setChannels(merged);
     if (merged.length > 0) {
-      setActiveChannel((prev) => (prev && merged.some((c) => c.id === prev) ? prev : merged[0].id));
+      const firstWorkspace = merged.find((c) => c.origin === 'workspace');
+      setActiveChannel((prev) =>
+        prev && merged.some((c) => c.id === prev) ? prev : firstWorkspace?.id ?? ''
+      );
     } else {
       setActiveChannel('');
     }
@@ -816,6 +888,7 @@ export default function App() {
         mood: 'thinking',
         eyeStyle: visual.eyeStyle,
         isCore: false,
+        origin: 'workspace',
         autonomyMode: 'manual',
         scheduleLabel: 'On-demand',
         sandboxEnv: 'cloud-sandbox',
@@ -823,6 +896,15 @@ export default function App() {
         skills: [],
       };
 
+      dismissedChannelIdsRef.current.delete(derived.slug);
+      try {
+        localStorage.setItem(
+          CANVAS_DISMISSED_KEY,
+          JSON.stringify(Array.from(dismissedChannelIdsRef.current))
+        );
+      } catch {
+        // ignore
+      }
       syncedSessionsRef.current.add(derived.slug);
       setHomeSessionDraft(false);
       setCanvasSessions((prev) => [...prev, provisionalSession]);
@@ -837,6 +919,7 @@ export default function App() {
                 sessionId: derived.hermesSessionId,
                 description: derived.topic,
                 persona: derived.persona,
+                origin: 'workspace',
                 unreadCount: 0,
               },
             ]
@@ -1433,12 +1516,22 @@ export default function App() {
         mood: 'happy',
         eyeStyle: payload.eyeStyle,
         isCore: false,
+        origin: 'workspace',
         autonomyMode,
         scheduleLabel,
         sandboxEnv: payload.sandboxEnv ?? 'cloud-sandbox',
         workspaceDir: `~/hermes-dots/${slug}`,
         skills: payload.skills && payload.skills.length > 0 ? payload.skills : ['browser', 'files'],
       };
+      dismissedChannelIdsRef.current.delete(slug);
+      try {
+        localStorage.setItem(
+          CANVAS_DISMISSED_KEY,
+          JSON.stringify(Array.from(dismissedChannelIdsRef.current))
+        );
+      } catch {
+        // ignore
+      }
       syncedSessionsRef.current.add(slug);
       setHomeSessionDraft(false);
       setCanvasSessions((prev) => [...prev, nextSession]);
@@ -1524,20 +1617,74 @@ export default function App() {
     [updateSpokenLine]
   );
 
+  const handlePinToCanvas = useCallback(
+    (session: CanvasSession) => {
+      dismissedChannelIdsRef.current.delete(session.channelId);
+      try {
+        localStorage.setItem(
+          CANVAS_DISMISSED_KEY,
+          JSON.stringify(Array.from(dismissedChannelIdsRef.current))
+        );
+      } catch {
+        // ignore
+      }
+      setCanvasSessions((prev) => {
+        if (prev.some((s) => s.channelId === session.channelId)) {
+          return prev.map((s) =>
+            s.channelId === session.channelId ? { ...s, origin: s.origin ?? 'imported' } : s
+          );
+        }
+        const visual = pickNextShapeAndTint(prev);
+        const spot = findOpenCanvasSpot(prev);
+        const pinned: CanvasSession = {
+          ...session,
+          id: `session-${session.channelId}-${Date.now().toString(36)}`,
+          shape: visual.shape,
+          tint: visual.tint,
+          eyeStyle: visual.eyeStyle,
+          xPct: spot.xPct,
+          yPct: spot.yPct,
+          isCore: false,
+          origin: 'imported',
+        };
+        return prev.length === 0 ? autoArrangeSessions([pinned]) : [...prev, pinned];
+      });
+      setHomeSessionDraft(false);
+      setActiveChannel(session.channelId);
+      setSelectedItemId(session.id);
+      setPanelView('canvas');
+      setMobileSidebarOpen(false);
+      if (hermesConnected) {
+        void loadChannelHistory(session.channelId);
+      }
+    },
+    [hermesConnected, loadChannelHistory]
+  );
+
   const handleRemoveCanvasSession = useCallback(
     (id: string) => {
       const target = stateRef.current.canvasSessions.find((s) => s.id === id);
+      if (target) {
+        dismissedChannelIdsRef.current.add(target.channelId);
+        try {
+          localStorage.setItem(
+            CANVAS_DISMISSED_KEY,
+            JSON.stringify(Array.from(dismissedChannelIdsRef.current))
+          );
+        } catch {
+          // ignore
+        }
+      }
       setCanvasSessions((prev) => {
-        if (prev.length <= 1) return prev;
         const next = prev.filter((s) => s.id !== id);
-        if (target && target.channelId === stateRef.current.activeChannel && next[0]) {
-          setActiveChannel(next[0].channelId);
+        if (target && target.channelId === stateRef.current.activeChannel) {
+          setActiveChannel(next[0]?.channelId ?? '');
         }
         return next;
       });
       if (target) {
         setEntries((prev) => prev.filter((e) => e.channelId !== target.channelId));
-        if (hermesConnected) {
+        if (hermesConnected && target.origin !== 'imported') {
           void deleteHermesSession(target.channelId).catch(() => {});
         }
       }
@@ -1596,11 +1743,13 @@ export default function App() {
                 setMobileSidebarOpen(false);
               }}
               canvasSessions={canvasSessions}
+              hermesSessions={hermes.sessions}
               thinkingByChannel={thinkingByChannel}
               onSelectSession={(session) => {
                 setSelectedItemId(session.id);
                 handleOpenSessionThread(session);
               }}
+              onPinToCanvas={handlePinToCanvas}
               approvals={approvals}
               brief={brief}
               tasks={effectiveTasks}
@@ -1609,6 +1758,17 @@ export default function App() {
               frequencyBands={voice.voiceState.frequencyBands}
               isSpeaking={voice.voiceState.isSpeaking}
               isListening={voice.voiceState.isListening}
+              inputLevel={voice.voiceState.inputLevel}
+              outputLevel={voice.voiceState.outputLevel}
+              onCycleMood={handleCycleMood}
+              portraitDotProfile={uiConfig.brailleDotProfile}
+              portraitBloom={uiConfig.brailleBloom}
+              animationSpeed={uiConfig.animationSpeed}
+              reducedMotion={uiConfig.reducedMotion}
+              portraitTintHex={
+                uiConfig.portraitTintHex ??
+                (uiConfig.accentPreset === 'emerald' ? null : uiConfig.accentSoftHex)
+              }
               selectedItemId={selectedItemId}
               onSelectApproval={(card) => {
                 setSelectedItemId(card.id);
@@ -1632,6 +1792,7 @@ export default function App() {
               }}
               onCloseMobile={() => setMobileSidebarOpen(false)}
               workspaceTitle={uiConfig.workspaceTitle}
+              gatewayStatus={gatewayStatus}
               homeSessionDraft={homeSessionDraft}
               queueVisible={uiConfig.sidebarQueueVisible}
               channelsVisible={uiConfig.sidebarChannelsVisible}

@@ -18,6 +18,7 @@ import {
 import {
   createRasterSurface,
   rasterizeTonalDotBucketsToSurface,
+  resolvePortraitTonePalette,
   type BrailleDotProfile,
   type TonalDotBucketSpec,
 } from '../utils/brailleCanvasRaster';
@@ -167,7 +168,7 @@ function retryPortraitAssetsLoading(): void {
 }
 
 interface AsciiPortraitCanvasProps {
-  variant?: 'hero' | 'thumb' | 'stage';
+  variant?: 'hero' | 'thumb' | 'sidebar' | 'stage';
   mood: ExpressionMood;
   viseme: MouthViseme;
   eyeState: EyeState;
@@ -184,23 +185,6 @@ interface AsciiPortraitCanvasProps {
   showLoadingLabel?: boolean;
   onStatusChange?: (status: PortraitAssetStatus) => void;
   onClick?: () => void;
-}
-
-function mixPortraitHex(hexA: string, hexB: string, t: number): string {
-  const cleanA = hexA.replace('#', '');
-  const cleanB = hexB.replace('#', '');
-  if (cleanA.length !== 6 || cleanB.length !== 6) return hexA;
-  const r1 = parseInt(cleanA.slice(0, 2), 16);
-  const g1 = parseInt(cleanA.slice(2, 4), 16);
-  const b1 = parseInt(cleanA.slice(4, 6), 16);
-  const r2 = parseInt(cleanB.slice(0, 2), 16);
-  const g2 = parseInt(cleanB.slice(2, 4), 16);
-  const b2 = parseInt(cleanB.slice(4, 6), 16);
-  const w = Math.max(0, Math.min(1, t));
-  const r = Math.round(r1 + (r2 - r1) * w);
-  const g = Math.round(g1 + (g2 - g1) * w);
-  const b = Math.round(b1 + (b2 - b1) * w);
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
 // Bitmask lookup order matching standard Unicode Braille U+2800..U+28FF
@@ -323,11 +307,12 @@ export function AsciiPortraitCanvas({
     if (!ctx) return;
 
     const isThumb = variant === 'thumb';
+    const isSidebar = variant === 'sidebar';
     const isStage = variant === 'stage';
-    const cols = isThumb ? 22 : isStage ? 92 : 62;
-    const rows = isThumb ? 11 : isStage ? 42 : 28;
-    const width = isThumb ? 42 : isStage ? 360 : 216;
-    const height = isThumb ? 42 : isStage ? 330 : 198;
+    const cols = isThumb ? 22 : isSidebar ? 44 : isStage ? 92 : 62;
+    const rows = isThumb ? 11 : isSidebar ? 20 : isStage ? 42 : 28;
+    const width = isThumb ? 42 : isSidebar ? 84 : isStage ? 360 : 216;
+    const height = isThumb ? 42 : isSidebar ? 77 : isStage ? 330 : 198;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = width * dpr;
@@ -338,7 +323,7 @@ export function AsciiPortraitCanvas({
     const cellH = height / rows;
     const dotW = cellW / 2;
     const dotH = cellH / 4;
-    const dotRadius = isThumb ? 0.42 : Math.min(dotW, dotH) * (isStage ? 0.44 : 0.42);
+    const dotRadius = isThumb ? 0.42 : Math.min(dotW, dotH) * (isStage || isSidebar ? 0.44 : 0.42);
     const startTime = performance.now();
     const animator = createPortraitAnimator();
     animatorRef.current = animator;
@@ -352,6 +337,8 @@ export function AsciiPortraitCanvas({
     let lastDraw = startTime;
     let elapsedPhase = 0;
     let lastReducedKey = '';
+    let lastBlinkAttr = '';
+    let lastMoodAttr = '';
 
     // Reusable XY coordinate buffers across 5 tonal tiers for variable-size halftone dots
     const maxDots = cols * rows * 8;
@@ -427,7 +414,15 @@ export function AsciiPortraitCanvas({
 
         if (!isThumb) {
           isBlinkingRef.current = Boolean(motion && motion.blink > 0.015);
-          canvas.dataset.blink = motion ? motion.blink.toFixed(2) : '0.00';
+          const nextBlinkAttr = motion ? motion.blink.toFixed(2) : '0.00';
+          if (nextBlinkAttr !== lastBlinkAttr) {
+            lastBlinkAttr = nextBlinkAttr;
+            canvas.dataset.blink = nextBlinkAttr;
+          }
+          if (s.mood !== lastMoodAttr) {
+            lastMoodAttr = s.mood;
+            canvas.dataset.mood = s.mood;
+          }
         }
 
         const portraitFrame = renderHalftonePortrait({
@@ -466,10 +461,6 @@ export function AsciiPortraitCanvas({
           frame = portraitFrame;
         }
       }
-
-      const activeTint =
-        !isThumb &&
-        (isLoadingVisual || s.isListening || (s.isSpeaking && smoothEnergy > 0.22));
 
       let len0 = 0;
       let len1 = 0;
@@ -536,45 +527,26 @@ export function AsciiPortraitCanvas({
         }
       }
 
-      const customTint = s.tintHex;
-      const tintWeight = activeTint ? 0.85 : 0.52;
-      const baseLowHex = customTint
-        ? mixPortraitHex('#738C84', customTint, tintWeight)
-        : activeTint
-        ? '#6EE7B7'
-        : '#8FA69E';
-      const baseMidLowHex = customTint
-        ? mixPortraitHex('#ADC2BB', customTint, tintWeight * 0.85)
-        : activeTint
-        ? '#A7F3D0'
-        : '#B9CCC5';
-      const baseMidHex = customTint ? mixPortraitHex('#DCE8E3', customTint, 0.52) : '#DCE8E3';
-      const baseMidHighHex = customTint ? mixPortraitHex('#F1F7F4', customTint, 0.34) : '#F1F7F4';
-      const baseHighHex = customTint ? mixPortraitHex('#FFFFFF', customTint, 0.16) : '#FFFFFF';
+      const tone = resolvePortraitTonePalette({
+        mood: s.mood,
+        isSpeaking: s.isSpeaking,
+        isListening: s.isListening,
+        isLoading: isLoadingVisual,
+        isThumb,
+        energy: smoothEnergy,
+        tintHex: s.tintHex,
+      });
 
-      buckets[0].len = len0;
-      buckets[0].hex = baseLowHex;
-      buckets[0].alpha = isLoadingVisual ? 0.42 : 0.48;
-
-      buckets[1].len = len1;
-      buckets[1].hex = baseMidLowHex;
-      buckets[1].alpha = isLoadingVisual ? 0.58 : 0.68;
-
-      buckets[2].len = len2;
-      buckets[2].hex = baseMidHex;
-      buckets[2].alpha = isLoadingVisual ? 0.74 : 0.84;
-
-      buckets[3].len = len3;
-      buckets[3].hex = baseMidHighHex;
-      buckets[3].alpha = isLoadingVisual ? 0.86 : 0.94;
-
-      buckets[4].len = len4;
-      buckets[4].hex = baseHighHex;
-      buckets[4].alpha = isLoadingVisual ? 0.95 : 0.99;
+      const lens = [len0, len1, len2, len3, len4];
+      for (let i = 0; i < 5; i++) {
+        buckets[i].len = lens[i];
+        buckets[i].hex = tone.hexes[i];
+        buckets[i].alpha = tone.alphas[i];
+      }
 
       rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {
         dotProfile: s.dotProfile,
-        bloom: isThumb ? 0 : s.bloom,
+        bloom: isThumb ? 0 : isSidebar ? Math.min(0.85, s.bloom * 0.72) : s.bloom,
       });
       ctx.putImageData(surface.imageData, 0, 0);
     };
@@ -636,13 +608,22 @@ export function AsciiPortraitCanvas({
         s.isSpeaking ||
         s.isListening ||
         s.mood === 'thinking' ||
+        s.mood === 'alert' ||
         isHoveredRef.current ||
         activeLook !== null ||
         isBlinkingRef.current ||
         blinkLookahead;
 
-      // Fluid VSync cadence (60fps active/materialize/blink, ~21fps calm idle)
-      const minIntervalMs = isReduced ? 220 : isMaterializing ? 18 : activeMotion ? 16 : 48;
+      // Fluid VSync cadence (60fps active/materialize/blink/thinking, 30fps sidebar idle, ~21fps stage idle)
+      const minIntervalMs = isReduced
+        ? 220
+        : isMaterializing
+        ? 18
+        : activeMotion
+        ? 16
+        : isSidebar
+        ? 33
+        : 48;
       if (now - lastDraw >= minIntervalMs) {
         drawFrame(now);
       }
@@ -678,13 +659,14 @@ export function AsciiPortraitCanvas({
     );
   }
 
+  const isSidebar = variant === 'sidebar';
   const isStage = variant === 'stage';
   const showBadge = showLoadingLabel ?? isStage;
   const isError = status === 'error';
   const isLoading = status === 'loading';
 
   return (
-    <div className="relative flex flex-col items-center justify-center">
+    <div className="relative flex flex-col items-center justify-center shrink-0">
       <button
         type="button"
         onMouseEnter={() => {
@@ -709,14 +691,20 @@ export function AsciiPortraitCanvas({
             ? 'Character signal failed to load. Click to retry.'
             : `Animated monochrome braille halftone portrait of Hermes, expression ${mood}, mouth ${viseme}. Click to cycle mood.`
         }
-        className="group relative flex items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] transition-transform duration-200 ease-out active:scale-[0.97] hover:scale-[1.015] cursor-pointer"
+        className={
+          isSidebar
+            ? 'ui-tactile group relative flex items-center justify-center rounded-lg overflow-hidden bg-transparent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#34D399] cursor-pointer'
+            : 'group relative flex items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#34D399] transition-transform duration-200 ease-out active:scale-[0.97] hover:scale-[1.015] cursor-pointer'
+        }
       >
         <canvas
           ref={canvasRef}
-          data-testid="ascii-portrait-canvas"
+          data-testid={isSidebar ? 'sidebar-portrait-canvas' : 'ascii-portrait-canvas'}
           data-portrait-status={status}
           className={
-            isStage
+            isSidebar
+              ? 'w-[72px] h-[66px] block'
+              : isStage
               ? 'block w-[clamp(230px,38vmin,540px)] aspect-[12/11]'
               : 'w-[216px] h-[198px] block'
           }

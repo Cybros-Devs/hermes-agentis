@@ -1,0 +1,12 @@
+[package]
+name = "voxcell-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+voxcell-core = { path = "../voxcell-core" }
+rustfft.workspace = true
+cpal.workspace = true
+reqwest.workspace = true
+tokio.workspace = true

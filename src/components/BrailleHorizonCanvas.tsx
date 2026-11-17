@@ -7,6 +7,7 @@ import {
 } from '../utils/brailleFieldEngine';
 import {
   createRasterSurface,
+  mixHexColors,
   rasterizeTonalDotBucketsToSurface,
   type BrailleDotProfile,
   type BrailleRasterSurface,
@@ -36,26 +37,6 @@ const SUBPIXEL_BITS: ReadonlyArray<readonly [number, number, number]> = [
   [0, 3, 0x40],
   [1, 3, 0x80],
 ];
-
-function blendHorizonHex(hexA: string, hexB: string, t: number): string {
-  const cleanA = hexA.replace('#', '');
-  const cleanB = hexB.replace('#', '');
-  if (cleanA.length !== 6 || cleanB.length !== 6) return hexA;
-  const r1 = parseInt(cleanA.slice(0, 2), 16);
-  const g1 = parseInt(cleanA.slice(2, 4), 16);
-  const b1 = parseInt(cleanA.slice(4, 6), 16);
-  const r2 = parseInt(cleanB.slice(0, 2), 16);
-  const g2 = parseInt(cleanB.slice(2, 4), 16);
-  const b2 = parseInt(cleanB.slice(4, 6), 16);
-  const w = Math.max(0, Math.min(1, t));
-  return `#${Math.round(r1 + (r2 - r1) * w)
-    .toString(16)
-    .padStart(2, '0')}${Math.round(g1 + (g2 - g1) * w)
-    .toString(16)
-    .padStart(2, '0')}${Math.round(b1 + (b2 - b1) * w)
-    .toString(16)
-    .padStart(2, '0')}`;
-}
 
 export function BrailleHorizonCanvas({
   energy,
@@ -106,17 +87,18 @@ export function BrailleHorizonCanvas({
     let width = 1280;
     let height = 190;
     let dpr = Math.min(2, window.devicePixelRatio || 1);
-    const rows = 15;
+    let rows = 15;
     let cols = 190;
     let surface: BrailleRasterSurface | null = null;
 
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
-      if (rect.width > 40 && rect.height > 40) {
+      if (rect.width > 40 && rect.height > 16) {
         width = Math.round(rect.width);
         height = Math.round(rect.height);
       }
-      const dotPitch = Math.max(2.6, height / (rows * 4));
+      rows = height < 64 ? 6 : 15;
+      const dotPitch = Math.max(2.2, height / (rows * 4));
       cols = Math.max(72, Math.min(220, Math.round(width / (dotPitch * 2))));
       dpr = Math.min(2, window.devicePixelRatio || 1);
       canvas.width = width * dpr;
@@ -174,10 +156,10 @@ export function BrailleHorizonCanvas({
         const uiSoft = styles.getPropertyValue('--ui-accent-soft').trim() || '#6EE7B7';
         if (uiSoft.startsWith('#') && uiSoft.length === 7) {
           cachedAccent = uiSoft;
-          cachedAccentHigh = blendHorizonHex(uiSoft, '#FFFFFF', 0.42);
+          cachedAccentHigh = mixHexColors(uiSoft, '#FFFFFF', 0.42);
         }
         if (uiAccent.startsWith('#') && uiAccent.length === 7) {
-          cachedLow = blendHorizonHex('#6E8580', uiAccent, 0.35);
+          cachedLow = mixHexColors('#6E8580', uiAccent, 0.35);
         }
       }
       themeFrameCounter++;
@@ -294,8 +276,8 @@ export function BrailleHorizonCanvas({
       if (!surface || surface.width !== canvas.width || surface.height !== canvas.height) {
         surface = createRasterSurface(ctx, canvas.width, canvas.height);
       }
-      const midHex = blendHorizonHex(cachedLow, cachedAccent, 0.52);
-      const highGlowHex = s.isActive ? cachedAccentHigh : blendHorizonHex(cachedAccent, '#FFFFFF', 0.32);
+      const midHex = mixHexColors(cachedLow, cachedAccent, 0.52);
+      const highGlowHex = s.isActive ? cachedAccentHigh : mixHexColors(cachedAccent, '#FFFFFF', 0.32);
 
       buckets[0].len = len0;
       buckets[0].hex = cachedLow;

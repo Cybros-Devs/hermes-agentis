@@ -15,29 +15,10 @@ import {
 import {
   createRasterSurface,
   rasterizeTonalDotBucketsToSurface,
+  resolveShapeTonePalette,
   type BrailleDotProfile,
   type TonalDotBucketSpec,
 } from '../utils/brailleCanvasRaster';
-
-function mixShapeHex(hexA: string, hexB: string, t: number): string {
-  const cleanA = hexA.replace('#', '');
-  const cleanB = hexB.replace('#', '');
-  if (cleanA.length !== 6 || cleanB.length !== 6) return hexA;
-  const r1 = parseInt(cleanA.slice(0, 2), 16);
-  const g1 = parseInt(cleanA.slice(2, 4), 16);
-  const b1 = parseInt(cleanA.slice(4, 6), 16);
-  const r2 = parseInt(cleanB.slice(0, 2), 16);
-  const g2 = parseInt(cleanB.slice(2, 4), 16);
-  const b2 = parseInt(cleanB.slice(4, 6), 16);
-  const w = Math.max(0, Math.min(1, t));
-  return `#${Math.round(r1 + (r2 - r1) * w)
-    .toString(16)
-    .padStart(2, '0')}${Math.round(g1 + (g2 - g1) * w)
-    .toString(16)
-    .padStart(2, '0')}${Math.round(b1 + (b2 - b1) * w)
-    .toString(16)
-    .padStart(2, '0')}`;
-}
 
 interface BrailleShapeCanvasProps {
   shape: BrailleShapeKind;
@@ -365,25 +346,21 @@ export function BrailleShapeCanvas({
         }
       }
 
-      buckets[0].len = len0;
-      buckets[0].hex = palette.low;
-      buckets[0].alpha = 0.74;
+      const tone = resolveShapeTonePalette({
+        low: palette.low,
+        mid: palette.mid,
+        high: palette.high,
+        isThinking: s.isThinking,
+        isSpeaking: s.isSpeaking,
+        energy: smoothEnergy,
+      });
 
-      buckets[1].len = len1;
-      buckets[1].hex = mixShapeHex(palette.low, palette.mid, 0.58);
-      buckets[1].alpha = 0.86;
-
-      buckets[2].len = len2;
-      buckets[2].hex = palette.mid;
-      buckets[2].alpha = 0.93;
-
-      buckets[3].len = len3;
-      buckets[3].hex = mixShapeHex(palette.mid, palette.high, 0.55);
-      buckets[3].alpha = 0.96;
-
-      buckets[4].len = len4;
-      buckets[4].hex = palette.high;
-      buckets[4].alpha = 0.99;
+      const lens = [len0, len1, len2, len3, len4];
+      for (let i = 0; i < 5; i++) {
+        buckets[i].len = lens[i];
+        buckets[i].hex = tone.hexes[i];
+        buckets[i].alpha = tone.alphas[i];
+      }
 
       rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {
         dotProfile: s.dotProfile,

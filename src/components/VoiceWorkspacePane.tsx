@@ -46,6 +46,10 @@ import {
 } from '../utils/canvasSessions';
 import { AVAILABLE_COMMANDS } from '../utils/cliEngine';
 import { groupThreadTimeline, isTerminalDiagnosticActivity } from '../utils/threadTrace';
+import {
+  determineActiveMinimapTurn,
+  extractThreadMinimapTurns,
+} from '../utils/threadMinimap';
 import { computeThreadScrollPin } from '../utils/threadScroll';
 import { shouldShowScrollTopFade } from '../utils/motionChoreography';
 import { partitionChannelTasks } from '../utils/taskInsights';
@@ -60,6 +64,7 @@ import { CommandTerminal } from './CommandTerminal';
 import { MobileWorkspaceBar } from './MobileWorkspaceBar';
 import { ThreadTaskBanner } from './ThreadTaskBanner';
 import { ThreadTraceTree } from './ThreadTraceTree';
+import { ThreadTurnMinimap } from './ThreadTurnMinimap';
 import {
   MorphTabs,
   ScrollToBottomButton,
@@ -225,9 +230,13 @@ export function VoiceWorkspacePane({
   const [isDesktopLg, setIsDesktopLg] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
   );
+  const [activeMinimapTurnId, setActiveMinimapTurnId] = useState<string | null>(null);
+  const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const threadListRef = useRef<HTMLDivElement | null>(null);
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
+  const turnAnchorRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const jumpHighlightTimerRef = useRef<number | null>(null);
   const isPinnedToBottomRef = useRef(true);
   const programmaticTargetTopRef = useRef<number | null>(null);
   const lastUserScrollAtRef = useRef(0);
@@ -489,6 +498,97 @@ export function VoiceWorkspacePane({
     () => groupThreadTimeline(visibleMessages, activeIsThinking, showThinking),
     [visibleMessages, activeIsThinking, showThinking]
   );
+
+  const minimapTurns = useMemo(
+    () => extractThreadMinimapTurns(timelineBlocks),
+    [timelineBlocks]
+  );
+
+  const minimapAnchorSet = useMemo(
+    () => new Set(minimapTurns.map((t) => t.anchorId)),
+    [minimapTurns]
+  );
+
+  const syncActiveMinimapTurn = () => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || minimapTurns.length === 0) {
+      setActiveMinimapTurnId(null);
+      return;
+    }
+    const containerRect = scrollEl.getBoundingClientRect();
+    const scrollTop = scrollEl.scrollTop;
+    const anchors = minimapTurns
+      .map((turn) => {
+        const el = turnAnchorRefs.current.get(turn.anchorId);
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return {
+          id: turn.anchorId,
+          top: rect.top - containerRect.top + scrollTop,
+          height: rect.height,
+        };
+      })
+      .filter((a): a is { id: string; top: number; height: number } => a !== null);
+
+    const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+    const nextId = determineActiveMinimapTurn(
+      anchors,
+      scrollTop,
+      scrollEl.clientHeight,
+      maxScrollTop
+    );
+    setActiveMinimapTurnId((prev) => (prev === nextId ? prev : nextId));
+  };
+
+  useEffect(() => {
+    if (panelView !== 'voice' || minimapTurns.length === 0) {
+      setActiveMinimapTurnId(null);
+      return;
+    }
+    const rafId = requestAnimationFrame(() => syncActiveMinimapTurn());
+    return () => cancelAnimationFrame(rafId);
+  }, [panelView, activeChannel, minimapTurns]);
+
+  useEffect(() => {
+    return () => {
+      if (jumpHighlightTimerRef.current !== null) {
+        window.clearTimeout(jumpHighlightTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleJumpToMinimapTurn = (anchorId: string) => {
+    const scrollEl = scrollRef.current;
+    const targetEl = turnAnchorRefs.current.get(anchorId);
+    if (!scrollEl || !targetEl) return;
+
+    const containerRect = scrollEl.getBoundingClientRect();
+    const targetRect = targetEl.getBoundingClientRect();
+    const rawTarget = targetRect.top - containerRect.top + scrollEl.scrollTop - 16;
+    const maxTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+    const targetTop = Math.max(0, Math.min(maxTop, rawTarget));
+
+    isPinnedToBottomRef.current = maxTop - targetTop <= 28;
+    lastUserScrollAtRef.current = performance.now();
+    programmaticTargetTopRef.current = targetTop;
+    setIsAwayFromBottom(maxTop - targetTop > 96);
+    setActiveMinimapTurnId(anchorId);
+    setShowTopFade(shouldShowScrollTopFade(targetTop));
+
+    scrollEl.scrollTo({
+      top: targetTop,
+      behavior: uiConfig.reducedMotion ? 'auto' : 'smooth',
+    });
+
+    if (jumpHighlightTimerRef.current !== null) {
+      window.clearTimeout(jumpHighlightTimerRef.current);
+    }
+    setHighlightedTurnId(anchorId);
+    jumpHighlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedTurnId(null);
+      jumpHighlightTimerRef.current = null;
+    }, 950);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -928,7 +1028,7 @@ export function VoiceWorkspacePane({
           key="view-home"
           ref={portraitWrapRef}
           data-testid="home-character-overview"
-          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-5 sm:px-10 pb-10 lg:pb-14"
+          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-5 sm:px-10 pb-24 lg:pb-28"
         >
           {uiConfig.portraitVisible && (
             <div
@@ -944,7 +1044,11 @@ export function VoiceWorkspacePane({
                 }`}
                 style={{
                   background:
-                    'radial-gradient(circle at 50% 48%, rgba(var(--ui-accent-rgb), 0.16) 0%, rgba(var(--ui-accent-rgb), 0.05) 44%, transparent 72%)',
+                    effectiveMood === 'thinking'
+                      ? 'radial-gradient(circle at 50% 48%, rgba(245, 158, 11, 0.17) 0%, rgba(245, 158, 11, 0.05) 44%, transparent 72%)'
+                      : effectiveMood === 'alert'
+                      ? 'radial-gradient(circle at 50% 48%, rgba(244, 63, 94, 0.16) 0%, rgba(244, 63, 94, 0.05) 44%, transparent 72%)'
+                      : 'radial-gradient(circle at 50% 48%, rgba(var(--ui-accent-rgb), 0.16) 0%, rgba(var(--ui-accent-rgb), 0.05) 44%, transparent 72%)',
                 }}
               />
               <div className="relative z-10">
@@ -971,38 +1075,50 @@ export function VoiceWorkspacePane({
 
           {uiConfig.statusReadoutVisible && (
             <>
-              <div className="relative z-10 flex items-center gap-2 mt-2.5 text-xs text-emerald-100/70">
-                <StatusPulse state={statusPulseState} />
-                <span>{statusText}</span>
-                <span aria-hidden="true" className="text-emerald-100/30">·</span>
-                <span
-                  data-testid="home-session-badge"
-                  className="font-mono text-[11px] text-[#6EE7B7]/85"
+              {gatewayStatus && !gatewayStatus.connected ? (
+                <div
+                  data-testid="gateway-offline-banner"
+                  className="relative z-10 flex flex-wrap items-center justify-center gap-2 mt-2.5 text-xs"
                 >
-                  {isHomeNewDraft ? 'new session' : `#${activeChannel}`}
-                </span>
-              </div>
-
-              <div className="relative z-10 mt-3 max-w-[50ch] text-center space-y-3">
-                {gatewayStatus && !gatewayStatus.connected && (
-                  <div
-                    data-testid="gateway-offline-banner"
-                    className="mx-auto inline-flex items-center gap-2 rounded-lg bg-rose-500/12 border border-rose-400/30 px-3 py-1.5 font-mono text-[11px] text-rose-200"
+                  <StatusPulse state="error" size="sm" />
+                  <span className="font-mono text-rose-200/90">
+                    Gateway offline · {gatewayStatus.gatewayUrl.replace(/^https?:\/\//, '')}
+                  </span>
+                  <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                  <span
+                    data-testid="home-session-badge"
+                    className="font-mono text-[11px] text-[#6EE7B7]/85"
                   >
-                    <span>
-                      Gateway offline ({gatewayStatus.gatewayUrl})
-                    </span>
-                    {onRefreshGateway && (
+                    {isHomeNewDraft || !activeChannel ? 'new session' : `#${activeChannel}`}
+                  </span>
+                  {onRefreshGateway && (
+                    <>
+                      <span aria-hidden="true" className="text-emerald-100/25">·</span>
                       <button
                         type="button"
                         onClick={() => void onRefreshGateway()}
-                        className="underline hover:text-white cursor-pointer"
+                        className="ui-tactile font-mono text-[11px] text-rose-100/90 hover:text-white underline underline-offset-4 decoration-rose-400/45 transition-colors cursor-pointer"
                       >
                         Retry
                       </button>
-                    )}
-                  </div>
-                )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="relative z-10 flex items-center gap-2 mt-2.5 text-xs text-emerald-100/70">
+                  <StatusPulse state={statusPulseState} />
+                  <span>{statusText}</span>
+                  <span aria-hidden="true" className="text-emerald-100/30">·</span>
+                  <span
+                    data-testid="home-session-badge"
+                    className="font-mono text-[11px] text-[#6EE7B7]/85"
+                  >
+                    {isHomeNewDraft || !activeChannel ? 'new session' : `#${activeChannel}`}
+                  </span>
+                </div>
+              )}
+
+              <div className="relative z-10 mt-3 max-w-[50ch] text-center space-y-3">
 
                 <p
                   data-testid="home-decoded-line"
@@ -1125,7 +1241,11 @@ export function VoiceWorkspacePane({
                     }`}
                     style={{
                       background:
-                        'radial-gradient(ellipse 65% 58% at 50% 48%, rgba(var(--ui-accent-rgb), 0.14) 0%, rgba(var(--ui-accent-rgb), 0.04) 48%, transparent 74%)',
+                        effectiveMood === 'thinking'
+                          ? 'radial-gradient(ellipse 65% 58% at 50% 48%, rgba(245, 158, 11, 0.16) 0%, rgba(245, 158, 11, 0.04) 48%, transparent 74%)'
+                          : effectiveMood === 'alert'
+                          ? 'radial-gradient(ellipse 65% 58% at 50% 48%, rgba(244, 63, 94, 0.16) 0%, rgba(244, 63, 94, 0.04) 48%, transparent 74%)'
+                          : 'radial-gradient(ellipse 65% 58% at 50% 48%, rgba(var(--ui-accent-rgb), 0.14) 0%, rgba(var(--ui-accent-rgb), 0.04) 48%, transparent 74%)',
                     }}
                   />
                   <div className="relative z-10">
@@ -1154,7 +1274,8 @@ export function VoiceWorkspacePane({
                   <span className="text-white/90">{statusText}</span>
                   <span aria-hidden="true" className="text-emerald-100/30">·</span>
                   <span
-                    className="font-mono text-[11px] text-[#6EE7B7]/90"
+                    className="font-mono text-[11px] text-[#6EE7B7]/90 max-w-[230px] truncate"
+                    title={activeHermesSessionId}
                     data-testid="active-hermes-session-id"
                   >
                     {activeHermesSessionId}
@@ -1188,12 +1309,37 @@ export function VoiceWorkspacePane({
                   )}
                 </div>
 
-                <div
-                  aria-hidden="true"
-                  className="w-full max-w-[740px] px-8 mt-2.5"
-                >
-                  <div className="h-px w-full bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
-                </div>
+                {panelView === 'voice' && uiConfig.horizonVisible ? (
+                  <div
+                    aria-hidden="true"
+                    className="w-full max-w-[740px] px-8 mt-1.5 h-[22px] overflow-hidden"
+                    style={{
+                      opacity:
+                        activeIsSpeaking || voiceState.isListening || activeIsThinking
+                          ? Math.max(0.55, uiConfig.horizonOpacity)
+                          : Math.min(0.42, uiConfig.horizonOpacity * 0.65),
+                    }}
+                  >
+                    <BrailleHorizonCanvas
+                      energy={activeIsThinking && !activeIsSpeaking ? 0.24 : energy}
+                      isActive={activeIsSpeaking || voiceState.isListening || activeIsThinking}
+                      frequencyBands={voiceState.frequencyBands}
+                      lookTargetRef={lookTargetRef}
+                      dotProfile={uiConfig.brailleDotProfile}
+                      bloom={uiConfig.brailleBloom}
+                      horizonStyle="ribbon"
+                      speedScale={uiConfig.animationSpeed}
+                      reducedMotionOverride={uiConfig.reducedMotion}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    aria-hidden="true"
+                    className="w-full max-w-[740px] px-8 mt-2.5"
+                  >
+                    <div className="h-px w-full bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
+                  </div>
+                )}
               </div>
             ) : (
               panelView === 'voice' && (
@@ -1203,7 +1349,8 @@ export function VoiceWorkspacePane({
                       <StatusPulse size="sm" state={statusPulseState} />
                       <span
                         data-testid="active-hermes-session-id"
-                        className="font-mono text-[11px] text-[#6EE7B7]"
+                        title={activeHermesSessionId}
+                        className="font-mono text-[11px] text-[#6EE7B7] max-w-[260px] truncate"
                       >
                         {activeHermesSessionId}
                       </span>
@@ -1234,7 +1381,7 @@ export function VoiceWorkspacePane({
                     <span className="font-medium text-white shrink-0">{statusText}</span>
                     <span aria-hidden="true" className="text-emerald-100/25">·</span>
                     <span className="font-mono text-[11px] text-[#6EE7B7]/85 truncate">
-                      #{activeChannel}
+                      {activeChannel ? `#${activeChannel}` : 'new-session'}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -1270,7 +1417,7 @@ export function VoiceWorkspacePane({
                 </div>
 
                 {!isDesktopLg && threadTasksOpen && (
-                  <div className="lg:hidden max-h-[42dvh] overflow-y-auto cyber-scroll px-3.5 py-2.5 border-b border-white/[0.07] bg-white/[0.015] shrink-0">
+                  <div className="lg:hidden max-h-[46dvh] overflow-y-auto cyber-scroll px-3.5 py-2.5 pb-3 border-b border-white/[0.07] bg-white/[0.015] shrink-0">
                     <ThreadTaskBanner
                       variant="thread-inline"
                       activeChannel={activeChannel}
@@ -1296,32 +1443,34 @@ export function VoiceWorkspacePane({
 
             {panelView === 'queue' ? (
               <div key="view-queue" className="ui-view-enter flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-y-auto cyber-scroll">
-                <HermesOperationsPanel
-                  channels={channels}
-                  activeChannel={activeChannel}
-                  onSelectChannel={onSelectChannel}
-                  approvals={approvals}
-                  onApproveCard={onApproveCard}
-                  onRejectCard={onRejectCard}
-                  onClarifyCard={onClarifyCard}
-                  brief={brief}
-                  onRunBriefCommand={(cmd, id) => {
-                    onRunBriefCommand(cmd, id);
-                    onChangePanelView('voice');
-                  }}
-                  gatewayStatus={gatewayStatus}
-                  onRefreshGateway={onRefreshGateway}
-                  skills={skills}
-                  toolsets={toolsets}
-                  cronJobs={cronJobs}
-                  transportMode={transportMode}
-                  onChangeTransportMode={onChangeTransportMode}
-                  onCreateJob={onCreateJob}
-                  onPauseJob={onPauseJob}
-                  onResumeJob={onResumeJob}
-                  onRunJob={onRunJob}
-                  onDeleteJob={onDeleteJob}
-                />
+                <div className="max-w-[780px] mx-auto w-full pb-2">
+                  <HermesOperationsPanel
+                    channels={channels}
+                    activeChannel={activeChannel}
+                    onSelectChannel={onSelectChannel}
+                    approvals={approvals}
+                    onApproveCard={onApproveCard}
+                    onRejectCard={onRejectCard}
+                    onClarifyCard={onClarifyCard}
+                    brief={brief}
+                    onRunBriefCommand={(cmd, id) => {
+                      onRunBriefCommand(cmd, id);
+                      onChangePanelView('voice');
+                    }}
+                    gatewayStatus={gatewayStatus}
+                    onRefreshGateway={onRefreshGateway}
+                    skills={skills}
+                    toolsets={toolsets}
+                    cronJobs={cronJobs}
+                    transportMode={transportMode}
+                    onChangeTransportMode={onChangeTransportMode}
+                    onCreateJob={onCreateJob}
+                    onPauseJob={onPauseJob}
+                    onResumeJob={onResumeJob}
+                    onRunJob={onRunJob}
+                    onDeleteJob={onDeleteJob}
+                  />
+                </div>
               </div>
             ) : panelView === 'cli' ? (
               <div key="view-cli" className="ui-view-enter flex-1 min-h-0 px-3 sm:px-8 py-2 sm:py-3 overflow-hidden">
@@ -1335,6 +1484,12 @@ export function VoiceWorkspacePane({
               </div>
             ) : (
               <div className="relative flex-1 min-h-0 flex flex-col">
+
+                <ThreadTurnMinimap
+                  turns={minimapTurns}
+                  activeTurnId={activeMinimapTurnId}
+                  onJumpToTurn={handleJumpToMinimapTurn}
+                />
 
                 <div
                   key={`view-voice-${activeChannel}`}
@@ -1378,13 +1533,18 @@ export function VoiceWorkspacePane({
                     isPinnedToBottomRef.current = result.pinned;
                     setIsAwayFromBottom(result.away);
                     setShowTopFade(shouldShowScrollTopFade(nextTop));
+                    syncActiveMinimapTurn();
                   }}
                   data-testid="voice-transcript-stream"
                   data-pinned={String(!isAwayFromBottom)}
                   style={{ overflowAnchor: 'none' }}
                   className={`ui-view-enter transcript-fade-mask ${
                     showTopFade ? 'ui-transcript-fade-active' : ''
-                  } flex-1 min-h-0 overflow-y-auto cyber-scroll px-3.5 sm:px-8 pt-2.5 pb-6`}
+                  } flex-1 min-h-0 overflow-y-auto cyber-scroll pt-2.5 pb-6 ${
+                    minimapTurns.length > 0
+                      ? 'pl-3.5 sm:pl-12 lg:pl-14 pr-3.5 sm:pr-8'
+                      : 'px-3.5 sm:px-8'
+                  }`}
                 >
                   <div
                     ref={threadListRef}
@@ -1398,24 +1558,51 @@ export function VoiceWorkspacePane({
                         if (block.isLive && block.items.length === 0 && hasVisibleTaskBlock) {
                           return null;
                         }
+                        const isMinimapAnchor = minimapAnchorSet.has(block.id);
                         return (
-                          <ThreadTraceTree
+                          <div
                             key={block.id}
-                            sessionId={activeHermesSessionId}
-                            items={block.items}
-                            isLive={block.isLive}
-                            hideLiveFooter={hasVisibleTaskBlock}
-                          />
+                            ref={
+                              isMinimapAnchor
+                                ? (el) => {
+                                    if (el) turnAnchorRefs.current.set(block.id, el);
+                                    else turnAnchorRefs.current.delete(block.id);
+                                  }
+                                : undefined
+                            }
+                            data-turn-anchor={isMinimapAnchor ? block.id : undefined}
+                            className={highlightedTurnId === block.id ? 'ui-turn-jump rounded-xl' : undefined}
+                          >
+                            <ThreadTraceTree
+                              sessionId={activeHermesSessionId}
+                              items={block.items}
+                              isLive={block.isLive}
+                              hideLiveFooter={hasVisibleTaskBlock}
+                            />
+                          </div>
                         );
                       }
 
                       const entry = block.entry;
                       const isUser = entry.role === 'user' || entry.role === 'command';
+                      const isMinimapAnchor = minimapAnchorSet.has(entry.id);
+                      const isJumpHighlighted = highlightedTurnId === entry.id;
+                      const setAnchorRef = isMinimapAnchor
+                        ? (el: HTMLDivElement | null) => {
+                            if (el) turnAnchorRefs.current.set(entry.id, el);
+                            else turnAnchorRefs.current.delete(entry.id);
+                          }
+                        : undefined;
+
                       if (isUser) {
                         return (
                           <div
                             key={entry.id}
-                            className="ui-msg-enter ml-auto max-w-[85%] sm:max-w-[72%] rounded-2xl bg-[#34D399]/[0.085] border border-[#34D399]/20 px-3.5 sm:px-4 py-2 sm:py-2.5 text-[13.5px] leading-relaxed text-white"
+                            ref={setAnchorRef}
+                            data-turn-anchor={isMinimapAnchor ? entry.id : undefined}
+                            className={`ui-msg-enter ml-auto max-w-[85%] sm:max-w-[72%] rounded-2xl bg-[#34D399]/[0.085] border border-[#34D399]/20 px-3.5 sm:px-4 py-2 sm:py-2.5 text-[13.5px] leading-relaxed text-white ${
+                              isJumpHighlighted ? 'ui-turn-jump' : ''
+                            }`}
                           >
                             <p className="whitespace-pre-wrap break-words">{entry.text}</p>
                           </div>
@@ -1435,16 +1622,33 @@ export function VoiceWorkspacePane({
                           : entry.terminalOutcome === 'failed'
                           ? 'Failed'
                           : null;
+                      const isErrorDiagnostic =
+                        entry.errorCode === 'gateway_offline' ||
+                        entry.terminalOutcome === 'failed' ||
+                        entry.terminalOutcome === 'admission_conflict';
                       return (
-                        <div key={entry.id} className="ui-msg-enter max-w-[66ch] space-y-1">
-                          <p className="text-[14.5px] sm:text-[15px] leading-[1.68] font-normal text-[#ECF3F0] whitespace-pre-wrap break-words">
+                        <div
+                          key={entry.id}
+                          ref={setAnchorRef}
+                          data-turn-anchor={isMinimapAnchor ? entry.id : undefined}
+                          className={`ui-msg-enter max-w-[66ch] ${
+                            isErrorDiagnostic
+                              ? 'rounded-xl bg-rose-500/[0.05] border border-rose-400/20 px-3.5 py-2.5 space-y-1.5'
+                              : 'space-y-1'
+                          } ${isJumpHighlighted ? 'ui-turn-jump rounded-xl' : ''}`}
+                        >
+                          <p
+                            className={`text-[14.5px] sm:text-[15px] leading-[1.68] font-normal whitespace-pre-wrap break-words ${
+                              isErrorDiagnostic ? 'text-rose-100/95' : 'text-[#ECF3F0]'
+                            }`}
+                          >
                             <DecodedText
                               text={entry.text}
                               animate={!entry.id.startsWith('init-') && !entry.streaming}
                             />
                           </p>
                           {(idx > 0 || outcomeLabel) && (
-                            <div className="flex items-center gap-2 font-mono text-[10.5px] text-emerald-100/40 tabular-nums">
+                            <div className="flex items-center gap-2 font-mono text-[10.5px] text-emerald-100/45 tabular-nums">
                               {idx > 0 && <span>{entry.timestamp}</span>}
                               {outcomeLabel && (
                                 <span

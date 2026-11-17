@@ -15,6 +15,7 @@ import {
   SessionChatStreamParser,
   buildGatewayUrl,
   chooseGatewayTransport,
+  classifyGatewaySessionOrigin,
   createIdempotencyKey,
   extractModelOptions,
   fetchWithConcurrentRetry,
@@ -32,6 +33,7 @@ import {
 import type {
   HermesCapabilities,
   HermesGatewayStatus,
+  HermesSessionOrigin,
   HermesToolset,
   HermesTransportMode,
 } from "./src/types/hermes.ts";
@@ -126,6 +128,9 @@ interface HermesChannel {
   persona?: string | null;
   source?: string | null;
   model?: string | null;
+  origin?: HermesSessionOrigin;
+  message_count?: number | null;
+  last_message?: string | null;
   archived?: boolean;
   last_at?: number | null;
 }
@@ -140,6 +145,8 @@ const items: HermesItem[] = [];
 const sessionStatusMap = new Map<string, SessionRuntimeStatus>();
 const activeRunAborts = new Map<string, AbortController>();
 const activeGatewayRunIds = new Map<string, string>();
+const workspaceSessionIds = new Set<string>();
+const workspaceChannelIds = new Set<string>();
 
 let cachedCapabilities: HermesCapabilities | null = null;
 let cachedGatewayStatus: HermesGatewayStatus | null = null;
@@ -157,6 +164,29 @@ function defaultSessionKeyForChannel(channelId: string): string {
   return sanitizeSessionKeyHeader(`voxcell-${channelId}`) || `voxcell-session`;
 }
 
+function resolveChannelOrigin(opts: {
+  sessionId?: string | null;
+  sessionKey?: string | null;
+  channelId?: string | null;
+  source?: string | null;
+  existingOrigin?: HermesSessionOrigin;
+  explicitOrigin?: HermesSessionOrigin;
+}): HermesSessionOrigin {
+  if (opts.explicitOrigin) return opts.explicitOrigin;
+  const createdInWorkspace =
+    (opts.sessionId ? workspaceSessionIds.has(opts.sessionId) : false) ||
+    (opts.channelId ? workspaceChannelIds.has(opts.channelId) : false);
+  if (createdInWorkspace) return "workspace";
+  if (opts.existingOrigin) return opts.existingOrigin;
+  return classifyGatewaySessionOrigin({
+    sessionId: opts.sessionId,
+    sessionKey: opts.sessionKey,
+    channelId: opts.channelId,
+    source: opts.source,
+    createdInWorkspace: false,
+  });
+}
+
 function upsertLocalChannel(opts: {
   channelId?: string;
   name?: string;
@@ -166,6 +196,9 @@ function upsertLocalChannel(opts: {
   persona?: string | null;
   source?: string | null;
   model?: string | null;
+  origin?: HermesSessionOrigin;
+  messageCount?: number | null;
+  lastMessage?: string | null;
   lastAt?: number | null;
 }): HermesChannel {
   const existingBySid = channels.find((c) => c.session_id === opts.sessionId);
@@ -176,30 +209,66 @@ function upsertLocalChannel(opts: {
 
   let existing = existingBySid || channels.find((c) => c.id === cleanId);
   if (!existing) {
+    const resolvedOrigin = resolveChannelOrigin({
+      sessionId: opts.sessionId,
+      sessionKey: opts.sessionKey,
+      channelId: cleanId,
+      source: opts.source,
+      explicitOrigin: opts.origin,
+    });
+    const resolvedKey =
+      sanitizeSessionKeyHeader(opts.sessionKey) ||
+      (resolvedOrigin === "workspace" ? defaultSessionKeyForChannel(cleanId) : "");
+    if (resolvedOrigin === "workspace") {
+      workspaceSessionIds.add(opts.sessionId);
+      workspaceChannelIds.add(cleanId);
+    }
     existing = {
       id: cleanId,
       name: (opts.name || opts.topic || cleanId).replace(/^#/, ""),
       session_id: opts.sessionId,
-      session_key:
-        sanitizeSessionKeyHeader(opts.sessionKey) || defaultSessionKeyForChannel(cleanId),
+      session_key: resolvedKey,
       topic: opts.topic ?? null,
       persona: opts.persona ?? null,
       source: opts.source ?? null,
       model: opts.model ?? null,
+      origin: resolvedOrigin,
+      message_count: opts.messageCount ?? null,
+      last_message: opts.lastMessage ?? null,
       last_at: opts.lastAt ?? Date.now(),
     };
     channels.push(existing);
   } else {
     if (opts.name) existing.name = opts.name.replace(/^#/, "");
     if (opts.sessionId) existing.session_id = opts.sessionId;
-    if (opts.sessionKey) {
-      existing.session_key =
-        sanitizeSessionKeyHeader(opts.sessionKey) || existing.session_key;
-    }
     if (opts.topic !== undefined && opts.topic !== null) existing.topic = opts.topic;
     if (opts.persona !== undefined && opts.persona !== null) existing.persona = opts.persona;
     if (opts.source !== undefined) existing.source = opts.source;
     if (opts.model !== undefined) existing.model = opts.model;
+    existing.origin = resolveChannelOrigin({
+      sessionId: existing.session_id,
+      sessionKey: opts.sessionKey ?? existing.session_key,
+      channelId: existing.id,
+      source: existing.source,
+      existingOrigin: existing.origin,
+      explicitOrigin: opts.origin,
+    });
+    if (opts.sessionKey) {
+      existing.session_key =
+        sanitizeSessionKeyHeader(opts.sessionKey) || existing.session_key;
+    } else if (existing.origin === "workspace" && !existing.session_key) {
+      existing.session_key = defaultSessionKeyForChannel(existing.id);
+    }
+    if (existing.origin === "workspace") {
+      workspaceSessionIds.add(existing.session_id);
+      workspaceChannelIds.add(existing.id);
+    }
+    if (opts.messageCount !== undefined && opts.messageCount !== null) {
+      existing.message_count = opts.messageCount;
+    }
+    if (opts.lastMessage !== undefined && opts.lastMessage !== null) {
+      existing.last_message = opts.lastMessage;
+    }
     if (opts.lastAt) existing.last_at = Math.max(existing.last_at ?? 0, opts.lastAt);
   }
   return existing;
@@ -207,7 +276,13 @@ function upsertLocalChannel(opts: {
 
 function buildSessionSnapshot(ch: HermesChannel) {
   const chItems = items.filter((it) => (it.channel_id || ch.id) === ch.id);
-  const turnCount = chItems.filter((it) => it.kind === "user").length;
+  const localTurns = chItems.filter((it) => it.kind === "user").length;
+  const turnCount =
+    localTurns > 0
+      ? localTurns
+      : typeof ch.message_count === "number" && ch.message_count > 0
+      ? Math.max(1, Math.ceil(ch.message_count / 2))
+      : 0;
   const lastMsg = [...chItems]
     .reverse()
     .find((it) => (it.kind === "assistant" || it.kind === "user") && it.text?.trim());
@@ -220,20 +295,29 @@ function buildSessionSnapshot(ch: HermesChannel) {
   );
   const explicitStatus = sessionStatusMap.get(ch.id);
   const status = explicitStatus ?? (hasRunningTask ? "running" : "idle");
+  const resolvedOrigin = resolveChannelOrigin({
+    sessionId: ch.session_id,
+    sessionKey: ch.session_key,
+    channelId: ch.id,
+    source: ch.source,
+    existingOrigin: ch.origin,
+  });
 
   return {
     sessionId: ch.session_id,
+    sessionKey: ch.session_key,
     channelId: ch.id,
     name: ch.name,
     persona: ch.persona || "",
     topic: ch.topic || ch.name,
     status,
     turnCount,
-    lastMessage: lastMsg?.text?.trim() || ch.topic || "",
+    lastMessage: lastMsg?.text?.trim() || ch.last_message || ch.topic || "",
     updatedAtMs: latestTimestamp,
     source: ch.source ?? undefined,
     model: ch.model ?? undefined,
-    ownedByApiServer: !ch.source || ch.source === "api_server" || ch.source === "api",
+    origin: resolvedOrigin,
+    ownedByApiServer: resolvedOrigin === "workspace",
   };
 }
 
@@ -442,7 +526,7 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
 async function syncSessionsFromGateway(): Promise<void> {
   try {
     const res = await fetchHermesGateway(
-      "/api/sessions?limit=50&include_children=false",
+      "/api/sessions?limit=100&include_children=false",
       { method: "GET" },
       2200
     );
@@ -454,10 +538,13 @@ async function syncSessionsFromGateway(): Promise<void> {
     for (const s of gwSessions) {
       upsertLocalChannel({
         sessionId: s.id,
+        sessionKey: s.sessionKey,
         name: s.title || s.id,
         topic: s.title || s.id,
         source: s.source ?? null,
         model: s.model ?? null,
+        messageCount: s.messageCount ?? null,
+        lastMessage: s.lastMessage ?? null,
         lastAt: s.updatedAtMs ?? s.createdAtMs ?? null,
       });
     }
@@ -1511,6 +1598,8 @@ async function createServer() {
 
     const cleanId = normalizeChannelKey(channel_id) || "session";
     const resolvedSessionId = session_id?.trim() || `hermes-${cleanId}`;
+    workspaceSessionIds.add(resolvedSessionId);
+    workspaceChannelIds.add(cleanId);
     const channel = upsertLocalChannel({
       channelId: cleanId,
       name,
@@ -1518,6 +1607,7 @@ async function createServer() {
       sessionKey: session_key,
       topic,
       persona,
+      origin: "workspace",
       lastAt: Date.now(),
     });
 
@@ -2217,6 +2307,8 @@ async function createServer() {
       : baseKey;
 
     let resolvedSessionId = sessionId?.trim() || `hermes-${resolvedKey}`;
+    const resolvedSessionKey =
+      sanitizeSessionKeyHeader(sessionKey) || defaultSessionKeyForChannel(resolvedKey);
     try {
       const createRes = await fetchHermesGateway(
         "/api/sessions",
@@ -2224,6 +2316,7 @@ async function createServer() {
           method: "POST",
           body: JSON.stringify({
             session_id: resolvedSessionId,
+            session_key: resolvedSessionKey,
             title: topic || name || resolvedKey,
           }),
         },
@@ -2241,14 +2334,18 @@ async function createServer() {
       // keep local session identity if gateway unreachable
     }
 
+    workspaceSessionIds.add(resolvedSessionId);
+    workspaceChannelIds.add(resolvedKey);
+
     const hadChannel = channels.some((c) => c.id === resolvedKey);
     const channel = upsertLocalChannel({
       channelId: resolvedKey,
       name: name || resolvedKey,
       sessionId: resolvedSessionId,
-      sessionKey,
+      sessionKey: resolvedSessionKey,
       topic: topic || name || resolvedKey,
       persona,
+      origin: "workspace",
       lastAt: Date.now(),
     });
 
@@ -2304,6 +2401,9 @@ async function createServer() {
       // keep generated rotated session ID offline
     }
 
+    workspaceSessionIds.add(nextSessionId);
+    workspaceChannelIds.add(slug);
+
     const ch = upsertLocalChannel({
       channelId: slug,
       name: existing?.name || slug,
@@ -2311,6 +2411,7 @@ async function createServer() {
       sessionKey: existing?.session_key || defaultSessionKeyForChannel(slug),
       topic: existing?.topic,
       persona: existing?.persona,
+      origin: "workspace",
     });
 
     for (let i = items.length - 1; i >= 0; i--) {

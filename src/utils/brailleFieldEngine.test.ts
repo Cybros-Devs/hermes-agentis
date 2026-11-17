@@ -105,3 +105,17 @@ test('createHorizonAnimator tracks directional pointerVelX and keeps row 0 faded
   assert.equal(topLit, 0, 'Top row must remain clean even during max-energy cursor wake ripples');
 });
 
+test('renderBrailleHorizon supports compact ribbon style for slim workspace dividers', () => {
+  const frame = renderBrailleHorizon({
+    cols: 80,
+    rows: 6,
+    time: 1.4,
+    energy: 0.45,
+    pointerX: 0.15,
+    pointerY: 0,
+    style: 'ribbon',
+  });
+  assert.equal(frame.lines.length, 6);
+  const litCells = frame.lines.join('').replace(/ /g, '').length;
+  assert.ok(litCells > 35, `Expected visible braille ribbon dots across 6 rows, got ${litCells}`);
+});

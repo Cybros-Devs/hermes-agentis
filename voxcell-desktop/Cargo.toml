@@ -1,0 +1,54 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/voxcell-core",
+    "crates/voxcell-hermes",
+    "crates/voxcell-halftone",
+    "crates/voxcell-store",
+    "crates/voxcell-audio",
+    "crates/voxcell-ui",
+    "crates/voxcell-app",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+# Required by anomalyco/rune: Cargo ignores `[patch.crates-io]` inside path
+# dependencies, so top-level workspace mirrors RUNE's patched crates.
+[patch.crates-io]
+wgpu-hal = { path = "/tmp/rune-ref/vendor/wgpu-hal" }
+winit = { path = "/tmp/rune-ref/vendor/winit" }
+parley_engine = { path = "/tmp/rune-ref/vendor/parley_engine" }
+accesskit_windows = { path = "/tmp/rune-ref/vendor/accesskit_windows" }
+accesskit_macos = { path = "/tmp/rune-ref/vendor/accesskit_macos" }
+
+[workspace.dependencies]
+rune = { path = "/tmp/rune-ref/crates/rune", features = ["svg"] }
+rune-kit = { path = "/tmp/rune-ref/crates/rune-kit" }
+rune-fx = { path = "/tmp/rune-ref/crates/rune-fx" }
+rune-motion = { path = "/tmp/rune-ref/crates/rune-motion" }
+rune-notify = { path = "/tmp/rune-ref/crates/rune-notify" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+dirs = "5"
+rustfft = "6"
+cpal = "0.15"
+bytemuck = { version = "1", features = ["derive"] }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.package.voxcell-halftone]
+opt-level = 3

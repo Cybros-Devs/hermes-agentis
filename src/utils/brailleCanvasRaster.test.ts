@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  mixHexColors,
   parseHexRgb,
   rasterizeDotBucketsToSurface,
   rasterizeTonalDotBucketsToSurface,
+  resolvePortraitTonePalette,
+  resolveShapeTonePalette,
   type BrailleRasterSurface,
 } from './brailleCanvasRaster';
 
@@ -18,10 +21,13 @@ function makeFakeSurface(width: number, height: number): BrailleRasterSurface {
   };
 }
 
-test('parseHexRgb decodes 6-digit, 3-digit, and fallback colors cleanly', () => {
+test('parseHexRgb and mixHexColors decode and blend 6-digit hex colors cleanly', () => {
   assert.deepEqual(parseHexRgb('#34D399'), [52, 211, 153]);
   assert.deepEqual(parseHexRgb('#FFF'), [255, 255, 255]);
   assert.deepEqual(parseHexRgb('invalid'), [230, 240, 236]);
+  assert.equal(mixHexColors('#000000', '#FFFFFF', 0), '#000000');
+  assert.equal(mixHexColors('#000000', '#FFFFFF', 1), '#ffffff');
+  assert.equal(mixHexColors('#000000', '#FFFFFF', 0.5), '#808080');
 });
 
 test('rasterizeDotBucketsToSurface clears prior pixels and stamps analytical subpixel coverage', () => {
@@ -84,4 +90,51 @@ test('rasterizeTonalDotBucketsToSurface modulates dot coverage area by diameterS
   const centerA = surfaceLarge.bytes[(7 * 16 + 7) * 4 + 3];
   const outerA = surfaceLarge.bytes[(5 * 16 + 5) * 4 + 3];
   assert.ok(centerA > outerA, `Expected circular falloff from center (${centerA}) to edge (${outerA})`);
+});
+
+test('resolvePortraitTonePalette and resolveShapeTonePalette shift tones dynamically across states', () => {
+  const idle = resolvePortraitTonePalette({
+    mood: 'happy',
+    isSpeaking: false,
+    isListening: false,
+    isLoading: false,
+    energy: 0.08,
+  });
+  const thinking = resolvePortraitTonePalette({
+    mood: 'thinking',
+    isSpeaking: false,
+    isListening: false,
+    isLoading: false,
+    energy: 0.12,
+  });
+  const speaking = resolvePortraitTonePalette({
+    mood: 'happy',
+    isSpeaking: true,
+    isListening: false,
+    isLoading: false,
+    energy: 0.85,
+  });
+
+  assert.notEqual(idle.hexes[0], thinking.hexes[0]);
+  assert.equal(thinking.hexes[0], '#B48448');
+  assert.equal(speaking.hexes[0], '#6EE7B7');
+  assert.ok(speaking.alphas[0] > idle.alphas[0]);
+
+  const shapeIdle = resolveShapeTonePalette({
+    low: '#4D7C0F',
+    mid: '#84CC16',
+    high: '#ECFCCB',
+    isThinking: false,
+    isSpeaking: false,
+    energy: 0.08,
+  });
+  const shapeThink = resolveShapeTonePalette({
+    low: '#4D7C0F',
+    mid: '#84CC16',
+    high: '#ECFCCB',
+    isThinking: true,
+    isSpeaking: false,
+    energy: 0.25,
+  });
+  assert.notEqual(shapeIdle.hexes[2], shapeThink.hexes[2]);
 });

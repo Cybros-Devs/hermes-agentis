@@ -6,7 +6,7 @@ Additive, zero-churn animated glass background layer mounted once behind the app
 - `BackgroundLayer.tsx` — Memoized full-viewport renderer supporting pure CSS `@keyframes` presets, capped-DPR (`<= 2`) imperative `<canvas>` presets (paused on `document.hidden`, frozen under `prefers-reduced-motion: reduce`), and custom muted/looped `object-cover` video or image slots.
 - `presets.ts` — Registry of 7 ambient presets bounded to `<= 40px/s` drift and `<= 10%` luminance delta, each with a deterministic static preview frame.
 - `persistence.ts` — `localStorage` persistence (`duet.glassBackground.v1`) with synchronous CSS-variable boot hydration before first paint and safe fallback on missing/corrupt data.
-- `BackgroundPicker.tsx` — Compact corner-triggered glass drawer for selecting presets, managing custom image/video slots, and tuning background opacity and glass blur strength.
+- `BackgroundControls.tsx` — Embedded controls mounted inside `Settings → Backdrop` (`UiCustomizerStudio.tsx`) for selecting presets, managing custom image/video slots, and tuning background opacity and glass blur strength.
 
 ## How to Add an 8th Preset
 1. Add the new preset union ID to `BackgroundPresetKind` in `src/backgrounds/types.ts` (for example `'ember-grid'`).
