@@ -156,10 +156,12 @@ let horizonBufCap = 0;
 let horizonSubLum = new Float32Array(0);
 let horizonColCap = 0;
 let colCrest1 = new Float32Array(0);
+let colCrest1Echo = new Float32Array(0);
 let colCrest2 = new Float32Array(0);
 let colCrest3 = new Float32Array(0);
 let colCrest4 = new Float32Array(0);
 let colCrest5 = new Float32Array(0);
+let colSpectrumTop = new Float32Array(0);
 let colShimmer = new Float32Array(0);
 let colMist = new Float32Array(0);
 let colSinU = new Float32Array(0);
@@ -178,10 +180,12 @@ function ensureHorizonBuffers(subLen: number, subW: number, cols: number): Float
   if (subW > horizonColCap) {
     horizonColCap = subW;
     colCrest1 = new Float32Array(subW);
+    colCrest1Echo = new Float32Array(subW);
     colCrest2 = new Float32Array(subW);
     colCrest3 = new Float32Array(subW);
     colCrest4 = new Float32Array(subW);
     colCrest5 = new Float32Array(subW);
+    colSpectrumTop = new Float32Array(subW);
     colShimmer = new Float32Array(subW);
     colMist = new Float32Array(subW);
     colSinU = new Float32Array(subW);
@@ -198,9 +202,9 @@ function ensureHorizonBuffers(subLen: number, subW: number, cols: number): Float
 }
 
 /**
- * Renders a fluid, modern 2x4 Unicode Braille wave & acoustic topography field
- * with 8x8 Bayer dithering, 5 layered asymmetric wave swells, directional cursor wake ripples,
- * subtle mist, and Silk/Peaks/Pulse/Ribbon styles reaching cleanly to the bottom edge.
+ * Renders a technical 2x4 Unicode Braille oscillographic & telemetry wave field
+ * combining high-Q dual-trace carrier harmonics, interference nodes, quantized vertical
+ * sample stems, optical graticule crosshairs, lower spectrum needles, and cursor phase-lock.
  */
 export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHorizonFrame {
   const { cols, rows, time, motion, style = 'silk' } = params;
@@ -219,30 +223,36 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
   const subLum = ensureHorizonBuffers(subW * subH, subW, cols);
   const rowChars = horizonRowChars;
   const pxTarget = (pointerX + 1) * 0.5;
-  const pyBoost = (1 - clamp01((pointerY + 1) * 0.5)) * 0.065;
-  const voiceAmp = 0.07 + energy * 0.20;
+  const pyBoost = (1 - clamp01((pointerY + 1) * 0.5)) * 0.06;
+  const voiceAmp = 0.065 + energy * 0.19;
   const bandLen = bands?.length ?? 0;
   const invSubW = 1 / subW;
   const invSubH = 1 / subH;
-  const cursorWeight = 0.095 + pyBoost;
+  const cursorWeight = 0.09 + pyBoost;
   const wakeAmp = clamp(Math.abs(pointerVelX) * 0.048, 0, 0.08);
   const wakeDir = pointerVelX >= 0 ? -1 : 1;
   const isRibbon = style === 'ribbon';
-  const c1Amp = isRibbon ? 0.14 + energy * 0.24 : 0.075 + voiceAmp * 0.24;
-  const c2Amp = isRibbon ? 0.09 + energy * 0.17 : 0.068 + voiceAmp * 0.20;
-  const c3Amp = 0.060 + voiceAmp * 0.18;
-  const c4Amp = 0.052 + voiceAmp * 0.15;
-  const c5Amp = 0.042 + voiceAmp * 0.12;
-  const shimmerScale = 0.22 * (0.35 + energy * 0.65);
+  const c1Amp = isRibbon ? 0.14 + energy * 0.24 : 0.072 + voiceAmp * 0.22;
+  const c2Amp = isRibbon ? 0.09 + energy * 0.17 : 0.064 + voiceAmp * 0.18;
+  const c3Amp = 0.056 + voiceAmp * 0.16;
+  const c4Amp = 0.046 + voiceAmp * 0.14;
+  const c5Amp = 0.036 + voiceAmp * 0.11;
+  const shimmerScale = 0.24 * (0.35 + energy * 0.65);
   const isPeaks = style === 'peaks';
   const isPulse = style === 'pulse';
   const barCount = Math.max(18, Math.round(cols * 0.28));
 
-  // Precompute column-invariant 5-layer perspective wave topography, FFT boost, and directional pointer wake
+  // Adaptive telemetry grid cadence in subpixels (keeps clean spacing across mobile and wide desktop)
+  const sampleStep = subW >= 360 ? 12 : 8;
+  const gridStepX = sampleStep * 2;
+  const gridStepY = subH >= 96 ? 20 : 14;
+  const ptrSubX = Math.round(pxTarget * (subW - 1));
+
+  // Precompute column-invariant dual-trace carrier waves, FFT spectrum levels, and cursor wake
   for (let sx = 0; sx < subW; sx++) {
     const ux = (sx + 0.5) * invSubW;
     const dxPtr = ux - pxTarget;
-    const ptrArg = dxPtr * dxPtr * 18;
+    const ptrArg = dxPtr * dxPtr * 22;
     const cursorWave = ptrArg < 8 ? fastFieldExpNeg(ptrArg) * cursorWeight : 0;
 
     let wakeWave = 0;
@@ -255,6 +265,7 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
     }
 
     let bandBoost = 0;
+    let bandRaw = 0.18 + 0.12 * Math.sin(ux * 19 + time * 2.1);
     if (bandLen > 0) {
       const fIdx = ux * (bandLen - 1);
       const i0 = fIdx | 0;
@@ -263,12 +274,17 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       const smoothFrac = frac * frac * (3 - 2 * frac);
       const b0 = bands![i0] ?? 0;
       const b1 = bands![i1] ?? b0;
-      bandBoost = (b0 + (b1 - b0) * smoothFrac) * (isRibbon ? 0.11 : 0.11);
+      bandRaw = b0 + (b1 - b0) * smoothFrac;
+      bandBoost = bandRaw * (isRibbon ? 0.11 : 0.105);
     }
 
     const pulseMod = isPulse
-      ? Math.sin(Math.abs(dxPtr) * 32 - time * 5.2) * (0.04 + energy * 0.065) * fastFieldExpNeg(dxPtr * dxPtr * 3.8)
+      ? Math.sin(Math.abs(dxPtr) * 34 - time * 5.2) * (0.04 + energy * 0.065) * fastFieldExpNeg(dxPtr * dxPtr * 4.2)
       : 0;
+
+    // High-frequency amplitude-modulated carrier ripple for an oscillographic RF feel
+    const amEnvelope = 0.55 + 0.45 * Math.cos(ux * 9.5 - time * 1.15);
+    const carrierRipple = Math.sin(ux * 44 - time * 3.4) * (0.008 + energy * 0.022) * amEnvelope;
 
     if (isRibbon) {
       colCrest1[sx] =
@@ -279,6 +295,7 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
         wakeWave * 0.85 -
         bandBoost;
 
+      colCrest1Echo[sx] = colCrest1[sx];
       colCrest2[sx] =
         0.52 -
         Math.sin(ux * 4.6 - time * 0.82 + 1.6) * c2Amp -
@@ -290,48 +307,65 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       colCrest3[sx] = 0.5;
       colCrest4[sx] = 0.5;
       colCrest5[sx] = 0.5;
+      colSpectrumTop[sx] = 1.0;
     } else {
       colCrest1[sx] = Math.max(
         0.16,
-        0.33 -
-          Math.sin(ux * 6.2 + time * 0.86) * c1Amp -
-          Math.cos(ux * 13.4 - time * 1.24) * 0.032 -
-          Math.sin(ux * 22.0 + time * 1.68) * 0.010 -
-          cursorWave * 0.78 -
-          wakeWave * 0.82 -
+        0.31 -
+          Math.sin(ux * 6.6 + time * 0.88) * c1Amp -
+          Math.cos(ux * 15.2 - time * 1.32) * 0.028 -
+          carrierRipple -
+          cursorWave * 0.76 -
+          wakeWave * 0.80 -
           bandBoost * 0.72 -
           pulseMod
       );
 
+      // Phase-lagged dual-trace echo creates crisp interference nodes along the upper carrier
+      colCrest1Echo[sx] = Math.max(
+        0.17,
+        0.34 -
+          Math.sin(ux * 6.6 + time * 0.88 - 0.55) * (c1Amp * 0.88) +
+          Math.sin(ux * 19.0 + time * 1.75) * 0.020 -
+          cursorWave * 0.48 -
+          bandBoost * 0.44
+      );
+
       colCrest2[sx] =
         0.47 -
-        Math.sin(ux * 4.8 - time * 0.68 + 1.45) * c2Amp -
-        Math.sin(ux * 16.8 + time * 1.78) * 0.024 -
-        cursorWave * 0.56 -
-        wakeWave * 0.50 -
-        bandBoost * 0.52 -
-        pulseMod * 0.55;
+        Math.sin(ux * 5.2 - time * 0.68 + 1.45) * c2Amp -
+        Math.sin(ux * 18.4 + time * 1.85) * 0.022 +
+        carrierRipple * 0.55 -
+        cursorWave * 0.54 -
+        wakeWave * 0.48 -
+        bandBoost * 0.50 -
+        pulseMod * 0.5;
 
       colCrest3[sx] =
         0.62 -
-        Math.cos(ux * 7.8 + time * 1.08 + 0.6) * c3Amp -
-        Math.sin(ux * 14.8 - time * 0.96) * 0.020 -
-        cursorWave * 0.34 -
-        bandBoost * 0.38;
+        Math.cos(ux * 8.4 + time * 1.12 + 0.6) * c3Amp -
+        Math.sin(ux * 16.0 - time * 0.98) * 0.018 -
+        cursorWave * 0.32 -
+        bandBoost * 0.36;
 
       colCrest4[sx] =
         0.77 -
-        Math.sin(ux * 5.6 - time * 0.76 + 2.35) * c4Amp -
-        Math.cos(ux * 12.2 + time * 1.34) * 0.022 -
-        bandBoost * 0.28;
+        Math.sin(ux * 6.0 - time * 0.78 + 2.35) * c4Amp -
+        Math.cos(ux * 13.6 + time * 1.36) * 0.018 -
+        bandBoost * 0.26;
 
       colCrest5[sx] = Math.min(
-        0.96,
-        0.90 -
-          Math.cos(ux * 6.8 + time * 0.92 + 1.1) * c5Amp -
-          Math.sin(ux * 15.6 - time * 1.12) * 0.018 -
+        0.955,
+        0.895 -
+          Math.cos(ux * 7.4 + time * 0.94 + 1.1) * c5Amp -
+          Math.sin(ux * 16.8 - time * 1.16) * 0.016 -
           bandBoost * 0.22
       );
+
+      // Lower-edge quantized FFT micro-needle ceiling (rising subtly from bottom baseline uy=0.98)
+      const needleMod = 0.5 + 0.5 * Math.sin(ux * 31.0 - time * 2.8) * Math.cos(ux * 13.0 + time * 1.5);
+      const needleHeight = 0.045 + (bandRaw * 0.55 + needleMod * 0.45) * (0.055 + energy * 0.09);
+      colSpectrumTop[sx] = 0.985 - needleHeight;
     }
 
     if (isPeaks) {
@@ -371,11 +405,15 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
 
   for (let sy = 0; sy < subH; sy++) {
     const uy = (sy + 0.5) * invSubH; // 0 (top) .. 1 (bottom)
-    // Smooth atmospheric top fade keeps row 0 empty without clipping upper crests, while bottom reaches the floor
-    const topFade = isRibbon ? smoothstep(0.04, 0.24, uy) : smoothstep(0.05, 0.26, uy);
+    // Guarantee row 0 (sy < 4) stays completely clean while bottom telemetry flows all the way to uy=1.0
+    const topFade = isRibbon
+      ? smoothstep(0.04, 0.24, uy)
+      : sy < 4
+      ? 0
+      : smoothstep(0.075, 0.26, uy);
     const bottomTaper = isRibbon
       ? 1 - smoothstep(0.76, 0.96, uy)
-      : 1 - 0.12 * smoothstep(0.92, 1.0, uy);
+      : 1 - 0.10 * smoothstep(0.93, 1.0, uy);
     const fadeEnvelope = topFade * bottomTaper;
     const rowOff = sy * subW;
 
@@ -384,24 +422,24 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       continue;
     }
 
+    const isGridRow = !isRibbon && sy % gridStepY === 0;
+    const isCrossArmY = !isRibbon && (sy % gridStepY === 1 || sy % gridStepY === gridStepY - 1);
+    const isBaselineRule =
+      !isRibbon &&
+      (Math.abs(uy - 0.52) < invSubH * 0.55 || Math.abs(uy - 0.80) < invSubH * 0.55);
     const bottomAnchorWeight = isRibbon
       ? 0
-      : smoothstep(0.32, 0.72, uy) * (1 - 0.15 * smoothstep(0.92, 1.0, uy)) * (isPulse ? 0.09 : 0.055);
-    const deepContourWeight = isRibbon
-      ? 0
-      : smoothstep(0.55, 0.88, uy) * (1 - 0.15 * smoothstep(0.93, 1.0, uy)) * 0.055;
-    const rippleV = uy * 14;
-    const sinV = Math.sin(rippleV);
-    const cosV = Math.cos(rippleV);
-    const deepV = uy * 20 - time * 0.8;
-    const deepSinV = Math.sin(deepV);
-    const deepCosV = Math.cos(deepV);
+      : smoothstep(0.35, 0.75, uy) * (1 - 0.15 * smoothstep(0.92, 1.0, uy)) * (isPulse ? 0.075 : 0.036);
     const peakScanMask = isPeaks && (sy % 3 !== 2) ? 1 : 0.42;
-    const stroke1 = isRibbon ? 31 : 35;
-    const stroke2 = isRibbon ? 27 : 30;
+
+    // High-Q sharp oscilloscope strokes
+    const stroke1 = isRibbon ? 46 : 56;
+    const strokeEcho = 60;
+    const stroke2 = isRibbon ? 38 : 48;
 
     for (let sx = 0; sx < subW; sx++) {
       const crest1 = colCrest1[sx];
+      const crest1Echo = colCrest1Echo[sx];
       const crest2 = colCrest2[sx];
       const crest3 = colCrest3[sx];
       const crest4 = colCrest4[sx];
@@ -410,68 +448,121 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       const d1 = uy > crest1 ? uy - crest1 : crest1 - uy;
       const d2 = uy > crest2 ? uy - crest2 : crest2 - uy;
 
-      // Asymmetric crest skirt (crisp above, soft receding foam slope immediately below each crest)
-      const s1 = (uy > crest1 ? d1 * 0.74 : d1) * stroke1;
-      const s2 = (uy > crest2 ? d2 * 0.76 : d2) * stroke2;
-      const line1 = s1 < 2.83 ? fastFieldExpNeg(s1 * s1) * Math.min(1.08, colShimmer[sx] * 1.08) : 0;
+      const s1 = (uy > crest1 ? d1 * 0.84 : d1) * stroke1;
+      const s2 = (uy > crest2 ? d2 * 0.86 : d2) * stroke2;
+      const line1 = s1 < 2.83 ? fastFieldExpNeg(s1 * s1) * Math.min(1.12, colShimmer[sx] * 1.10) : 0;
 
       if (isRibbon) {
-        const ribbonSecondWeight = 0.62 * (colShimmer[sx] > 0 ? Math.min(1, colShimmer[sx] / 0.94) : 0);
+        const edgeMask = colShimmer[sx] > 0 ? Math.min(1, colShimmer[sx] / 0.94) : 0;
+        const ribbonSecondWeight = 0.64 * edgeMask;
         const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * ribbonSecondWeight : 0;
-        const maxLine = line1 > line2 ? line1 : line2;
+        const tick = sx % sampleStep === 0 && sy === Math.floor(subH * 0.5) ? 0.42 * edgeMask : 0;
+        const maxLine = Math.max(line1, line2, tick);
         subLum[rowOff + sx] = clamp01(maxLine * fadeEnvelope);
         continue;
       }
 
+      const dEcho = uy > crest1Echo ? uy - crest1Echo : crest1Echo - uy;
+      const sEcho = dEcho * strokeEcho;
+      const lineEcho = sEcho < 2.83 ? fastFieldExpNeg(sEcho * sEcho) * 0.54 : 0;
+
+      // Interference node highlight where primary and echo traces cross
+      const crossGap = Math.abs(crest1 - crest1Echo);
+      const nodeLock =
+        crossGap < 0.016 && d1 < 0.018
+          ? (1 - crossGap / 0.016) * (1 - d1 / 0.018) * 0.45
+          : 0;
+
       const d3 = uy > crest3 ? uy - crest3 : crest3 - uy;
       const d4 = uy > crest4 ? uy - crest4 : crest4 - uy;
       const d5 = uy > crest5 ? uy - crest5 : crest5 - uy;
-      const s3 = (uy > crest3 ? d3 * 0.78 : d3) * 28;
-      const s4 = (uy > crest4 ? d4 * 0.80 : d4) * 27;
-      const s5 = (uy > crest5 ? d5 * 0.82 : d5) * 26;
+      const s3 = (uy > crest3 ? d3 * 0.88 : d3) * 44;
+      const s4 = (uy > crest4 ? d4 * 0.88 : d4) * 40;
+      const s5 = (uy > crest5 ? d5 * 0.90 : d5) * 38;
 
-      const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * 0.82 : 0;
-      const line3 = s3 < 2.83 ? fastFieldExpNeg(s3 * s3) * 0.70 : 0;
-      const line4 = s4 < 2.83 ? fastFieldExpNeg(s4 * s4) * 0.62 : 0;
-      const line5 = s5 < 2.83 ? fastFieldExpNeg(s5 * s5) * 0.56 : 0;
+      const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * 0.84 : 0;
+      const line3 = s3 < 2.83 ? fastFieldExpNeg(s3 * s3) * 0.72 : 0;
+      const line4 = s4 < 2.83 ? fastFieldExpNeg(s4 * s4) * 0.64 : 0;
+      const line5 = s5 < 2.83 ? fastFieldExpNeg(s5 * s5) * 0.58 : 0;
 
-      // Subtle rising mist spray + crisp peak glint just above the primary wave crest when active
-      let mist = 0;
-      const mistOffset = crest1 - uy;
-      if (mistOffset > 0.008 && mistOffset < 0.14 && colMist[sx] > 0.02) {
-        mist = colMist[sx] * fastFieldExpNeg(mistOffset * mistOffset * 175);
+      // Quantized vertical sample-and-hold stems + bright crest sample pins every sampleStep columns
+      let telemetryStem = 0;
+      let samplePin = 0;
+      if (sx % sampleStep === 0) {
+        const upperSpan = Math.min(crest1, crest2);
+        const lowerSpan = Math.max(crest1, crest2);
+        if (uy >= upperSpan && uy <= lowerSpan && sy % 3 === 0) {
+          telemetryStem = 0.58;
+        }
+        if (d1 < invSubH * 0.9 || d2 < invSubH * 0.8) {
+          samplePin = 0.98;
+        }
       }
 
-      // Localized foam skirt below each crest that decays into dark troughs between swells
-      const skirt1 = uy > crest1 ? fastFieldExpNeg((uy - crest1) * (uy - crest1) * 58) * 0.13 : 0;
-      const skirt2 = uy > crest2 ? fastFieldExpNeg((uy - crest2) * (uy - crest2) * 62) * 0.12 : 0;
-      const skirt3 = uy > crest3 ? fastFieldExpNeg((uy - crest3) * (uy - crest3) * 66) * 0.11 : 0;
-      const skirt4 = uy > crest4 ? fastFieldExpNeg((uy - crest4) * (uy - crest4) * 70) * 0.10 : 0;
-      const skirt5 = uy > crest5 ? fastFieldExpNeg((uy - crest5) * (uy - crest5) * 75) * 0.09 : 0;
+      // Precision optical oscilloscope graticule: evenly-spaced '+' crosshairs & subtle dashed axis rules
+      let graticule = 0;
+      const modX = sx % gridStepX;
+      if (isGridRow && modX === 0) {
+        graticule = 0.72;
+      } else if ((isGridRow && (modX === 1 || modX === gridStepX - 1)) || (isCrossArmY && modX === 0)) {
+        graticule = 0.44;
+      } else if (isBaselineRule && sx % 4 === 0) {
+        graticule = 0.36;
+      } else if (sx % gridStepX === 0 && sy % 4 === 0) {
+        graticule = 0.34;
+      }
 
-      const sinRipple = colSinU[sx] * cosV + colCosU[sx] * sinV;
-      const fineRipple = (0.5 + 0.5 * sinRipple) * bottomAnchorWeight;
+      // Precision vertical cursor-lock tracking reticle at active pointer column
+      let cursorTick = 0;
+      if (Math.abs(sx - ptrSubX) <= 0 && sy % 2 === 0 && uy >= Math.max(0.14, crest1 - 0.10) && uy <= crest2 + 0.08) {
+        cursorTick = 0.74;
+      }
 
-      const deepContour = colDeepSinU[sx] * deepCosV + colDeepCosU[sx] * deepSinV;
-      const deepDrift = (0.5 + 0.5 * deepContour) * deepContourWeight;
+      // Quantized FFT micro-spectrum needles anchored along the bottom floor (uy ~ 0.85..0.985)
+      let spectrumNeedle = 0;
+      if (sx % 6 === 0 && uy >= colSpectrumTop[sx] && uy <= 0.985) {
+        const isTip = uy - colSpectrumTop[sx] < invSubH * 1.4;
+        spectrumNeedle = isTip ? 0.86 : sy % 2 === 0 ? 0.54 : 0;
+      }
+
+      // Subtle rising mist spray when voice energy spikes
+      let mist = 0;
+      const mistOffset = crest1 - uy;
+      if (mistOffset > 0.008 && mistOffset < 0.12 && colMist[sx] > 0.02) {
+        mist = colMist[sx] * fastFieldExpNeg(mistOffset * mistOffset * 185);
+      }
+
+      // Tight localized falloff skirts right below main crests so troughs remain pure dark obsidian
+      const skirt1 = uy > crest1 && d1 < 0.10 ? fastFieldExpNeg(d1 * d1 * 240) * 0.065 : 0;
+      const skirt2 = uy > crest2 && d2 < 0.09 ? fastFieldExpNeg(d2 * d2 * 260) * 0.055 : 0;
+      const skirt4 = uy > crest4 && d4 < 0.08 ? fastFieldExpNeg(d4 * d4 * 280) * 0.05 : 0;
+
+      const sinRipple = isPulse ? colSinU[sx] * Math.cos(uy * 14) + colCosU[sx] * Math.sin(uy * 14) : 0;
+      const fineRipple = isPulse ? (0.5 + 0.5 * sinRipple) * bottomAnchorWeight : 0;
 
       let peakBoost = 0;
       if (isPeaks && colBarGate[sx] > 0.5) {
         const peakTop = colPeakTop[sx];
         if (uy >= peakTop && uy < 0.94) {
           const capDist = uy - peakTop;
-          const capGlow = capDist < 0.055 ? 0.86 : 0.46 * (1 - smoothstep(peakTop, 0.94, uy) * 0.42);
+          const capGlow = capDist < 0.055 ? 0.88 : 0.48 * (1 - smoothstep(peakTop, 0.94, uy) * 0.42);
           peakBoost = capGlow * peakScanMask;
         }
       }
 
-      let maxLine = line1 > line2 ? line1 : line2;
-      if (line3 > maxLine) maxLine = line3;
-      if (line4 > maxLine) maxLine = line4;
-      if (line5 > maxLine) maxLine = line5;
-      const crestSkirt = skirt1 + skirt2 + skirt3 + skirt4 + skirt5;
-      const combined = maxLine > peakBoost ? maxLine : peakBoost;
-      const lum = clamp01((combined + crestSkirt * 0.68 + fineRipple + deepDrift + mist) * fadeEnvelope);
+      let maxTrace = line1;
+      if (lineEcho > maxTrace) maxTrace = lineEcho;
+      if (line2 > maxTrace) maxTrace = line2;
+      if (line3 > maxTrace) maxTrace = line3;
+      if (line4 > maxTrace) maxTrace = line4;
+      if (line5 > maxTrace) maxTrace = line5;
+      if (peakBoost > maxTrace) maxTrace = peakBoost;
+      if (samplePin > maxTrace) maxTrace = samplePin;
+      if (spectrumNeedle > maxTrace) maxTrace = spectrumNeedle;
+
+      const infra = Math.max(graticule, telemetryStem, cursorTick);
+      const signalBase = maxTrace > infra ? maxTrace : infra;
+      const lum = clamp01((signalBase + nodeLock + skirt1 + skirt2 + skirt4 + fineRipple + mist) * fadeEnvelope);
       subLum[rowOff + sx] = lum;
     }
   }

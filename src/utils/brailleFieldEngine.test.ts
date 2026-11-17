@@ -162,3 +162,27 @@ test('renderBrailleHorizon sustains bathymetric wave dots to the bottom rows whi
   assert.ok(peakTierCount > 0, 'Expected peak-weighted specular wave crest cells (tier >= 3)');
 });
 
+test('renderBrailleHorizon renders high-contrast technical traces with quantized sample columns and quiet background cells', () => {
+  const frame = renderBrailleHorizon({
+    cols: 180,
+    rows: 28,
+    time: 0.9,
+    energy: 0.55,
+    pointerX: 0.1,
+    pointerY: 0,
+    bands: new Array(12).fill(0.45),
+    style: 'silk',
+  });
+
+  let highContrastCells = 0;
+  let emptyCells = 0;
+  for (let i = 0; i < frame.cells.length; i++) {
+    if (frame.cells[i] >= 180) highContrastCells++;
+    else if (frame.cells[i] === 0) emptyCells++;
+  }
+
+  assert.ok(highContrastCells >= 40, `Expected crisp luminous carrier & sample pin cells, got ${highContrastCells}`);
+  assert.ok(emptyCells > frame.cells.length * 0.25, `Expected clean dark separation between traces and grid, got ${emptyCells}/${frame.cells.length}`);
+});
+
+

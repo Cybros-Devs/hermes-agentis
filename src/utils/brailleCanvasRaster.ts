@@ -287,11 +287,11 @@ export function rasterizeTonalDotBucketsToSurface(
 
   const profile = options?.dotProfile ?? 'balanced';
   const bloom = Math.max(0, Math.min(1.5, options?.bloom ?? 0));
-  const profileScale = profile === 'crisp' ? 0.88 : profile === 'phosphor' ? 1.14 : 1.0;
-  const softEdgeCut = profile === 'crisp' ? 0.44 : profile === 'phosphor' ? 0.24 : 0.3364; // (0.58)^2 = 0.3364
+  const profileScale = profile === 'crisp' ? 0.80 : profile === 'phosphor' ? 1.08 : 0.90;
+  const softEdgeCut = profile === 'crisp' ? 0.50 : profile === 'phosphor' ? 0.28 : 0.40;
   const invEdgeSpan = 1 / (1.3225 - softEdgeCut); // (1.15)^2 = 1.3225
 
-  const baseDotPx = Math.max(0.75, baseDotDiameterCss * dpr * profileScale);
+  const baseDotPx = Math.max(0.72, baseDotDiameterCss * dpr * profileScale);
 
   // Pass 1 (optional): Subtle soft phosphor halo beneath top-tier bright dots
   if (bloom > 0.04) {

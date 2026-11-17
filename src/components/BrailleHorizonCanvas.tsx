@@ -101,9 +101,9 @@ export function BrailleHorizonCanvas({
         width = Math.round(rect.width);
         height = Math.round(rect.height);
       }
-      rows = height < 64 ? 6 : Math.max(15, Math.min(34, Math.round(height / 8.8)));
-      const dotPitch = Math.max(2.05, height / (rows * 4));
-      cols = Math.max(72, Math.min(260, Math.round(width / (dotPitch * 2))));
+      rows = height < 64 ? 6 : Math.max(15, Math.min(36, Math.round(height / 8.4)));
+      const dotPitch = Math.max(1.95, height / (rows * 4));
+      cols = Math.max(76, Math.min(300, Math.round(width / (dotPitch * 2))));
       dpr = Math.min(2, window.devicePixelRatio || 1);
       canvas.width = width * dpr;
       canvas.height = height * dpr;
@@ -124,11 +124,11 @@ export function BrailleHorizonCanvas({
     let rafId = 0;
     let hiddenTimerId = 0;
     let lastReducedKey = '';
-    let b0XY = new Float32Array(260 * rows * 16);
-    let b1XY = new Float32Array(260 * rows * 16);
-    let b2XY = new Float32Array(260 * rows * 16);
-    let b3XY = new Float32Array(260 * rows * 16);
-    let b4XY = new Float32Array(260 * rows * 16);
+    let b0XY = new Float32Array(300 * rows * 16);
+    let b1XY = new Float32Array(300 * rows * 16);
+    let b2XY = new Float32Array(300 * rows * 16);
+    let b3XY = new Float32Array(300 * rows * 16);
+    let b4XY = new Float32Array(300 * rows * 16);
     const buckets: [
       TonalDotBucketSpec,
       TonalDotBucketSpec,
@@ -136,11 +136,11 @@ export function BrailleHorizonCanvas({
       TonalDotBucketSpec,
       TonalDotBucketSpec,
     ] = [
-      { xy: b0XY, len: 0, hex: cachedLow, alpha: 0.24, diameterScale: 0.70 },
-      { xy: b1XY, len: 0, hex: cachedLow, alpha: 0.36, diameterScale: 0.82 },
-      { xy: b2XY, len: 0, hex: cachedAccent, alpha: 0.50, diameterScale: 0.94 },
-      { xy: b3XY, len: 0, hex: cachedAccentHigh, alpha: 0.68, diameterScale: 1.04 },
-      { xy: b4XY, len: 0, hex: '#F1F5F9', alpha: 0.84, diameterScale: 1.12 },
+      { xy: b0XY, len: 0, hex: cachedLow, alpha: 0.30, diameterScale: 0.62 },
+      { xy: b1XY, len: 0, hex: cachedLow, alpha: 0.48, diameterScale: 0.74 },
+      { xy: b2XY, len: 0, hex: cachedAccent, alpha: 0.58, diameterScale: 0.84 },
+      { xy: b3XY, len: 0, hex: cachedAccentHigh, alpha: 0.78, diameterScale: 0.96 },
+      { xy: b4XY, len: 0, hex: '#F8FAFC', alpha: 0.94, diameterScale: 1.06 },
     ];
 
     const drawFrame = (now: number) => {
@@ -197,7 +197,7 @@ export function BrailleHorizonCanvas({
       const cellH = height / frame.rows;
       const dotW = cellW / 2;
       const dotH = cellH / 4;
-      const dotRadius = Math.max(0.68, Math.min(dotW, dotH) * 0.37);
+      const dotRadius = Math.max(0.64, Math.min(dotW, dotH) * 0.35);
 
       let len0 = 0;
       let len1 = 0;
@@ -205,7 +205,7 @@ export function BrailleHorizonCanvas({
       let len3 = 0;
       let len4 = 0;
 
-      const dotDiameter = Math.max(1.15, dotRadius * 1.92);
+      const dotDiameter = Math.max(1.10, dotRadius * 1.88);
       const needed = frame.cols * frame.rows * 16;
       if (b0XY.length < needed) {
         b0XY = new Float32Array(needed);
@@ -289,27 +289,27 @@ export function BrailleHorizonCanvas({
 
       buckets[0].len = len0;
       buckets[0].hex = baseLow;
-      buckets[0].alpha = 0.24;
+      buckets[0].alpha = 0.30;
 
       buckets[1].len = len1;
       buckets[1].hex = midHex;
-      buckets[1].alpha = s.isActive ? 0.42 : 0.35;
+      buckets[1].alpha = s.isActive ? 0.52 : 0.46;
 
       buckets[2].len = len2;
       buckets[2].hex = baseAccent;
-      buckets[2].alpha = s.isActive ? 0.58 : 0.46;
+      buckets[2].alpha = s.isActive ? 0.64 : 0.54;
 
       buckets[3].len = len3;
       buckets[3].hex = highGlowHex;
-      buckets[3].alpha = s.isActive ? 0.74 : 0.62;
+      buckets[3].alpha = s.isActive ? 0.82 : 0.72;
 
       buckets[4].len = len4;
-      buckets[4].hex = s.isActive ? '#FFFFFF' : '#E2E8F0';
-      buckets[4].alpha = s.isActive ? 0.88 : 0.76;
+      buckets[4].hex = s.isActive ? '#FFFFFF' : '#F8FAFC';
+      buckets[4].alpha = s.isActive ? 0.96 : 0.88;
 
       rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {
         dotProfile: s.dotProfile,
-        bloom: s.bloom * 0.65,
+        bloom: s.bloom * 0.34,
       });
       ctx.putImageData(surface.imageData, 0, 0);
     };
