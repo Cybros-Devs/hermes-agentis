@@ -1,4 +1,4 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import express from "express";
 import path from "node:path";
 import { createServer as createHttpServer } from "node:http";
@@ -40,6 +40,7 @@ import type {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, ".env") });
 
 function parseArgFlag(name: string): string | undefined {
   const args = process.argv.slice(2);
@@ -2723,6 +2724,7 @@ async function createServer() {
     const { createServer: createViteServer } = await import("vite");
     const hmrConfig = process.env.DISABLE_HMR === "true" ? false : { server: httpServer };
     vite = await createViteServer({
+      root: __dirname,
       server: { middlewareMode: true, hmr: hmrConfig },
       appType: "spa",
     });
