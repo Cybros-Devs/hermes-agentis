@@ -120,11 +120,61 @@ export function isTerminalDiagnosticActivity(entry: TerminalEntry): boolean {
   );
 }
 
+export interface CoalescedTraceStep extends ClassifiedTraceStep {
+  repeatCount: number;
+}
+
+/**
+ * Collapses consecutive identical completed tool/link/status steps (such as
+ * repeated "terminal completed" entries) into one row with a repeat count
+ * and latest timestamp while leaving reasoning/commentary steps unmerged.
+ */
+export function coalesceConsecutiveSteps(
+  steps: readonly ClassifiedTraceStep[]
+): CoalescedTraceStep[] {
+  const result: CoalescedTraceStep[] = [];
+  for (const step of steps) {
+    const prev = result[result.length - 1];
+    const canMerge =
+      prev &&
+      !step.isReasoning &&
+      !prev.isReasoning &&
+      step.icon !== 'commentary' &&
+      prev.icon !== 'commentary' &&
+      prev.icon === step.icon &&
+      prev.label.toLowerCase() === step.label.toLowerCase() &&
+      prev.detail.toLowerCase() === step.detail.toLowerCase();
+
+    if (canMerge) {
+      prev.repeatCount += 1;
+      if (step.timestamp) {
+        prev.timestamp = step.timestamp;
+      }
+    } else {
+      result.push({ ...step, repeatCount: 1 });
+    }
+  }
+  return result;
+}
+
+function isTurnBoundaryEntry(entry: TerminalEntry): boolean {
+  return (
+    entry.role === 'user' ||
+    entry.role === 'command' ||
+    entry.role === 'system' ||
+    isTerminalDiagnosticActivity(entry)
+  );
+}
+
 /**
  * Groups consecutive `activity` entries into collapsible vertical trace trees
  * and optionally attaches the live thinking state to the trailing trace tree.
- * Terminal diagnostic entries (e.g. gateway_offline, cancelled, admission_conflict)
- * stay standalone entry blocks so failure badges remain visible even in Clean mode.
+ *
+ * Within each conversational turn (delimited by user/command/system/diagnostic
+ * boundaries), non-diagnostic activity steps are always ordered before that turn's
+ * assistant reply so streaming text is never rendered above its own tool activity.
+ * Once the trailing turn already has non-empty streamed reply text, no dangling
+ * "Activity · Running" placeholder is emitted below the streamed message.
  */
 export function groupThreadTimeline(
   entries: TerminalEntry[],
@@ -132,44 +182,83 @@ export function groupThreadTimeline(
   includeLivePlaceholder = true
 ): ThreadTimelineBlock[] {
   const blocks: ThreadTimelineBlock[] = [];
-  let pendingRaw: TerminalEntry[] = [];
-  let pendingFirstId = '';
 
-  const flushTrace = (live: boolean) => {
-    const deduped = dedupeActivityEntries(pendingRaw);
-    if (deduped.length === 0 && !live) {
-      pendingRaw = [];
-      pendingFirstId = '';
-      return;
-    }
-    blocks.push({
-      kind: 'trace',
-      id: pendingFirstId || 'trace-live',
-      items: deduped.map(classifyTraceStep),
-      isLive: live,
-    });
-    pendingRaw = [];
-    pendingFirstId = '';
+  type TurnSegment = {
+    boundary: TerminalEntry | null;
+    activities: TerminalEntry[];
+    replies: TerminalEntry[];
   };
 
+  const segments: TurnSegment[] = [];
+  let current: TurnSegment = { boundary: null, activities: [], replies: [] };
+
   for (const entry of entries) {
-    if (entry.role === 'activity' && !isTerminalDiagnosticActivity(entry)) {
-      if (pendingRaw.length === 0) {
-        pendingFirstId = `trace-${entry.id}`;
+    if (isTurnBoundaryEntry(entry)) {
+      if (
+        current.boundary !== null ||
+        current.activities.length > 0 ||
+        current.replies.length > 0
+      ) {
+        segments.push(current);
       }
-      pendingRaw.push(entry);
+      current = { boundary: entry, activities: [], replies: [] };
+    } else if (entry.role === 'activity') {
+      current.activities.push(entry);
     } else {
-      flushTrace(false);
+      current.replies.push(entry);
+    }
+  }
+
+  if (
+    current.boundary !== null ||
+    current.activities.length > 0 ||
+    current.replies.length > 0
+  ) {
+    segments.push(current);
+  }
+
+  for (let idx = 0; idx < segments.length; idx++) {
+    const seg = segments[idx];
+    const isLastSegment = idx === segments.length - 1;
+    if (seg.boundary) {
       blocks.push({
         kind: 'entry',
-        id: entry.id,
-        entry,
+        id: seg.boundary.id,
+        entry: seg.boundary,
+      });
+    }
+
+    const deduped = dedupeActivityEntries(seg.activities);
+    const hasNonEmptyReply = seg.replies.some((r) => r.text.trim().length > 0);
+    const hasRunningTool = deduped.some((a) => a.activityStatus === 'running');
+    const liveForSegment =
+      isLastSegment && isThinking && (!hasNonEmptyReply || hasRunningTool);
+
+    if (deduped.length > 0 || (liveForSegment && includeLivePlaceholder)) {
+      blocks.push({
+        kind: 'trace',
+        id: deduped.length > 0 ? `trace-${deduped[0].id}` : 'trace-live',
+        items: deduped.map(classifyTraceStep),
+        isLive: liveForSegment,
+      });
+    }
+
+    for (const reply of seg.replies) {
+      blocks.push({
+        kind: 'entry',
+        id: reply.id,
+        entry: reply,
       });
     }
   }
 
-  if (pendingRaw.length > 0 || (isThinking && includeLivePlaceholder)) {
-    flushTrace(isThinking);
+  if (segments.length === 0 && isThinking && includeLivePlaceholder) {
+    blocks.push({
+      kind: 'trace',
+      id: 'trace-live',
+      items: [],
+      isLive: true,
+    });
   }
 
   return blocks;

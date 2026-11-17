@@ -63,7 +63,10 @@ function resolveStatusFromEntry(
     return 'error';
   }
   if (entry.streaming) return 'live';
-  return prevStatus === 'error' || prevStatus === 'cancelled' || prevStatus === 'budget'
+  return prevStatus === 'error' ||
+    prevStatus === 'cancelled' ||
+    prevStatus === 'budget' ||
+    prevStatus === 'live'
     ? prevStatus
     : 'done';
 }
@@ -135,8 +138,11 @@ export function extractThreadMinimapTurns(
     );
     if (!hasSubstantiveStream) return [];
 
+    const firstEntryBlock = blocks.find((b) => b.kind === 'entry');
     const firstAnchor =
-      blocks[0].kind === 'entry' ? blocks[0].entry.id : blocks[0].id;
+      firstEntryBlock && firstEntryBlock.kind === 'entry'
+        ? firstEntryBlock.entry.id
+        : blocks[0].id;
     let stepCount = 0;
     let hasReasoning = false;
     let status: MinimapTurnStatus = 'done';

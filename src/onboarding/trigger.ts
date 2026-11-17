@@ -78,6 +78,8 @@ export function loadOnboardingCompleted(): boolean {
   }
 }
 
+export const ONBOARDING_COMPLETED_EVENT = 'duet:onboarding-completed';
+
 export function saveOnboardingCompleted(skipped = false): void {
   if (typeof window === 'undefined') return;
   try {
@@ -87,6 +89,7 @@ export function saveOnboardingCompleted(skipped = false): void {
       updatedAt: Date.now(),
     };
     window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(payload));
+    window.dispatchEvent(new CustomEvent(ONBOARDING_COMPLETED_EVENT, { detail: payload }));
   } catch {
     // Ignore storage quota or private browsing errors
   }

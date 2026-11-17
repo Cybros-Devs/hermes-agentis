@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { TerminalEntry } from '../types/hermes';
-import { classifyTraceStep, groupThreadTimeline } from './threadTrace';
+import {
+  classifyTraceStep,
+  coalesceConsecutiveSteps,
+  groupThreadTimeline,
+} from './threadTrace';
 
 function makeEntry(
   id: string,
@@ -139,5 +143,57 @@ test('groupThreadTimeline renders terminal diagnostic failures as standalone ent
   if (blocks[1].kind === 'entry') {
     assert.equal(blocks[1].entry.errorCode, 'gateway_offline');
   }
+});
+
+test('groupThreadTimeline hoists turn activities before assistant reply and suppresses trailing Running placeholder once reply text streams', () => {
+  const reordered = groupThreadTimeline(
+    [
+      makeEntry('u1', 'user', 'what should we work on', '08:21'),
+      makeEntry('h1', 'hermes', 'Scanning ledgers...', '08:22'),
+      { ...makeEntry('a1', 'activity', 'terminal completed', '08:23'), activityKind: 'tool' },
+      { ...makeEntry('a2', 'activity', 'terminal completed', '08:24'), activityKind: 'tool' },
+    ],
+    false
+  );
+  assert.equal(reordered.length, 3);
+  assert.equal(reordered[0].kind, 'entry');
+  assert.equal(reordered[1].kind, 'trace');
+  assert.equal(reordered[2].kind, 'entry');
+  if (reordered[2].kind === 'entry') {
+    assert.equal(reordered[2].entry.id, 'h1');
+  }
+
+  const activeStreaming = groupThreadTimeline(
+    [
+      makeEntry('u2', 'user', 'simplify this list', '08:25'),
+      makeEntry('h2', 'hermes', 'Here is the simplified list:', '08:25'),
+    ],
+    true,
+    true
+  );
+  assert.equal(activeStreaming.length, 2);
+  assert.equal(activeStreaming.every((b) => b.kind === 'entry'), true);
+});
+
+test('coalesceConsecutiveSteps merges adjacent identical steps with repeat counts and preserves reasoning', () => {
+  const steps = [
+    classifyTraceStep({ ...makeEntry('1', 'activity', 'terminal completed', '08:23'), activityKind: 'tool' }),
+    classifyTraceStep({ ...makeEntry('2', 'activity', 'terminal completed', '08:24'), activityKind: 'tool' }),
+    classifyTraceStep({ ...makeEntry('3', 'activity', 'terminal completed', '08:25'), activityKind: 'tool' }),
+    classifyTraceStep({
+      ...makeEntry('4', 'activity', 'Reasoning: Checking logs', '08:25'),
+      activityKind: 'reasoning',
+      reasoningDetail: 'Checking logs',
+    }),
+    classifyTraceStep({ ...makeEntry('5', 'activity', 'terminal completed', '08:26'), activityKind: 'tool' }),
+  ];
+
+  const coalesced = coalesceConsecutiveSteps(steps);
+  assert.equal(coalesced.length, 3);
+  assert.equal(coalesced[0].repeatCount, 3);
+  assert.equal(coalesced[0].timestamp, '08:25');
+  assert.equal(coalesced[1].icon, 'reasoning');
+  assert.equal(coalesced[1].repeatCount, 1);
+  assert.equal(coalesced[2].repeatCount, 1);
 });
 

@@ -889,7 +889,7 @@ export function BrailleSessionsCanvas({
               '--stage-min-h': minStagePx ? `${minStagePx}px` : '100%',
             } as React.CSSProperties
           }
-          className="relative w-full min-h-full sm:min-h-[var(--stage-min-h)] sm:h-[var(--stage-min-h)] grid grid-cols-2 grid-flow-dense items-start justify-items-center gap-x-2.5 gap-y-5 px-3 pb-24 pt-1 sm:block sm:p-0 sm:origin-center sm:[transform:translate3d(var(--canvas-pan-x),var(--canvas-pan-y),0)_scale(var(--canvas-zoom))]"
+          className="relative w-full min-h-full sm:min-h-[var(--stage-min-h)] sm:h-[var(--stage-min-h)] grid grid-cols-2 grid-flow-dense items-start justify-items-center gap-x-2.5 gap-y-5 px-3 pb-28 pt-1 sm:block sm:p-0 sm:origin-center sm:[transform:translate3d(var(--canvas-pan-x),var(--canvas-pan-y),0)_scale(var(--canvas-zoom))]"
         >
           {/* Optical Constellation & Pin Filaments on sm+ */}
           <svg
@@ -911,10 +911,12 @@ export function BrailleSessionsCanvas({
               const aLive =
                 Boolean(thinkingByChannel[edge.a.channelId]) ||
                 hermesByChannel.get(edge.a.channelId)?.status === 'thinking' ||
+                hermesByChannel.get(edge.a.channelId)?.status === 'running' ||
                 (voiceState.isSpeaking && (speakingChannel ?? activeChannel) === edge.a.channelId);
               const bLive =
                 Boolean(thinkingByChannel[edge.b.channelId]) ||
                 hermesByChannel.get(edge.b.channelId)?.status === 'thinking' ||
+                hermesByChannel.get(edge.b.channelId)?.status === 'running' ||
                 (voiceState.isSpeaking && (speakingChannel ?? activeChannel) === edge.b.channelId);
               const isLinkHot = aLive || bLive;
               return (
@@ -1074,7 +1076,8 @@ export function BrailleSessionsCanvas({
               const bucket = entriesByChannel.get(session.channelId);
               const isThinkingHere =
                 Boolean(thinkingByChannel[session.channelId]) ||
-                serverSession?.status === 'thinking';
+                serverSession?.status === 'thinking' ||
+                serverSession?.status === 'running';
               const isSpeakingHere =
                 voiceState.isSpeaking &&
                 (speakingChannel ?? activeChannel) === session.channelId;

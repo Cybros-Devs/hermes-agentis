@@ -16,7 +16,7 @@ interface StatusPulseProps {
 }
 
 const DOT_COLOR_MAP: Record<StatusPulseState, string> = {
-  idle: 'bg-emerald-200/45',
+  idle: 'bg-zinc-400/75',
   live: 'bg-[#4ADE80]',
   speaking: 'bg-[#4ADE80]',
   listening: 'bg-[#34D399]',

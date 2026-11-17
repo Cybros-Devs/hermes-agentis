@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ShieldCheck } from 'lucide-react';
 import {
   loadBackgroundSettings,
   publishBackgroundSettings,
+  subscribeBackgroundSettings,
 } from './backgrounds/persistence';
 import type { BackgroundSettings } from './backgrounds/types';
+import {
+  ONBOARDING_COMPLETED_EVENT,
+  loadOnboardingCompleted,
+} from './onboarding/trigger';
 import { SidebarWorkspace } from './components/SidebarWorkspace';
 import { UiCustomizerStudio, type StudioTab } from './components/UiCustomizerStudio';
 import { VoiceWorkspacePane, type WorkspacePanelView } from './components/VoiceWorkspacePane';
@@ -40,6 +46,27 @@ import {
   shouldStartNewHomeSession,
 } from './utils/homeSession';
 import { mergeTasksWithSessionActivity } from './utils/taskInsights';
+import {
+  hasCustomizedPreferences,
+  resolveBootHydrationSource,
+  type AppUpdateStatus,
+  type PreferenceBackupSummary,
+  type UpdateStepResult,
+  type UserPreferencesSnapshot,
+} from './utils/settingsSnapshot';
+import {
+  acknowledgeUpdateReceipt,
+  applyAppUpdateWithSnapshot,
+  applySnapshotToBrowserStorage,
+  collectSnapshotFromBrowser,
+  createPreferencesBackup,
+  fetchAppUpdateStatus,
+  fetchPreferencesVault,
+  readPreferencesCapturedAt,
+  restorePreferencesBackup,
+  savePreferencesToVault,
+  writePreferencesCapturedAt,
+} from './utils/settingsVaultClient';
 import {
   UI_PATCH_EVENT,
   applyUiPatch,
@@ -159,6 +186,23 @@ export default function App() {
   const lastUndoPushAtRef = useRef(0);
   const lastPatchSigRef = useRef<{ sig: string; at: number } | null>(null);
 
+  // Durable preferences vault + click-to-update state
+  const [onboardingCompletedState, setOnboardingCompletedState] = useState<boolean>(() =>
+    loadOnboardingCompleted()
+  );
+  const [bgSyncNonce, setBgSyncNonce] = useState(0);
+  const [vaultHydrated, setVaultHydrated] = useState(false);
+  const [vaultStorageLabel, setVaultStorageLabel] = useState('Server preferences vault');
+  const [vaultLastSyncedAt, setVaultLastSyncedAt] = useState<number | null>(null);
+  const [vaultBackups, setVaultBackups] = useState<PreferenceBackupSummary[]>([]);
+  const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
+  const [updateSteps, setUpdateSteps] = useState<UpdateStepResult[]>([]);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [busyBackup, setBusyBackup] = useState(false);
+  const vaultHydratingRef = useRef(false);
+
   const stateRef = useRef({
     activeChannel,
     channels,
@@ -213,7 +257,11 @@ export default function App() {
       const idx = prev.findIndex((e) => e.id === entry.id);
       if (idx >= 0) {
         const next = [...prev];
+        const prevCreatedAt = next[idx].createdAtMs;
         next[idx] = entry;
+        if (entry.createdAtMs !== undefined && prevCreatedAt !== entry.createdAtMs) {
+          next.sort((a, b) => (a.createdAtMs ?? Infinity) - (b.createdAtMs ?? Infinity));
+        }
         return next;
       }
       if (entry.createdAtMs !== undefined) {
@@ -1231,6 +1279,267 @@ export default function App() {
     document.title = 'Hermes Agent // Cyber Comms';
   }, []);
 
+  const buildLivePreferencesSnapshot = useCallback(
+    (reason: UserPreferencesSnapshot['reason'] = 'sync'): UserPreferencesSnapshot =>
+      collectSnapshotFromBrowser(
+        {
+          appVersion: updateStatus?.currentVersion || '0.1.0',
+          uiConfig,
+          workspace: {
+            showThinking,
+            voiceMuted: voice.voiceState.isMuted,
+            mood,
+            draftProfile,
+            transportMode,
+            onboardingCompleted: onboardingCompletedState || loadOnboardingCompleted(),
+          },
+          canvas: {
+            sessions: canvasSessions,
+            pins: canvasPins,
+            dismissedIds: Array.from(dismissedChannelIdsRef.current),
+          },
+        },
+        reason
+      ),
+    [
+      canvasPins,
+      canvasSessions,
+      draftProfile,
+      mood,
+      onboardingCompletedState,
+      showThinking,
+      transportMode,
+      uiConfig,
+      updateStatus?.currentVersion,
+      voice.voiceState.isMuted,
+    ]
+  );
+
+  const applyRestoredPreferencesSnapshot = useCallback(
+    (snapshot: UserPreferencesSnapshot) => {
+      vaultHydratingRef.current = true;
+      applySnapshotToBrowserStorage(snapshot);
+      stateRef.current.uiConfig = snapshot.uiConfig;
+      setUiConfig(snapshot.uiConfig);
+      setShowThinking(snapshot.workspace.showThinking);
+      voice.setMuted(snapshot.workspace.voiceMuted);
+      setMood(snapshot.workspace.mood);
+      setDraftProfile(snapshot.workspace.draftProfile);
+      if (snapshot.workspace.transportMode) {
+        setTransportMode(snapshot.workspace.transportMode);
+      }
+      setOnboardingCompletedState(snapshot.workspace.onboardingCompleted);
+      if (snapshot.canvas.sessions.length > 0 || snapshot.canvas.dismissedIds.length > 0) {
+        setCanvasSessions(snapshot.canvas.sessions);
+      }
+      if (snapshot.canvas.pins.length > 0) {
+        setCanvasPins(snapshot.canvas.pins);
+      }
+      dismissedChannelIdsRef.current = new Set(snapshot.canvas.dismissedIds);
+      setBgSyncNonce((n) => n + 1);
+      window.setTimeout(() => {
+        vaultHydratingRef.current = false;
+      }, 80);
+    },
+    [setTransportMode, voice]
+  );
+
+  // Track external background customization & onboarding completion for vault sync
+  useEffect(() => {
+    const unsubBg = subscribeBackgroundSettings(() => {
+      if (!vaultHydratingRef.current) {
+        setBgSyncNonce((n) => n + 1);
+      }
+    });
+    const onOnboardingDone = () => {
+      setOnboardingCompletedState(true);
+    };
+    window.addEventListener(ONBOARDING_COMPLETED_EVENT, onOnboardingDone);
+    return () => {
+      unsubBg();
+      window.removeEventListener(ONBOARDING_COMPLETED_EVENT, onOnboardingDone);
+    };
+  }, []);
+
+  // Rehydrate settings & themes from durable server vault on boot (survives updates & port shifts)
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [vaultResp, updStatus] = await Promise.all([
+        fetchPreferencesVault(),
+        fetchAppUpdateStatus(false),
+      ]);
+      if (cancelled) return;
+
+      if (updStatus) {
+        setUpdateStatus(updStatus);
+      }
+      if (vaultResp) {
+        setVaultStorageLabel(vaultResp.storageLabel);
+        setVaultBackups(vaultResp.backups);
+        const localBase = collectSnapshotFromBrowser(
+          {
+            appVersion: updStatus?.currentVersion || '0.1.0',
+            uiConfig: stateRef.current.uiConfig,
+            workspace: {
+              showThinking,
+              voiceMuted: voiceRef.current?.isMuted ?? false,
+              mood,
+              draftProfile: stateRef.current.draftProfile,
+              transportMode,
+              onboardingCompleted: loadOnboardingCompleted(),
+            },
+            canvas: {
+              sessions: stateRef.current.canvasSessions,
+              pins: canvasPins,
+              dismissedIds: Array.from(dismissedChannelIdsRef.current),
+            },
+          },
+          'sync'
+        );
+        localBase.capturedAt = readPreferencesCapturedAt();
+
+        const source = resolveBootHydrationSource(localBase, vaultResp.vault);
+        if (source === 'vault' && vaultResp.vault) {
+          applyRestoredPreferencesSnapshot(vaultResp.vault);
+          setVaultLastSyncedAt(vaultResp.vault.capturedAt);
+        } else if (vaultResp.vault || hasCustomizedPreferences(localBase)) {
+          const synced = await savePreferencesToVault({
+            ...localBase,
+            capturedAt: Date.now(),
+          });
+          if (!cancelled && synced.ok) {
+            setVaultLastSyncedAt(synced.vault?.capturedAt ?? Date.now());
+            writePreferencesCapturedAt(synced.vault?.capturedAt ?? Date.now());
+          }
+        }
+      }
+      if (!cancelled) {
+        setVaultHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Run once on initial boot
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounce-sync customized themes, backdrops & settings to durable vault
+  useEffect(() => {
+    if (!vaultHydrated || vaultHydratingRef.current) return;
+    const timer = window.setTimeout(() => {
+      const snap = buildLivePreferencesSnapshot('sync');
+      void savePreferencesToVault(snap).then((res) => {
+        if (res.ok) {
+          const ts = res.vault?.capturedAt ?? snap.capturedAt;
+          writePreferencesCapturedAt(ts);
+          setVaultLastSyncedAt(ts);
+        }
+      });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [vaultHydrated, bgSyncNonce, buildLivePreferencesSnapshot]);
+
+  const handleCheckUpdates = useCallback(async () => {
+    setCheckingUpdate(true);
+    setUpdateError(null);
+    const next = await fetchAppUpdateStatus(true);
+    if (next) {
+      setUpdateStatus(next);
+    } else {
+      setUpdateError('Unable to reach update service right now.');
+    }
+    setCheckingUpdate(false);
+  }, []);
+
+  const handleApplyUpdate = useCallback(async () => {
+    if (applyingUpdate) return;
+    setApplyingUpdate(true);
+    setUpdateError(null);
+    setUpdateSteps([
+      {
+        id: 'snapshot-prep',
+        label: 'Snapshotting active themes, wallpapers & layout settings',
+        status: 'ok',
+      },
+    ]);
+    try {
+      const snap = buildLivePreferencesSnapshot('pre-update');
+      applySnapshotToBrowserStorage(snap);
+      await savePreferencesToVault(snap);
+      const outcome = await applyAppUpdateWithSnapshot(snap);
+      if (outcome.steps.length > 0) {
+        setUpdateSteps(outcome.steps);
+      }
+      if (outcome.status) {
+        setUpdateStatus(outcome.status);
+      }
+      if (!outcome.ok) {
+        setUpdateError(outcome.error || 'Update could not complete.');
+        setApplyingUpdate(false);
+        return;
+      }
+      const vaultResp = await fetchPreferencesVault();
+      if (vaultResp) {
+        setVaultBackups(vaultResp.backups);
+      }
+      setVaultLastSyncedAt(Date.now());
+      if (outcome.needsReload) {
+        window.setTimeout(() => {
+          window.location.reload();
+        }, 450);
+        return;
+      }
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : 'Update failed cleanly.');
+    }
+    setApplyingUpdate(false);
+  }, [applyingUpdate, buildLivePreferencesSnapshot]);
+
+  const handleCreateBackup = useCallback(async () => {
+    setBusyBackup(true);
+    const snap = buildLivePreferencesSnapshot('manual');
+    const created = await createPreferencesBackup(snap, 'manual');
+    if (created) {
+      setVaultBackups(created.backups);
+      setVaultLastSyncedAt(Date.now());
+    }
+    setBusyBackup(false);
+  }, [buildLivePreferencesSnapshot]);
+
+  const handleRestoreBackup = useCallback(
+    async (backupId: string) => {
+      setBusyBackup(true);
+      const restored = await restorePreferencesBackup(backupId);
+      if (restored) {
+        applyRestoredPreferencesSnapshot(restored.snapshot);
+        setVaultBackups(restored.backups);
+        setVaultLastSyncedAt(restored.snapshot.capturedAt);
+      }
+      setBusyBackup(false);
+    },
+    [applyRestoredPreferencesSnapshot]
+  );
+
+  const handleImportSnapshot = useCallback(
+    async (imported: UserPreferencesSnapshot) => {
+      setBusyBackup(true);
+      applyRestoredPreferencesSnapshot(imported);
+      const saved = await savePreferencesToVault(imported);
+      if (saved.ok) {
+        setVaultLastSyncedAt(saved.vault?.capturedAt ?? Date.now());
+      }
+      setBusyBackup(false);
+    },
+    [applyRestoredPreferencesSnapshot]
+  );
+
+  const handleDismissUpdateReceipt = useCallback(() => {
+    setUpdateStatus((prev) => (prev ? { ...prev, pendingReceipt: null } : prev));
+    void acknowledgeUpdateReceipt();
+  }, []);
+
   const handleCycleMood = useCallback(() => {
     setMood((current) => {
       const idx = MOOD_CYCLE.indexOf(current);
@@ -1965,9 +2274,50 @@ export default function App() {
             onDeleteProfile={deleteProfile}
             uiConfig={uiConfig}
             onOpenStudio={() => setCustomizerOpen(true)}
+            updateAvailable={Boolean(updateStatus?.updateAvailable)}
           />
         </div>
       </main>
+
+      {updateStatus?.pendingReceipt && !customizerOpen && (
+        <div
+          role="status"
+          data-testid="post-update-preserved-toast"
+          className="fixed bottom-4 right-4 z-40 max-w-[360px] rounded-xl border border-white/15 bg-[#14171F]/95 backdrop-blur-xl px-3.5 py-2.5 shadow-2xl flex items-center gap-3 ui-card-enter"
+        >
+          <div className="w-7 h-7 rounded-lg bg-white/[0.06] border border-white/12 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-4 h-4 text-zinc-200" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold text-white">
+              Updated cleanly · settings preserved
+            </div>
+            <div className="text-[10.5px] font-mono text-zinc-400 truncate">
+              v{updateStatus.pendingReceipt.newVersion} · themes &amp; layout restored
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setCustomizerTab('updates');
+                setCustomizerOpen(true);
+              }}
+              className="text-[11px] font-medium text-emerald-300 hover:text-white px-2 py-1 rounded-md hover:bg-white/[0.06] cursor-pointer"
+            >
+              Details
+            </button>
+            <button
+              type="button"
+              onClick={handleDismissUpdateReceipt}
+              aria-label="Dismiss update notification"
+              className="text-[11px] text-zinc-400 hover:text-white px-1.5 py-1 rounded-md hover:bg-white/[0.06] cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       <UiCustomizerStudio
         open={customizerOpen}
@@ -1984,6 +2334,22 @@ export default function App() {
         onAskAgent={(prompt) => {
           void processUserInput(prompt, 'cli');
         }}
+        snapshot={buildLivePreferencesSnapshot('sync')}
+        vaultStorageLabel={vaultStorageLabel}
+        lastSyncedAt={vaultLastSyncedAt}
+        updateStatus={updateStatus}
+        checkingUpdate={checkingUpdate}
+        applyingUpdate={applyingUpdate}
+        updateSteps={updateSteps}
+        updateError={updateError}
+        backups={vaultBackups}
+        busyBackup={busyBackup}
+        onCheckUpdates={() => void handleCheckUpdates()}
+        onApplyUpdate={() => void handleApplyUpdate()}
+        onCreateBackup={() => void handleCreateBackup()}
+        onRestoreBackup={(id) => void handleRestoreBackup(id)}
+        onImportSnapshot={(snap) => void handleImportSnapshot(snap)}
+        onDismissUpdateReceipt={handleDismissUpdateReceipt}
       />
     </div>
   );

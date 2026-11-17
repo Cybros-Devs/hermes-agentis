@@ -7,6 +7,7 @@ import {
 } from '../backgrounds/BackgroundControls';
 import {
   DEFAULT_BACKGROUND_SETTINGS,
+  ONBOARDING_DISMISS_EVENT,
   ONBOARDING_REPLAY_EVENT,
   clampBlurPx,
   clampOpacity,
@@ -112,8 +113,16 @@ export function GuidedOnboarding() {
         window.requestAnimationFrame(() => setVisible(true));
       }
     };
+    const onDismiss = () => {
+      setVisible(false);
+      setMounted(false);
+    };
     window.addEventListener(ONBOARDING_REPLAY_EVENT, onReplay);
-    return () => window.removeEventListener(ONBOARDING_REPLAY_EVENT, onReplay);
+    window.addEventListener(ONBOARDING_DISMISS_EVENT, onDismiss);
+    return () => {
+      window.removeEventListener(ONBOARDING_REPLAY_EVENT, onReplay);
+      window.removeEventListener(ONBOARDING_DISMISS_EVENT, onDismiss);
+    };
   }, []);
 
   // Keep synced with Settings -> Backdrop if changed externally

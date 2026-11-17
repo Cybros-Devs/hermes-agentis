@@ -42,6 +42,7 @@ import { amplitudeToViseme } from '../utils/asciiCharacter';
 import type { LookTarget } from '../utils/asciiPortraitEngine';
 import type { PortraitAssetStatus } from '../utils/portraitLoadingEngine';
 import {
+  formatCanvasDotLabel,
   type CanvasFormationPreset,
   type CanvasPin,
   type CanvasSession,
@@ -166,6 +167,7 @@ interface VoiceWorkspacePaneProps {
   onDeleteProfile?: (profileId: string) => Promise<unknown>;
   uiConfig?: UiCustomizationConfig;
   onOpenStudio?: () => void;
+  updateAvailable?: boolean;
 }
 
 export function VoiceWorkspacePane({
@@ -240,6 +242,7 @@ export function VoiceWorkspacePane({
   onDeleteProfile,
   uiConfig = DEFAULT_UI_CONFIG,
   onOpenStudio,
+  updateAvailable = false,
 }: VoiceWorkspacePaneProps) {
   const [tick, setTick] = useState(0);
   const [input, setInput] = useState('');
@@ -327,24 +330,51 @@ export function VoiceWorkspacePane({
     }
     return counts;
   }, [channels]);
+  const activeHermesSession = useMemo(
+    () => hermesSessions.find((s) => s.channelId === activeChannel) ?? null,
+    [hermesSessions, activeChannel]
+  );
+  const activeChannelTasksPartition = useMemo(
+    () => partitionChannelTasks(tasks, activeChannel),
+    [tasks, activeChannel]
+  );
   const activeHermesSessionId =
     activeCanvasSession?.hermesSessionId ?? (activeChannel ? `hermes-${activeChannel}` : 'new session');
-  const rawIsThinking = Boolean(thinkingByChannel[activeChannel]);
+  const rawIsThinking =
+    Boolean(thinkingByChannel[activeChannel]) ||
+    activeHermesSession?.status === 'thinking' ||
+    activeHermesSession?.status === 'running' ||
+    activeChannelTasksPartition.running.length > 0;
   const rawIsSpeaking =
     voiceState.isSpeaking && (speakingChannel ?? activeChannel) === activeChannel;
   const activeIsThinking = isHomeNewDraft ? false : rawIsThinking;
   const activeIsSpeaking = isHomeNewDraft ? false : rawIsSpeaking;
+
+  const activeDotLabel = useMemo(() => {
+    if (!activeChannel) return null;
+    return formatCanvasDotLabel(
+      activeCanvasSession ?? {
+        channelId: activeChannel,
+        hermesSessionId: activeHermesSessionId,
+        name: activeChannel,
+        topic: activeHermesSession?.topic ?? '',
+      },
+      activeHermesSession ?? undefined,
+      0
+    );
+  }, [activeChannel, activeCanvasSession, activeHermesSession, activeHermesSessionId]);
+
+  const activePromptSlug = activeDotLabel
+    ? activeDotLabel.isOpaque
+      ? activeDotLabel.promptTarget
+      : `#${activeDotLabel.promptTarget}`
+    : `#${activeChannel}`;
 
   const threadTasksDockMode = resolveThreadTasksLayoutMode(stageWidth, isDesktopLg);
   const stageHeaderSize = resolveStageHeaderSize({
     panelView,
     viewportHeightPx: viewportHeight,
   });
-
-  const activeChannelTasksPartition = useMemo(
-    () => partitionChannelTasks(tasks, activeChannel),
-    [tasks, activeChannel]
-  );
   const threadTasksOpen =
     threadTasksOverrideByChannel[activeChannel] ??
     (threadTasksDockMode === 'split'
@@ -832,10 +862,10 @@ export function VoiceWorkspacePane({
                     ? 'Listening for new session prompt...'
                     : 'Start a new Hermes session or type /help'
                   : activeIsThinking || activeIsSpeaking
-                  ? `Steer #${activeChannel} or send next prompt…`
+                  ? `Steer ${activePromptSlug} or send next prompt…`
                   : voiceState.isListening
                   ? 'Listening...'
-                  : `Steer #${activeChannel} or type /help`
+                  : `Steer ${activePromptSlug} or type /help`
               }
               className="flex-1 min-w-0 bg-transparent text-[14px] lg:text-sm text-white placeholder:text-emerald-100/45 focus:outline-none py-1.5 px-1 lg:px-0"
             />
@@ -983,11 +1013,13 @@ export function VoiceWorkspacePane({
         viseme={viseme}
         isSpeaking={activeIsSpeaking}
         isListening={voiceState.isListening}
+        isThinking={activeIsThinking}
         isMuted={voiceState.isMuted}
         panelView={panelView}
         pendingCount={pendingApprovals.length}
         showThinking={showThinking}
         canvasSessions={canvasSessions}
+        hermesSessions={hermesSessions}
         thinkingByChannel={thinkingByChannel}
         tasks={tasks}
         homeSessionDraft={homeSessionDraft}
@@ -999,6 +1031,7 @@ export function VoiceWorkspacePane({
         onToggleMute={onToggleMute}
         onToggleThinking={onToggleThinking}
         onOpenStudio={onOpenStudio}
+        updateAvailable={updateAvailable}
       />
 
       {/* Unified Clean Top Bar (Desktop lg+) */}
@@ -1072,11 +1105,17 @@ export function VoiceWorkspacePane({
                 onClick={onOpenStudio}
                 data-testid="ui-studio-trigger"
                 aria-label="Open Settings"
-                title="Settings"
+                title={updateAvailable ? 'Settings (Update available)' : 'Settings'}
                 className="ui-tactile h-8 px-2.5 rounded-lg border border-white/10 bg-white/[0.03] text-xs font-medium text-emerald-100/75 hover:text-white hover:border-white/25 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
                 <span>Settings</span>
+                {updateAvailable && (
+                  <span
+                    aria-label="Update available"
+                    className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                  />
+                )}
               </button>
             )}
           </div>
@@ -1093,6 +1132,12 @@ export function VoiceWorkspacePane({
             >
               <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
               <span>Settings</span>
+              {updateAvailable && (
+                <span
+                  aria-label="Update available"
+                  className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                />
+              )}
             </button>
           </div>
         )
@@ -1216,11 +1261,12 @@ export function VoiceWorkspacePane({
                   <span aria-hidden="true" className="text-emerald-100/30">·</span>
                   <span
                     data-testid="home-session-badge"
-                    className="font-mono text-[11px] text-[#6EE7B7]/85"
+                    title={activeHermesSessionId}
+                    className="font-mono text-[11px] text-[#6EE7B7]/85 max-w-[230px] truncate"
                   >
                     {isHomeNewDraft || !activeChannel
                       ? 'new session'
-                      : `#${activeChannel}${activeProfile !== 'default' ? ` · @${activeProfile}` : ''}`}
+                      : `${activeDotLabel?.primaryLabel ?? `#${activeChannel}`}${activeProfile !== 'default' ? ` · @${activeProfile}` : ''}`}
                   </span>
                   {isHomeNewDraft && profiles.length > 1 && onChangeDraftProfile ? (
                     <select
@@ -1259,7 +1305,7 @@ export function VoiceWorkspacePane({
                 >
                   {activeIsThinking ? (
                     <DecodedText
-                      text={`Routing turn inside ${activeHermesSessionId}...`}
+                      text={`Routing turn inside ${activeDotLabel?.promptTarget ?? activeHermesSessionId}...`}
                       animate={!uiConfig.reducedMotion}
                       speedMultiplier={uiConfig.animationSpeed}
                     />
@@ -1312,9 +1358,9 @@ export function VoiceWorkspacePane({
                       <button
                         type="button"
                         onClick={() => onChangePanelView('queue')}
-                        className="hover:text-white underline underline-offset-4 decoration-white/20 transition-colors cursor-pointer"
+                        className="ui-tactile text-amber-300/90 hover:text-amber-200 underline underline-offset-4 decoration-amber-400/35 transition-colors cursor-pointer"
                       >
-                        {pendingApprovals.length} pending
+                        Review {pendingApprovals.length} pending {pendingApprovals.length === 1 ? 'approval' : 'approvals'}
                       </button>
                     )}
                   </div>
@@ -1468,10 +1514,11 @@ export function VoiceWorkspacePane({
                     }}
                   >
                     <BrailleHorizonCanvas
-                      energy={activeIsThinking && !activeIsSpeaking ? 0.24 : energy}
+                      energy={activeIsThinking && !activeIsSpeaking ? 0.28 : energy}
                       isActive={activeIsSpeaking || voiceState.isListening || activeIsThinking}
                       frequencyBands={voiceState.frequencyBands}
                       lookTargetRef={lookTargetRef}
+                      tintHex={activeIsThinking && !activeIsSpeaking ? '#F59E0B' : null}
                       dotProfile={uiConfig.brailleDotProfile}
                       bloom={uiConfig.brailleBloom}
                       horizonStyle="ribbon"
@@ -1527,16 +1574,68 @@ export function VoiceWorkspacePane({
               )
             )}
 
-            {/* Mobile Slim Thread Control Bar + Docked Tasks Drawer (never clogs chat stream) */}
-            {panelView === 'voice' && (
+            {/* Mobile Integrated Braille Character Stage & Flowing Acoustic Wave Divider (< lg) */}
+            {panelView === 'voice' ? (
               <>
-                <div className="flex lg:hidden items-center justify-between gap-2 mx-3 px-1 py-1.5 border-b border-white/[0.07] shrink-0">
+                {uiConfig.portraitVisible && viewportHeight >= 560 && (
+                  <div
+                    data-testid="mobile-braille-stage"
+                    className="relative flex lg:hidden flex-col items-center justify-center pt-1 pb-0.5 shrink-0"
+                  >
+                    <div className="relative flex items-center justify-center">
+                      <div
+                        aria-hidden="true"
+                        className={`absolute inset-0 -m-6 rounded-full pointer-events-none transition-opacity duration-300 ${
+                          activeIsSpeaking || voiceState.isListening || activeIsThinking
+                            ? 'opacity-100'
+                            : 'opacity-70'
+                        }`}
+                        style={{
+                          background:
+                            effectiveMood === 'thinking'
+                              ? 'radial-gradient(ellipse 68% 60% at 50% 48%, rgba(245, 158, 11, 0.18) 0%, rgba(245, 158, 11, 0.05) 48%, transparent 74%)'
+                              : effectiveMood === 'alert'
+                              ? 'radial-gradient(ellipse 68% 60% at 50% 48%, rgba(244, 63, 94, 0.17) 0%, rgba(244, 63, 94, 0.05) 48%, transparent 74%)'
+                              : 'radial-gradient(ellipse 68% 60% at 50% 48%, rgba(var(--ui-accent-rgb), 0.15) 0%, rgba(var(--ui-accent-rgb), 0.04) 48%, transparent 74%)',
+                        }}
+                      />
+                      <div className="relative z-10">
+                        <AsciiPortraitCanvas
+                          variant="compact"
+                          mood={effectiveMood}
+                          viseme={viseme}
+                          eyeState={portraitEyeState}
+                          energy={energy}
+                          isSpeaking={activeIsSpeaking}
+                          isListening={voiceState.isListening}
+                          lookTargetRef={lookTargetRef}
+                          tintHex={effectivePortraitTint}
+                          dotProfile={uiConfig.brailleDotProfile}
+                          bloom={uiConfig.brailleBloom}
+                          speedScale={uiConfig.animationSpeed}
+                          reducedMotionOverride={uiConfig.reducedMotion}
+                          onStatusChange={setPortraitStatus}
+                          onClick={onCycleMood}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  className={`flex lg:hidden items-center justify-between gap-2 mx-3 px-1 py-1.5 shrink-0 ${
+                    uiConfig.horizonVisible ? '' : 'border-b border-white/[0.07]'
+                  }`}
+                >
                   <div className="flex items-center gap-1.5 min-w-0 text-[11.5px]">
                     <StatusPulse state={statusPulseState} size="sm" />
                     <span className="font-medium text-white shrink-0">{statusText}</span>
                     <span aria-hidden="true" className="text-emerald-100/25">·</span>
-                    <span className="font-mono text-[11px] text-[#6EE7B7]/85 truncate">
-                      {activeChannel ? `#${activeChannel}` : 'new-session'}
+                    <span
+                      title={activeHermesSessionId}
+                      className="font-mono text-[11px] text-[#6EE7B7]/85 truncate"
+                    >
+                      {activeChannel ? activeDotLabel?.primaryLabel ?? `#${activeChannel}` : 'new-session'}
                       {activeProfile && activeProfile !== 'default' ? ` · @${activeProfile}` : ''}
                     </span>
                   </div>
@@ -1572,8 +1671,34 @@ export function VoiceWorkspacePane({
                   </div>
                 </div>
 
+                {uiConfig.horizonVisible && (
+                  <div
+                    aria-hidden="true"
+                    className="lg:hidden w-full px-3 h-[18px] overflow-hidden shrink-0"
+                    style={{
+                      opacity:
+                        activeIsSpeaking || voiceState.isListening || activeIsThinking
+                          ? Math.max(0.62, uiConfig.horizonOpacity)
+                          : Math.min(0.46, uiConfig.horizonOpacity * 0.72),
+                    }}
+                  >
+                    <BrailleHorizonCanvas
+                      energy={activeIsThinking && !activeIsSpeaking ? 0.28 : energy}
+                      isActive={activeIsSpeaking || voiceState.isListening || activeIsThinking}
+                      frequencyBands={voiceState.frequencyBands}
+                      lookTargetRef={lookTargetRef}
+                      tintHex={activeIsThinking && !activeIsSpeaking ? '#F59E0B' : null}
+                      dotProfile={uiConfig.brailleDotProfile}
+                      bloom={uiConfig.brailleBloom}
+                      horizonStyle="ribbon"
+                      speedScale={uiConfig.animationSpeed}
+                      reducedMotionOverride={uiConfig.reducedMotion}
+                    />
+                  </div>
+                )}
+
                 {!isDesktopLg && threadTasksOpen && (
-                  <div className="lg:hidden max-h-[46dvh] overflow-y-auto cyber-scroll px-3.5 py-2.5 pb-3 border-b border-white/[0.07] bg-white/[0.015] shrink-0">
+                  <div className="lg:hidden max-h-[42dvh] overflow-y-auto cyber-scroll px-3.5 py-2.5 pb-3 border-b border-white/[0.09] bg-[#111318]/94 shrink-0">
                     <ThreadTaskBanner
                       variant="thread-inline"
                       activeChannel={activeChannel}
@@ -1595,6 +1720,32 @@ export function VoiceWorkspacePane({
                   </div>
                 )}
               </>
+            ) : (
+              uiConfig.horizonVisible && (
+                <div
+                  aria-hidden="true"
+                  className="lg:hidden w-full px-3 h-[18px] overflow-hidden shrink-0"
+                  style={{
+                    opacity:
+                      activeIsSpeaking || voiceState.isListening || activeIsThinking
+                        ? Math.max(0.55, uiConfig.horizonOpacity)
+                        : Math.min(0.40, uiConfig.horizonOpacity * 0.65),
+                  }}
+                >
+                  <BrailleHorizonCanvas
+                    energy={activeIsThinking && !activeIsSpeaking ? 0.26 : energy}
+                    isActive={activeIsSpeaking || voiceState.isListening || activeIsThinking}
+                    frequencyBands={voiceState.frequencyBands}
+                    lookTargetRef={lookTargetRef}
+                    tintHex={activeIsThinking && !activeIsSpeaking ? '#F59E0B' : null}
+                    dotProfile={uiConfig.brailleDotProfile}
+                    bloom={uiConfig.brailleBloom}
+                    horizonStyle="ribbon"
+                    speedScale={uiConfig.animationSpeed}
+                    reducedMotionOverride={uiConfig.reducedMotion}
+                  />
+                </div>
+              )
             )}
 
             {panelView === 'queue' ? (

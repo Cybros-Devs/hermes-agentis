@@ -24,6 +24,7 @@ interface BrailleHorizonCanvasProps {
   horizonStyle?: BrailleHorizonStyle;
   speedScale?: number;
   reducedMotionOverride?: boolean;
+  tintHex?: string | null;
   className?: string;
 }
 
@@ -48,6 +49,7 @@ export function BrailleHorizonCanvas({
   horizonStyle = 'silk',
   speedScale = 1,
   reducedMotionOverride = false,
+  tintHex = null,
   className = '',
 }: BrailleHorizonCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -61,6 +63,7 @@ export function BrailleHorizonCanvas({
     horizonStyle,
     speedScale,
     reducedMotionOverride,
+    tintHex,
   });
   stateRef.current = {
     energy,
@@ -72,6 +75,7 @@ export function BrailleHorizonCanvas({
     horizonStyle,
     speedScale,
     reducedMotionOverride,
+    tintHex,
   };
 
   useEffect(() => {
@@ -276,11 +280,15 @@ export function BrailleHorizonCanvas({
       if (!surface || surface.width !== canvas.width || surface.height !== canvas.height) {
         surface = createRasterSurface(ctx, canvas.width, canvas.height);
       }
-      const midHex = mixHexColors(cachedLow, cachedAccent, 0.52);
-      const highGlowHex = s.isActive ? cachedAccentHigh : mixHexColors(cachedAccent, '#FFFFFF', 0.32);
+      const overrideHex = s.tintHex && s.tintHex.startsWith('#') && s.tintHex.length === 7 ? s.tintHex : null;
+      const baseAccent = overrideHex ? mixHexColors(cachedAccent, overrideHex, 0.85) : cachedAccent;
+      const baseLow = overrideHex ? mixHexColors('#6E7B85', overrideHex, 0.42) : cachedLow;
+      const highHex = overrideHex ? mixHexColors(overrideHex, '#FFFFFF', 0.45) : cachedAccentHigh;
+      const midHex = mixHexColors(baseLow, baseAccent, 0.52);
+      const highGlowHex = s.isActive ? highHex : mixHexColors(baseAccent, '#FFFFFF', 0.32);
 
       buckets[0].len = len0;
-      buckets[0].hex = cachedLow;
+      buckets[0].hex = baseLow;
       buckets[0].alpha = 0.24;
 
       buckets[1].len = len1;
@@ -288,7 +296,7 @@ export function BrailleHorizonCanvas({
       buckets[1].alpha = s.isActive ? 0.42 : 0.35;
 
       buckets[2].len = len2;
-      buckets[2].hex = cachedAccent;
+      buckets[2].hex = baseAccent;
       buckets[2].alpha = s.isActive ? 0.58 : 0.46;
 
       buckets[3].len = len3;
@@ -325,7 +333,7 @@ export function BrailleHorizonCanvas({
       const isReduced = Boolean(systemReduced || s.reducedMotionOverride);
       const look = s.lookTargetRef?.current;
       if (isReduced) {
-        const reducedKey = `${width}x${height}|${s.isActive}|${s.horizonStyle}|${s.dotProfile}|${s.bloom.toFixed(2)}|${Math.round(s.energy * 100)}|${
+        const reducedKey = `${width}x${height}|${s.isActive}|${s.horizonStyle}|${s.dotProfile}|${s.tintHex ?? ''}|${s.bloom.toFixed(2)}|${Math.round(s.energy * 100)}|${
           look ? `${look.x.toFixed(2)},${look.y.toFixed(2)}` : ''
         }`;
         if (reducedKey !== lastReducedKey) {

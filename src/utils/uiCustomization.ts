@@ -1181,17 +1181,19 @@ export function subscribeUiConfig(listener: (config: UiCustomizationConfig) => v
   return () => window.removeEventListener(UI_CONFIG_EVENT, handler);
 }
 
-export function requestUiCustomizerOpen(tab?: 'theme' | 'layout' | 'stage' | 'backdrop'): void {
+export type StudioTabId = 'theme' | 'layout' | 'stage' | 'backdrop' | 'updates';
+
+export function requestUiCustomizerOpen(tab?: StudioTabId): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(UI_CUSTOMIZER_OPEN_EVENT, { detail: { tab } }));
 }
 
 export function subscribeUiCustomizerOpen(
-  listener: (tab?: 'theme' | 'layout' | 'stage' | 'backdrop') => void
+  listener: (tab?: StudioTabId) => void
 ): () => void {
   if (typeof window === 'undefined') return () => {};
   const handler = (ev: Event) => {
-    const customEv = ev as CustomEvent<{ tab?: 'theme' | 'layout' | 'stage' | 'backdrop' }>;
+    const customEv = ev as CustomEvent<{ tab?: StudioTabId }>;
     listener(customEv.detail?.tab);
   };
   window.addEventListener(UI_CUSTOMIZER_OPEN_EVENT, handler);

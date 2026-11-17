@@ -105,7 +105,7 @@ test('createHorizonAnimator tracks directional pointerVelX and keeps row 0 faded
   assert.equal(topLit, 0, 'Top row must remain clean even during max-energy cursor wake ripples');
 });
 
-test('renderBrailleHorizon supports compact ribbon style for slim workspace dividers', () => {
+test('renderBrailleHorizon supports compact ribbon style with tapered edges for slim workspace dividers', () => {
   const frame = renderBrailleHorizon({
     cols: 80,
     rows: 6,
@@ -118,4 +118,9 @@ test('renderBrailleHorizon supports compact ribbon style for slim workspace divi
   assert.equal(frame.lines.length, 6);
   const litCells = frame.lines.join('').replace(/ /g, '').length;
   assert.ok(litCells > 35, `Expected visible braille ribbon dots across 6 rows, got ${litCells}`);
+  // Outermost edge column should taper cleanly to empty so divider floats softly
+  for (let r = 0; r < frame.rows; r++) {
+    assert.equal(frame.lines[r][0], ' ', `Expected left edge taper on row ${r}`);
+    assert.equal(frame.lines[r][frame.cols - 1], ' ', `Expected right edge taper on row ${r}`);
+  }
 });

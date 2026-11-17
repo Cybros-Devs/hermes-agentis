@@ -6,7 +6,7 @@ export interface PortraitLoadingParams {
   cols: number;
   rows: number;
   time: number;
-  variant?: 'hero' | 'thumb' | 'sidebar' | 'stage';
+  variant?: 'hero' | 'compact' | 'thumb' | 'sidebar' | 'stage';
   status?: 'loading' | 'error';
   reducedMotion?: boolean;
 }

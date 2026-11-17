@@ -390,6 +390,19 @@ export function useVoiceAgent(onFinalTranscript: (transcript: string) => void) {
     });
   }, [stopSpeaking]);
 
+  const setMuted = useCallback(
+    (nextMuted: boolean) => {
+      setVoiceState((prev) => {
+        if (prev.isMuted === nextMuted) return prev;
+        if (nextMuted) {
+          stopSpeaking();
+        }
+        return { ...prev, isMuted: nextMuted };
+      });
+    },
+    [stopSpeaking]
+  );
+
   const setThinking = useCallback((thinking: boolean) => {
     setVoiceState((prev) => ({ ...prev, isThinking: thinking }));
   }, []);
@@ -413,6 +426,7 @@ export function useVoiceAgent(onFinalTranscript: (transcript: string) => void) {
     stopListening,
     toggleListening,
     toggleMute,
+    setMuted,
     setThinking,
     setInterimPreview,
   };

@@ -219,9 +219,9 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
   const wakeAmp = clamp(Math.abs(pointerVelX) * 0.055, 0, 0.09);
   const wakeDir = pointerVelX >= 0 ? -1 : 1;
   const isRibbon = style === 'ribbon';
-  const c1Amp = isRibbon ? 0.08 + energy * 0.28 : 0.14 + voiceAmp * 0.36;
-  const c2Amp = isRibbon ? 0.05 + energy * 0.2 : 0.11 + voiceAmp * 0.27;
-  const c3Amp = isRibbon ? 0.03 + energy * 0.12 : 0.07 + voiceAmp * 0.22;
+  const c1Amp = isRibbon ? 0.14 + energy * 0.24 : 0.14 + voiceAmp * 0.36;
+  const c2Amp = isRibbon ? 0.09 + energy * 0.17 : 0.11 + voiceAmp * 0.27;
+  const c3Amp = 0.07 + voiceAmp * 0.22;
   const shimmerScale = 0.20 * (0.35 + energy * 0.65);
   const isPeaks = style === 'peaks';
   const isPulse = style === 'pulse';
@@ -252,35 +252,55 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       const smoothFrac = frac * frac * (3 - 2 * frac);
       const b0 = bands![i0] ?? 0;
       const b1 = bands![i1] ?? b0;
-      bandBoost = (b0 + (b1 - b0) * smoothFrac) * 0.16;
+      bandBoost = (b0 + (b1 - b0) * smoothFrac) * (isRibbon ? 0.11 : 0.16);
     }
 
     const pulseMod = isPulse
       ? Math.sin(Math.abs(dxPtr) * 32 - time * 5.2) * (0.045 + energy * 0.075) * fastFieldExpNeg(dxPtr * dxPtr * 3.8)
       : 0;
 
-    colCrest1[sx] =
-      0.44 -
-      Math.sin(ux * 6.2 + time * 0.92) * c1Amp -
-      Math.cos(ux * 13.0 - time * 1.32) * 0.055 -
-      cursorWave -
-      wakeWave -
-      bandBoost -
-      pulseMod;
+    if (isRibbon) {
+      colCrest1[sx] =
+        0.50 -
+        Math.sin(ux * 6.4 + time * 1.15) * c1Amp -
+        Math.cos(ux * 13.5 - time * 1.55) * (0.042 + energy * 0.04) -
+        cursorWave * 0.72 -
+        wakeWave * 0.85 -
+        bandBoost;
 
-    colCrest2[sx] =
-      0.60 -
-      Math.sin(ux * 4.5 - time * 0.68 + 1.4) * c2Amp -
-      Math.sin(ux * 19.0 + time * 1.9) * 0.036 -
-      cursorWave * 0.65 -
-      wakeWave * 0.55 -
-      bandBoost * 0.58 -
-      pulseMod * 0.6;
+      colCrest2[sx] =
+        0.52 -
+        Math.sin(ux * 4.6 - time * 0.82 + 1.6) * c2Amp -
+        Math.sin(ux * 18.0 + time * 2.05) * 0.026 -
+        cursorWave * 0.45 -
+        wakeWave * 0.55 -
+        bandBoost * 0.55;
 
-    colCrest3[sx] =
-      0.74 -
-      Math.cos(ux * 8.2 + time * 1.18) * c3Amp -
-      bandBoost * 0.42;
+      colCrest3[sx] = 0.5;
+    } else {
+      colCrest1[sx] =
+        0.44 -
+        Math.sin(ux * 6.2 + time * 0.92) * c1Amp -
+        Math.cos(ux * 13.0 - time * 1.32) * 0.055 -
+        cursorWave -
+        wakeWave -
+        bandBoost -
+        pulseMod;
+
+      colCrest2[sx] =
+        0.60 -
+        Math.sin(ux * 4.5 - time * 0.68 + 1.4) * c2Amp -
+        Math.sin(ux * 19.0 + time * 1.9) * 0.036 -
+        cursorWave * 0.65 -
+        wakeWave * 0.55 -
+        bandBoost * 0.58 -
+        pulseMod * 0.6;
+
+      colCrest3[sx] =
+        0.74 -
+        Math.cos(ux * 8.2 + time * 1.18) * c3Amp -
+        bandBoost * 0.42;
+    }
 
     if (isPeaks) {
       const barPos = ux * barCount;
@@ -298,10 +318,13 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       colPeakTop[sx] = clamp(0.84 - (barBand * (0.55 + energy * 0.75) + ptrBar), 0.18, 0.82);
     }
 
-    colShimmer[sx] = (0.94 + shimmerScale * Math.sin(ux * 22 - time * 3.4)) * 0.98;
+    const edgeTaper = isRibbon
+      ? smoothstep(0.0, 0.075, ux) * (1 - smoothstep(0.925, 1.0, ux))
+      : 1;
+    colShimmer[sx] = (0.94 + shimmerScale * Math.sin(ux * 22 - time * 3.4)) * 0.98 * edgeTaper;
     const sparkleGate = Math.sin(ux * 54 - time * 4.6) * Math.cos(ux * 31 + time * 2.9);
     colMist[sx] =
-      energy > 0.14
+      !isRibbon && energy > 0.14
         ? clamp01(0.42 + 0.58 * sparkleGate) * energy * 0.42
         : 0;
 
@@ -313,8 +336,8 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
   for (let sy = 0; sy < subH; sy++) {
     const uy = (sy + 0.5) * invSubH; // 0 (top) .. 1 (bottom)
     // Top fade guarantees row 0 fades completely into dark background while keeping fluid horizon
-    const topFade = smoothstep(0.08, 0.42, uy);
-    const bottomTaper = 1 - smoothstep(0.66, 0.98, uy);
+    const topFade = isRibbon ? smoothstep(0.04, 0.24, uy) : smoothstep(0.08, 0.42, uy);
+    const bottomTaper = isRibbon ? 1 - smoothstep(0.76, 0.96, uy) : 1 - smoothstep(0.68, 0.985, uy);
     const fadeEnvelope = topFade * bottomTaper;
     const rowOff = sy * subW;
 
@@ -323,11 +346,15 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       continue;
     }
 
-    const bottomAnchorWeight = smoothstep(0.35, 0.9, uy) * (isPulse ? 0.15 : 0.10);
+    const bottomAnchorWeight = isRibbon
+      ? 0
+      : smoothstep(0.32, 0.76, uy) * (1 - smoothstep(0.78, 0.96, uy)) * (isPulse ? 0.14 : 0.09);
     const rippleV = uy * 18;
     const sinV = Math.sin(rippleV);
     const cosV = Math.cos(rippleV);
     const peakScanMask = isPeaks && (sy % 3 !== 2) ? 1 : 0.42;
+    const stroke1 = isRibbon ? 31 : 29;
+    const stroke2 = isRibbon ? 27 : 24;
 
     for (let sx = 0; sx < subW; sx++) {
       const crest1 = colCrest1[sx];
@@ -336,12 +363,21 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
 
       const d1 = uy > crest1 ? uy - crest1 : crest1 - uy;
       const d2 = uy > crest2 ? uy - crest2 : crest2 - uy;
-      const d3 = uy > crest3 ? uy - crest3 : crest3 - uy;
 
-      const s1 = d1 * 29;
-      const s2 = d2 * 24;
-      const s3 = d3 * 22;
+      const s1 = d1 * stroke1;
+      const s2 = d2 * stroke2;
       const line1 = s1 < 2.83 ? fastFieldExpNeg(s1 * s1) * Math.min(1.06, colShimmer[sx] * 1.06) : 0;
+
+      if (isRibbon) {
+        const ribbonSecondWeight = 0.62 * (colShimmer[sx] > 0 ? Math.min(1, colShimmer[sx] / 0.94) : 0);
+        const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * ribbonSecondWeight : 0;
+        const maxLine = line1 > line2 ? line1 : line2;
+        subLum[rowOff + sx] = clamp01(maxLine * fadeEnvelope);
+        continue;
+      }
+
+      const d3 = uy > crest3 ? uy - crest3 : crest3 - uy;
+      const s3 = d3 * 22;
       const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * 0.72 : 0;
       const line3 = s3 < 2.83 ? fastFieldExpNeg(s3 * s3) * 0.54 : 0;
 

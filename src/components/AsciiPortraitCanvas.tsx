@@ -168,7 +168,7 @@ function retryPortraitAssetsLoading(): void {
 }
 
 interface AsciiPortraitCanvasProps {
-  variant?: 'hero' | 'thumb' | 'sidebar' | 'stage';
+  variant?: 'hero' | 'compact' | 'thumb' | 'sidebar' | 'stage';
   mood: ExpressionMood;
   viseme: MouthViseme;
   eyeState: EyeState;
@@ -308,11 +308,12 @@ export function AsciiPortraitCanvas({
 
     const isThumb = variant === 'thumb';
     const isSidebar = variant === 'sidebar';
+    const isCompact = variant === 'compact';
     const isStage = variant === 'stage';
-    const cols = isThumb ? 22 : isSidebar ? 44 : isStage ? 92 : 62;
-    const rows = isThumb ? 11 : isSidebar ? 20 : isStage ? 42 : 28;
-    const width = isThumb ? 42 : isSidebar ? 84 : isStage ? 360 : 216;
-    const height = isThumb ? 42 : isSidebar ? 77 : isStage ? 330 : 198;
+    const cols = isThumb ? 22 : isSidebar ? 44 : isCompact ? 48 : isStage ? 92 : 62;
+    const rows = isThumb ? 11 : isSidebar ? 20 : isCompact ? 22 : isStage ? 42 : 28;
+    const width = isThumb ? 42 : isSidebar ? 84 : isCompact ? 116 : isStage ? 360 : 216;
+    const height = isThumb ? 42 : isSidebar ? 77 : isCompact ? 106 : isStage ? 330 : 198;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = width * dpr;
@@ -323,7 +324,9 @@ export function AsciiPortraitCanvas({
     const cellH = height / rows;
     const dotW = cellW / 2;
     const dotH = cellH / 4;
-    const dotRadius = isThumb ? 0.42 : Math.min(dotW, dotH) * (isStage || isSidebar ? 0.44 : 0.42);
+    const dotRadius = isThumb
+      ? 0.42
+      : Math.min(dotW, dotH) * (isStage || isSidebar || isCompact ? 0.44 : 0.42);
     const startTime = performance.now();
     const animator = createPortraitAnimator();
     animatorRef.current = animator;
@@ -660,6 +663,7 @@ export function AsciiPortraitCanvas({
   }
 
   const isSidebar = variant === 'sidebar';
+  const isCompact = variant === 'compact';
   const isStage = variant === 'stage';
   const showBadge = showLoadingLabel ?? isStage;
   const isError = status === 'error';
@@ -704,6 +708,8 @@ export function AsciiPortraitCanvas({
           className={
             isSidebar
               ? 'w-[72px] h-[66px] block'
+              : isCompact
+              ? 'w-[116px] h-[106px] block'
               : isStage
               ? 'block w-[clamp(164px,min(44vw,29dvh),480px)] sm:w-[clamp(204px,min(38vw,33dvh),500px)] aspect-[12/11]'
               : 'w-[216px] h-[198px] block'

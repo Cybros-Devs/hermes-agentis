@@ -5,6 +5,7 @@ export interface MorphTabItem<T extends string> {
   id: T;
   label: string;
   icon?: ReactNode;
+  badge?: string;
   testId?: string;
 }
 
@@ -139,6 +140,11 @@ export function MorphTabs<T extends string>({
           >
             {item.icon}
             <span>{item.label}</span>
+            {item.badge && (
+              <span className="ml-auto inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-200 font-mono text-[9.5px] leading-none">
+                {item.badge}
+              </span>
+            )}
           </button>
         );
       })}

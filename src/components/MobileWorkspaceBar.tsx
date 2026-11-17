@@ -13,6 +13,7 @@ import type {
   BackgroundTask,
   ChannelId,
   ExpressionMood,
+  HermesAgentSession,
   MouthViseme,
 } from '../types/hermes';
 import { formatCanvasDotLabel, type CanvasSession } from '../utils/canvasSessions';
@@ -31,11 +32,13 @@ interface MobileWorkspaceBarProps {
   viseme: MouthViseme;
   isSpeaking: boolean;
   isListening: boolean;
+  isThinking?: boolean;
   isMuted: boolean;
   panelView: WorkspacePanelView;
   pendingCount: number;
   showThinking: boolean;
   canvasSessions: CanvasSession[];
+  hermesSessions?: HermesAgentSession[];
   thinkingByChannel: Record<string, boolean>;
   tasks?: BackgroundTask[];
   homeSessionDraft?: boolean;
@@ -47,6 +50,7 @@ interface MobileWorkspaceBarProps {
   onToggleMute: () => void;
   onToggleThinking: () => void;
   onOpenStudio?: () => void;
+  updateAvailable?: boolean;
 }
 
 const VIEW_LABELS: Record<WorkspacePanelView, string> = {
@@ -65,11 +69,13 @@ export function MobileWorkspaceBar({
   viseme,
   isSpeaking,
   isListening,
+  isThinking = false,
   isMuted,
   panelView,
   pendingCount,
   showThinking,
   canvasSessions,
+  hermesSessions = [],
   thinkingByChannel,
   tasks = [],
   homeSessionDraft = false,
@@ -81,6 +87,7 @@ export function MobileWorkspaceBar({
   onToggleMute,
   onToggleThinking,
   onOpenStudio,
+  updateAvailable = false,
 }: MobileWorkspaceBarProps) {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
 
@@ -111,14 +118,29 @@ export function MobileWorkspaceBar({
   const activeCanvasSession = hasChannel
     ? canvasSessions.find((s) => s.channelId === activeChannel)
     : undefined;
+  const activeHermesSession = hasChannel
+    ? hermesSessions.find((s) => s.channelId === activeChannel)
+    : undefined;
+  const dotLabel = hasChannel
+    ? formatCanvasDotLabel(
+        activeCanvasSession ?? {
+          channelId: activeChannel,
+          hermesSessionId: activeSessionId,
+          name: activeChannel,
+          topic: activeHermesSession?.topic ?? '',
+        },
+        activeHermesSession,
+        turnCount
+      )
+    : null;
   const activeTitle = !hasChannel
     ? 'new session'
-    : activeCanvasSession
-    ? formatCanvasDotLabel(activeCanvasSession, undefined, turnCount).primaryLabel
-    : formatDisplaySessionTitle({
+    : dotLabel?.primaryLabel ??
+      formatDisplaySessionTitle({
         channelId: activeChannel,
         sessionId: activeSessionId,
       }).title;
+  const activeMetaLine = dotLabel?.secondaryLabel ?? `${turnCount}t`;
 
   const views: { id: WorkspacePanelView; label: string }[] = [
     { id: 'home', label: 'Home' },
@@ -167,11 +189,7 @@ export function MobileWorkspaceBar({
               {isHomeNewDraft ? (
                 <span>ready for prompt</span>
               ) : (
-                <>
-                  <span className="truncate min-w-0">{activeSessionId}</span>
-                  <span aria-hidden="true" className="shrink-0">·</span>
-                  <span className="shrink-0">{turnCount}t</span>
-                </>
+                <span className="truncate min-w-0">{activeMetaLine}</span>
               )}
             </div>
           </button>
@@ -205,6 +223,8 @@ export function MobileWorkspaceBar({
                   ? 'speaking'
                   : isListening
                   ? 'listening'
+                  : isThinking
+                  ? 'thinking'
                   : runningCount > 0
                   ? 'live'
                   : 'idle'
@@ -297,10 +317,18 @@ export function MobileWorkspaceBar({
                       setViewMenuOpen(false);
                       onOpenStudio();
                     }}
-                    className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/85 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
+                    className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/85 hover:bg-white/[0.06] flex items-center justify-between cursor-pointer"
                   >
-                    <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
-                    <span>Settings</span>
+                    <span className="flex items-center gap-2">
+                      <Settings className="w-3.5 h-3.5 text-[#6EE7B7]" />
+                      <span>Settings</span>
+                    </span>
+                    {updateAvailable && (
+                      <span
+                        aria-label="Update available"
+                        className="w-2 h-2 rounded-full bg-amber-400"
+                      />
+                    )}
                   </button>
                 )}
                 <button
@@ -312,8 +340,12 @@ export function MobileWorkspaceBar({
                   }}
                   className="w-full min-h-[38px] px-3 rounded-xl text-left text-xs text-emerald-100/80 hover:bg-white/[0.06] flex items-center gap-2 cursor-pointer"
                 >
-                  <RotateCcw className="w-3.5 h-3.5 text-emerald-100/65" />
-                  <span>{hasChannel ? `Reset #${activeChannel}` : 'Reset session'}</span>
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-100/65 shrink-0" />
+                  <span className="truncate">
+                    {hasChannel
+                      ? `Reset ${dotLabel?.isOpaque ? dotLabel.promptTarget : `#${dotLabel?.promptTarget ?? activeChannel}`}`
+                      : 'Reset session'}
+                  </span>
                 </button>
               </div>
               </div>

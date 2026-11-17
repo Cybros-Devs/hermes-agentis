@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  ArrowDownToLine,
   Check,
   LayoutPanelLeft,
   Palette,
@@ -25,9 +26,16 @@ import type { BackgroundCustomSlot, BackgroundSettings } from '../backgrounds/ty
 import type { ExpressionMood } from '../types/hermes';
 import type { BrailleDotProfile } from '../utils/brailleCanvasRaster';
 import type { BrailleHorizonStyle } from '../utils/brailleFieldEngine';
+import type {
+  AppUpdateStatus,
+  PreferenceBackupSummary,
+  UpdateStepResult,
+  UserPreferencesSnapshot,
+} from '../utils/settingsSnapshot';
 import {
   ACCENT_SWATCHES,
   CURATED_UI_PRESETS,
+  type StudioTabId,
   type UiComposerStyle,
   type UiCornerRadius,
   type UiCustomizationConfig,
@@ -35,9 +43,10 @@ import {
   type UiDensity,
   type UiFontPreset,
 } from '../utils/uiCustomization';
+import { UpdateCenterPanel } from './UpdateCenterPanel';
 import { ModalShell, MorphTabs, type MorphTabItem } from './ui';
 
-export type StudioTab = 'theme' | 'layout' | 'stage' | 'backdrop';
+export type StudioTab = StudioTabId;
 
 interface UiCustomizerStudioProps {
   open: boolean;
@@ -52,6 +61,22 @@ interface UiCustomizerStudioProps {
   onApplyPatch: (patch: UiCustomizationPatch, sourceLabel?: string) => void;
   onUndo: () => void;
   onAskAgent: (prompt: string) => void;
+  snapshot: UserPreferencesSnapshot;
+  vaultStorageLabel: string;
+  lastSyncedAt: number | null;
+  updateStatus: AppUpdateStatus | null;
+  checkingUpdate: boolean;
+  applyingUpdate: boolean;
+  updateSteps: UpdateStepResult[];
+  updateError: string | null;
+  backups: PreferenceBackupSummary[];
+  busyBackup: boolean;
+  onCheckUpdates: () => void;
+  onApplyUpdate: () => void;
+  onCreateBackup: () => void;
+  onRestoreBackup: (backupId: string) => void;
+  onImportSnapshot: (snapshot: UserPreferencesSnapshot) => void;
+  onDismissUpdateReceipt: () => void;
 }
 
 const AGENT_PROMPT_EXAMPLES = [
@@ -193,6 +218,22 @@ export function UiCustomizerStudio({
   onApplyPatch,
   onUndo,
   onAskAgent,
+  snapshot,
+  vaultStorageLabel,
+  lastSyncedAt,
+  updateStatus,
+  checkingUpdate,
+  applyingUpdate,
+  updateSteps,
+  updateError,
+  backups,
+  busyBackup,
+  onCheckUpdates,
+  onApplyUpdate,
+  onCreateBackup,
+  onRestoreBackup,
+  onImportSnapshot,
+  onDismissUpdateReceipt,
 }: UiCustomizerStudioProps) {
   const [agentPrompt, setAgentPrompt] = useState('');
   const [bgSettings, setBgSettings] = useState<BackgroundSettings>(() => loadBackgroundSettings());
@@ -207,6 +248,13 @@ export function UiCustomizerStudio({
     { id: 'layout', label: 'Layout', icon: <LayoutPanelLeft className="w-3.5 h-3.5 shrink-0" />, testId: 'studio-tab-layout' },
     { id: 'stage', label: 'Motion & Stage', icon: <Tv className="w-3.5 h-3.5 shrink-0" />, testId: 'studio-tab-stage' },
     { id: 'backdrop', label: 'Backdrop', icon: <Sparkles className="w-3.5 h-3.5 shrink-0" />, testId: 'studio-tab-backdrop' },
+    {
+      id: 'updates',
+      label: 'Updates',
+      icon: <ArrowDownToLine className="w-3.5 h-3.5 shrink-0" />,
+      badge: updateStatus?.updateAvailable ? '!' : undefined,
+      testId: 'studio-tab-updates',
+    },
   ];
 
   const handleBgSelect = (id: string) => {
@@ -311,17 +359,23 @@ export function UiCustomizerStudio({
           </button>
         </form>
 
-        <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px]">
-          <span className="text-emerald-100/40 font-mono">Try:</span>
-          {AGENT_PROMPT_EXAMPLES.map((example) => (
-            <button
-              key={example}
-              type="button"
-              onClick={() => onAskAgent(example)}
-              className="ui-tactile text-emerald-100/65 hover:text-[#6EE7B7] underline underline-offset-4 decoration-white/15 hover:decoration-[#34D399]/50 transition-colors cursor-pointer"
-            >
-              {example}
-            </button>
+        <div className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[11px]">
+          <span className="text-emerald-100/45 font-mono">Try:</span>
+          {AGENT_PROMPT_EXAMPLES.map((example, idx) => (
+            <span key={example} className="inline-flex items-center gap-2">
+              {idx > 0 && (
+                <span aria-hidden="true" className="text-emerald-100/25 select-none">
+                  ·
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => onAskAgent(example)}
+                className="ui-tactile text-emerald-100/70 hover:text-[#6EE7B7] underline underline-offset-4 decoration-white/15 hover:decoration-[#34D399]/50 transition-colors cursor-pointer"
+              >
+                {example}
+              </button>
+            </span>
           ))}
         </div>
       </div>
@@ -799,6 +853,27 @@ export function UiCustomizerStudio({
                 </button>
               </div>
             </div>
+          )}
+
+          {activeTab === 'updates' && (
+            <UpdateCenterPanel
+              snapshot={snapshot}
+              storageLabel={vaultStorageLabel}
+              lastSyncedAt={lastSyncedAt}
+              updateStatus={updateStatus}
+              checkingUpdate={checkingUpdate}
+              applyingUpdate={applyingUpdate}
+              updateSteps={updateSteps}
+              updateError={updateError}
+              backups={backups}
+              busyBackup={busyBackup}
+              onCheckUpdates={onCheckUpdates}
+              onApplyUpdate={onApplyUpdate}
+              onCreateBackup={onCreateBackup}
+              onRestoreBackup={onRestoreBackup}
+              onImportSnapshot={onImportSnapshot}
+              onDismissReceipt={onDismissUpdateReceipt}
+            />
           )}
           </div>
         </div>

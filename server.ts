@@ -50,10 +50,32 @@ import type {
   HermesToolset,
   HermesTransportMode,
 } from "./src/types/hermes.ts";
+import {
+  applyGitPullUpdate,
+  buildAppUpdateStatus,
+  createPreferencesVaultStore,
+  fetchUpstreamReleaseInfo,
+  readLocalBuildMetadata,
+  readPackageVersion,
+  resolveVoxcellDataDir,
+  type UpstreamReleaseInfo,
+} from "./src/utils/appUpdater.ts";
+import {
+  normalizePreferencesSnapshot,
+  summarizePreservedCategories,
+  type UpdateStepResult,
+} from "./src/utils/settingsSnapshot.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
+const VOXCELL_DATA_DIR = resolveVoxcellDataDir(__dirname, process.env);
+const preferencesStore = createPreferencesVaultStore(
+  VOXCELL_DATA_DIR,
+  readPackageVersion(__dirname)
+);
+let cachedUpstreamRelease: { info: UpstreamReleaseInfo; fetchedAt: number } | null = null;
+const UPSTREAM_CACHE_TTL_MS = 30_000;
 
 function parseArgFlag(name: string): string | undefined {
   const args = process.argv.slice(2);
@@ -974,6 +996,17 @@ async function executeGatewayTurn(
   const seqRef = { current: 0 };
   let streamedPlaceholderCreated = false;
 
+  const getLatestActivityTimestampForRun = (): number => {
+    let maxTs = 0;
+    for (const it of items) {
+      if (it.kind === "activity" && it.run_id === runIdLocal) {
+        const ts = Math.max(it.created_at || 0, it.updated_at || 0);
+        if (ts > maxTs) maxTs = ts;
+      }
+    }
+    return maxTs;
+  };
+
   const onContentDelta = (accumulated: string) => {
     const streamed = applyStreamingDeltaToSteps(turnTask.steps ?? []);
     if (streamed.changed) {
@@ -982,12 +1015,13 @@ async function executeGatewayTurn(
       turnTask.updated_at = Date.now();
       broadcastEvent({ type: "task", task: turnTask });
     }
+    const minReplyTs = getLatestActivityTimestampForRun() + 1;
     if (!streamedPlaceholderCreated) {
       streamedPlaceholderCreated = true;
       const placeholder: HermesItem = {
         id: assistantId,
         kind: "assistant",
-        created_at: Date.now(),
+        created_at: Math.max(Date.now(), minReplyTs),
         channel_id: channel.id,
         streaming: true,
         run_id: runIdLocal,
@@ -999,7 +1033,14 @@ async function executeGatewayTurn(
       broadcastEvent({ type: "session", session: buildSessionSnapshot(channel) });
     } else {
       const existing = items.find((it) => it.id === assistantId);
-      if (existing) existing.text = accumulated;
+      if (existing) {
+        existing.text = accumulated;
+        if (existing.created_at < minReplyTs) {
+          existing.created_at = Math.max(Date.now(), minReplyTs);
+          broadcastEvent({ type: "item", item: existing });
+          return;
+        }
+      }
       broadcastEvent({ type: "delta", item_id: assistantId, text: accumulated });
     }
   };
@@ -1509,7 +1550,7 @@ async function executeGatewayTurn(
 
 async function createServer() {
   const app = express();
-  app.use(express.json({ limit: "2mb" }));
+  app.use(express.json({ limit: "8mb" }));
 
   app.get("/api/health", (_req, res) => {
     const cfg = getGatewayConfig();
@@ -1517,6 +1558,7 @@ async function createServer() {
     res.json({
       ok: true,
       bootId: BOOT_ID,
+      appVersion: readPackageVersion(__dirname),
       hasDeepgramKey,
       hermesApiUrl: cfg.baseUrl,
       hermesProfile: cfg.profile,
@@ -2115,14 +2157,24 @@ async function createServer() {
         const replyText = outcome.reply;
 
         if (replyText) {
+          let maxRunActivityTs = 0;
+          for (const it of items) {
+            if (it.kind === "activity" && it.run_id === runIdLocal) {
+              const ts = Math.max(it.created_at || 0, it.updated_at || 0);
+              if (ts > maxRunActivityTs) maxRunActivityTs = ts;
+            }
+          }
           const existingPlaceholder = items.find((it) => it.id === assistantId);
           const finalAssistant: HermesItem = existingPlaceholder ?? {
             id: assistantId,
             kind: "assistant",
-            created_at: settledAt,
+            created_at: Math.max(settledAt, maxRunActivityTs + 1),
             channel_id: channel.id,
             run_id: runIdLocal,
           };
+          if (finalAssistant.created_at <= maxRunActivityTs) {
+            finalAssistant.created_at = Math.max(settledAt, maxRunActivityTs + 1);
+          }
           finalAssistant.streaming = false;
           finalAssistant.text = replyText;
           finalAssistant.error_code = outcome.errorCode;
@@ -3034,6 +3086,235 @@ async function createServer() {
         provider: "browser",
       });
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // Durable Preferences Vault & Click-to-Update Engine (survives updates/ports)
+  // -------------------------------------------------------------------------
+  app.get("/api/preferences", (_req, res) => {
+    res.json({
+      ok: true,
+      vault: preferencesStore.readVault(),
+      backups: preferencesStore.listBackups(),
+      storageLabel: preferencesStore.vaultPath.startsWith(os.homedir())
+        ? "~/.voxcell/preferences-vault.json"
+        : "Server preferences vault",
+    });
+  });
+
+  app.put("/api/preferences", (req, res) => {
+    const { snapshot: rawSnapshot, reason } = (req.body ?? {}) as {
+      snapshot?: unknown;
+      reason?: "sync" | "manual" | "pre-update" | "restore" | "import";
+    };
+    const normalized = normalizePreferencesSnapshot(
+      rawSnapshot,
+      readPackageVersion(__dirname)
+    );
+    if (!normalized) {
+      res.status(400).json({ ok: false, error: "Invalid preferences snapshot payload" });
+      return;
+    }
+    const saved = preferencesStore.writeVault(normalized, reason);
+    res.json({ ok: true, vault: saved });
+  });
+
+  app.post("/api/preferences/backup", (req, res) => {
+    const { snapshot: rawSnapshot, reason } = (req.body ?? {}) as {
+      snapshot?: unknown;
+      reason?: "manual" | "pre-update";
+    };
+    const candidate = rawSnapshot
+      ? normalizePreferencesSnapshot(rawSnapshot, readPackageVersion(__dirname))
+      : preferencesStore.readVault();
+    if (!candidate) {
+      res.status(400).json({ ok: false, error: "No valid preferences snapshot to back up" });
+      return;
+    }
+    const result = preferencesStore.createBackup(
+      candidate,
+      reason === "pre-update" ? "pre-update" : "manual"
+    );
+    res.json({ ok: true, backup: result.backup, backups: result.backups });
+  });
+
+  app.post("/api/preferences/restore", (req, res) => {
+    const { backupId } = (req.body ?? {}) as { backupId?: string };
+    if (!backupId || typeof backupId !== "string") {
+      res.status(400).json({ ok: false, error: "backupId is required" });
+      return;
+    }
+    const restored = preferencesStore.restoreBackup(backupId);
+    if (!restored) {
+      res.status(404).json({ ok: false, error: "Restore point not found" });
+      return;
+    }
+    res.json({ ok: true, snapshot: restored.snapshot, backups: restored.backups });
+  });
+
+  async function resolveUpdateStatus(forceRefresh = false) {
+    const [local, upstream] = await Promise.all([
+      readLocalBuildMetadata(__dirname),
+      (async () => {
+        const now = Date.now();
+        if (
+          !forceRefresh &&
+          cachedUpstreamRelease &&
+          now - cachedUpstreamRelease.fetchedAt < UPSTREAM_CACHE_TTL_MS
+        ) {
+          return cachedUpstreamRelease.info;
+        }
+        const info = await fetchUpstreamReleaseInfo();
+        cachedUpstreamRelease = { info, fetchedAt: now };
+        return info;
+      })(),
+    ]);
+    return buildAppUpdateStatus({
+      local,
+      upstream,
+      receipt: preferencesStore.readReceipt(),
+    });
+  }
+
+  app.get("/api/app/update/status", async (req, res) => {
+    const forceRefresh = req.query.refresh === "1" || req.query.refresh === "true";
+    const status = await resolveUpdateStatus(forceRefresh);
+    res.json(status);
+  });
+
+  app.post("/api/app/update/apply", async (req, res) => {
+    const { snapshot: rawSnapshot } = (req.body ?? {}) as { snapshot?: unknown };
+    const currentVersion = readPackageVersion(__dirname);
+    const snapshot =
+      normalizePreferencesSnapshot(rawSnapshot, currentVersion) ?? preferencesStore.readVault();
+
+    if (!snapshot) {
+      res.status(400).json({
+        ok: false,
+        steps: [],
+        needsReload: false,
+        restarting: false,
+        error: "Unable to snapshot user preferences before update.",
+      });
+      return;
+    }
+
+    // 1. Lock user themes, custom backdrops, and settings into durable vault + restore point
+    const steps: UpdateStepResult[] = [];
+    const { backup } = preferencesStore.createBackup(snapshot, "pre-update");
+    steps.push({
+      id: "vault-backup",
+      label: `Locked themes & settings (${backup.id})`,
+      status: "ok",
+    });
+
+    const local = await readLocalBuildMetadata(__dirname);
+    const preservedCategories = summarizePreservedCategories(snapshot)
+      .filter((c) => c.customized)
+      .map((c) => c.label);
+    const effectiveCategories =
+      preservedCategories.length > 0
+        ? preservedCategories
+        : ["Theme & Colors", "Layout & Typography", "Stage, Voice & Trace"];
+
+    if (local.hasGitRepo) {
+      if (local.dirtyWorktree) {
+        steps.push({
+          id: "git-check",
+          label: "Checked repository cleanliness",
+          status: "failed",
+          detail: local.dirtyReason || "Local uncommitted modifications detected",
+        });
+        const status = await resolveUpdateStatus(false);
+        res.status(409).json({
+          ok: false,
+          status,
+          steps,
+          needsReload: false,
+          restarting: false,
+          error:
+            "Pre-update snapshot saved safely, but git update was paused because local files have uncommitted edits.",
+        });
+        return;
+      }
+
+      const gitOutcome = await applyGitPullUpdate(__dirname);
+      steps.push(...gitOutcome.steps);
+      if (!gitOutcome.ok) {
+        const status = await resolveUpdateStatus(false);
+        res.status(500).json({
+          ok: false,
+          status,
+          steps,
+          needsReload: false,
+          restarting: false,
+          error: gitOutcome.error || "Update failed (your themes & settings backup is intact).",
+        });
+        return;
+      }
+
+      const receipt = {
+        updatedAt: Date.now(),
+        previousVersion: local.version,
+        newVersion: gitOutcome.newVersion,
+        previousCommit: local.commit,
+        newCommit: gitOutcome.newCommit,
+        backupId: backup.id,
+        mode: "git-pull" as const,
+        preservedCategories: effectiveCategories,
+      };
+      preferencesStore.writeReceipt(receipt);
+      cachedUpstreamRelease = null;
+      const status = await resolveUpdateStatus(true);
+      res.json({
+        ok: true,
+        status,
+        receipt,
+        steps,
+        needsReload: true,
+        restarting: false,
+      });
+      return;
+    }
+
+    // Managed runtime / non-git environment: lock durable vault, refresh upstream check, write receipt
+    cachedUpstreamRelease = null;
+    steps.push({
+      id: "vault-verify",
+      label: "Verified durable preferences vault on disk",
+      status: "ok",
+      detail: `${effectiveCategories.length} setting groups protected`,
+    });
+    const receipt = {
+      updatedAt: Date.now(),
+      previousVersion: local.version,
+      newVersion: local.version,
+      previousCommit: null,
+      newCommit: null,
+      backupId: backup.id,
+      mode: "managed-refresh" as const,
+      preservedCategories: effectiveCategories,
+    };
+    preferencesStore.writeReceipt(receipt);
+    steps.push({
+      id: "runtime-sync",
+      label: "Synchronized update receipt for post-reload restore",
+      status: "ok",
+    });
+    const status = await resolveUpdateStatus(true);
+    res.json({
+      ok: true,
+      status,
+      receipt,
+      steps,
+      needsReload: true,
+      restarting: false,
+    });
+  });
+
+  app.post("/api/app/update/ack", (_req, res) => {
+    preferencesStore.clearReceipt();
+    res.json({ ok: true });
   });
 
   const httpServer = createHttpServer(app);

@@ -565,9 +565,9 @@ export function CanvasSessionNode({
                 )}
 
                 {isThinking && (
-                  <div className="flex items-center gap-1.5 font-mono text-[10.5px] text-amber-300/90">
-                    <span aria-hidden="true">❖</span>
-                    <span>Thinking in {session.hermesSessionId}…</span>
+                  <div className="flex items-center gap-1.5 font-mono text-[10.5px] text-amber-300/90 truncate">
+                    <span aria-hidden="true" className="shrink-0">❖</span>
+                    <span className="truncate">Thinking in {dotLabel.promptTarget}…</span>
                   </div>
                 )}
               </div>

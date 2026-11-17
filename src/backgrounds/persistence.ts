@@ -159,6 +159,7 @@ export function hydrateBackgroundVarsOnBoot(): BackgroundSettings {
 
 export const BACKGROUND_SETTINGS_EVENT = 'duet:background-settings-changed';
 export const ONBOARDING_REPLAY_EVENT = 'duet:replay-onboarding';
+export const ONBOARDING_DISMISS_EVENT = 'duet:dismiss-onboarding';
 
 export function publishBackgroundSettings(settings: BackgroundSettings): void {
   applyBackgroundCssVars(settings);
@@ -187,5 +188,10 @@ export function subscribeBackgroundSettings(
 export function requestOnboardingReplay(): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(ONBOARDING_REPLAY_EVENT));
+}
+
+export function requestOnboardingDismiss(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(ONBOARDING_DISMISS_EVENT));
 }
 
