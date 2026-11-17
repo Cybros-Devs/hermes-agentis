@@ -1,0 +1,16 @@
+{
+  "extends": ["./node_modules/@interfere/landmines/configs/recommended.json"],
+  "ignorePatterns": ["dist/**", "node_modules/**"],
+  "rules": {
+    "landmines-style/no-comments": "off",
+    "landmines-types/no-explicit-return-types": "off"
+  },
+  "overrides": [
+    {
+      "files": ["tools/**"],
+      "rules": {
+        "landmines-structure/colocated-tests": "off"
+      }
+    }
+  ]
+}
