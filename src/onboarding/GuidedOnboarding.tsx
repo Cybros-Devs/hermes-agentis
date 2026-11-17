@@ -33,6 +33,7 @@ import {
 } from './stepEngine';
 import {
   isReducedMotionPreferred,
+  readOnboardingStorageRaw,
   saveOnboardingCompleted,
   shouldShowOnboardingOnBoot,
 } from './trigger';
@@ -52,7 +53,7 @@ export function GuidedOnboarding() {
     try {
       return shouldShowOnboardingOnBoot(
         window.location.search,
-        window.localStorage.getItem('duet.onboarding.v1')
+        readOnboardingStorageRaw()
       );
     } catch {
       return false;

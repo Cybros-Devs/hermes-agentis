@@ -53,6 +53,9 @@ function parseArgFlag(name: string): string | undefined {
 
 const PORT = Number(parseArgFlag("port") || process.env.PORT || 3000);
 const HOST = parseArgFlag("host") || "0.0.0.0";
+// Identifies THIS process in /api/health so the boot self-probe can tell a
+// shadowing listener (Docker forward, an old instance) from this server.
+const BOOT_ID = Math.random().toString(36).slice(2, 8);
 const HERMES_CHAT_TIMEOUT_MS = Number(process.env.HERMES_CHAT_TIMEOUT_MS || 300_000);
 
 function getGatewayConfig() {
@@ -1357,6 +1360,7 @@ async function createServer() {
     const hasDeepgramKey = Boolean(process.env.DEEPGRAM_API_KEY);
     res.json({
       ok: true,
+      bootId: BOOT_ID,
       hasDeepgramKey,
       hermesApiUrl: cfg.baseUrl,
       hermesProfile: cfg.profile,
@@ -2706,6 +2710,14 @@ async function createServer() {
 
   const httpServer = createHttpServer(app);
 
+  // Unknown /api/* paths must fail as JSON 404s. Without this the SPA fallback
+  // (and vite's middleware chain in dev) answers them with index.html, so a
+  // client bug — typo'd route, stale client against a newer server — silently
+  // parses markup as data instead of failing loudly.
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: "not_found", path: `/api${_req.path}` });
+  });
+
   let vite: { close: () => Promise<void>; middlewares: express.RequestHandler } | null = null;
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
@@ -2723,8 +2735,41 @@ async function createServer() {
     });
   }
 
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `Port ${PORT} is already in use on this machine — another app or an old ` +
+          `instance of this server owns it. Start on a free port instead: ` +
+          `npm run dev -- --port 3100`
+      );
+      process.exit(1);
+    }
+    throw err;
+  });
+
   httpServer.listen(PORT, HOST, () => {
     console.log(`Hermes Agent server running on http://${HOST}:${PORT}`);
+    // Windows lets two processes bind the same port (SO_REUSEADDR), so a
+    // "successful" listen can still be shadowed — e.g. Docker's loopback
+    // forward owns 127.0.0.1:3000 and browsers hit it instead of us. Probe
+    // the user-facing address and warn when something else answers.
+    if (HOST === "0.0.0.0" || HOST === "127.0.0.1" || HOST === "localhost") {
+      fetch(`http://127.0.0.1:${PORT}/api/health`)
+        .then(async (res) => {
+          const body = (await res.json().catch(() => null)) as { bootId?: string } | null;
+          if (body?.bootId !== BOOT_ID) {
+            console.warn(
+              `WARNING: another process is answering on 127.0.0.1:${PORT} — NOT this ` +
+                `server (a Docker forward or an old instance). Browsers opening ` +
+                `http://localhost:${PORT} will hit the wrong app. Restart with ` +
+                `--port 3100.`
+            );
+          }
+        })
+        .catch(() => {
+          // Probe transport failed; the listen callback above already ran.
+        });
+    }
   });
 
   const shutdown = () => {

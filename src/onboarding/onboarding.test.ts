@@ -15,7 +15,9 @@ import {
 } from './stepEngine';
 import {
   hasOnboardingQueryParam,
+  ONBOARDING_STORAGE_KEY,
   parseOnboardingState,
+  readOnboardingStorageRaw,
   shouldShowOnboardingOnBoot,
 } from './trigger';
 
@@ -94,4 +96,42 @@ test('onboarding trigger handles fresh profiles, completed profiles, corrupt sta
   assert.equal(hasOnboardingQueryParam('?onboarding=1'), true);
   assert.equal(hasOnboardingQueryParam('?view=canvas&onboarding=1'), true);
   assert.equal(shouldShowOnboardingOnBoot('?onboarding=1', completed), true);
+});
+
+test('readOnboardingStorageRaw migrates the legacy duet.* key once and preserves completion', () => {
+  const backing = new Map<string, string>();
+  const storage = {
+    getItem: (k: string): string | null => (backing.has(k) ? (backing.get(k) as string) : null),
+    setItem: (k: string, v: string): void => {
+      backing.set(k, v);
+    },
+    removeItem: (k: string): void => {
+      backing.delete(k);
+    },
+  };
+  const g = globalThis as unknown as { window?: unknown };
+  const original = g.window;
+  g.window = { localStorage: storage };
+
+  try {
+    const completed = JSON.stringify({ completed: true, skipped: true, updatedAt: 1234 });
+    // Legacy key only → migrated to the current key, legacy removed, value preserved
+    backing.set('duet.onboarding.v1', completed);
+    assert.equal(readOnboardingStorageRaw(), completed);
+    assert.equal(storage.getItem(ONBOARDING_STORAGE_KEY), completed);
+    assert.equal(storage.getItem('duet.onboarding.v1'), null);
+
+    // Current key already present → returned untouched
+    const fresh = JSON.stringify({ completed: true, skipped: false, updatedAt: 99 });
+    backing.clear();
+    backing.set(ONBOARDING_STORAGE_KEY, fresh);
+    assert.equal(readOnboardingStorageRaw(), fresh);
+
+    // Nothing stored → null
+    backing.clear();
+    assert.equal(readOnboardingStorageRaw(), null);
+  } finally {
+    if (original === undefined) delete g.window;
+    else g.window = original;
+  }
 });

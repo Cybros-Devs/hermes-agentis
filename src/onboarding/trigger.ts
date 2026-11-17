@@ -1,6 +1,7 @@
 import type { OnboardingPersistedState } from './types';
 
-export const ONBOARDING_STORAGE_KEY = 'duet.onboarding.v1';
+export const ONBOARDING_STORAGE_KEY = 'hermes.onboarding.v1';
+const LEGACY_ONBOARDING_STORAGE_KEY = 'duet.onboarding.v1';
 
 export function hasOnboardingQueryParam(search: string): boolean {
   if (!search) return false;
@@ -9,6 +10,26 @@ export function hasOnboardingQueryParam(search: string): boolean {
     return params.get('onboarding') === '1';
   } catch {
     return false;
+  }
+}
+
+/**
+ * Reads the persisted onboarding state, migrating the legacy
+ * `duet.onboarding.v1` key (from the old Duet-backed app) exactly once so
+ * completed users never see the tour again after the rename.
+ */
+export function readOnboardingStorageRaw(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const current = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    if (current !== null) return current;
+    const legacy = window.localStorage.getItem(LEGACY_ONBOARDING_STORAGE_KEY);
+    if (legacy === null) return null;
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, legacy);
+    window.localStorage.removeItem(LEGACY_ONBOARDING_STORAGE_KEY);
+    return legacy;
+  } catch {
+    return null;
   }
 }
 
