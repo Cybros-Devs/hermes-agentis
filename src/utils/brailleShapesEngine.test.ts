@@ -448,3 +448,39 @@ test('createBrailleShapeAnimator maintains subtle continuous breathing, tilt, an
   assert.ok(maxTilt - minTilt > 0.012, `Expected gentle continuous tilt during calm rest, got ${maxTilt - minTilt}`);
   assert.ok(maxBounce - minBounce > 0.008, `Expected gentle continuous breath bob, got ${maxBounce - minBounce}`);
 });
+
+test('createBrailleShapeAnimator smoothly fades speakHalo and thinkHalo envelopes without 1-frame snap', () => {
+  const anim = createBrailleShapeAnimator();
+  const s0 = anim.step(
+    {
+      shape: 'clover',
+      time: 0.1,
+      mood: 'neutral',
+      eyeStyle: 'open',
+      viseme: 'closed',
+      energy: 0.05,
+      isSpeaking: false,
+      isThinking: false,
+      isDragging: false,
+    },
+    1 / 30
+  );
+  const s1 = anim.step(
+    {
+      shape: 'clover',
+      time: 0.133,
+      mood: 'speaking',
+      eyeStyle: 'open',
+      viseme: 'wide',
+      energy: 0.85,
+      isSpeaking: true,
+      isThinking: true,
+      isDragging: false,
+    },
+    1 / 30
+  );
+  assert.equal(s0.speakHalo, 0);
+  assert.equal(s0.thinkHalo, 0);
+  assert.ok((s1.speakHalo ?? 0) > 0.05 && (s1.speakHalo ?? 0) < 0.65, `Expected smooth speakHalo onset, got ${s1.speakHalo}`);
+  assert.ok((s1.thinkHalo ?? 0) > 0.05 && (s1.thinkHalo ?? 0) < 0.65, `Expected smooth thinkHalo onset, got ${s1.thinkHalo}`);
+});

@@ -1505,8 +1505,8 @@ export function VoiceWorkspacePane({
                     style={{
                       opacity:
                         activeIsSpeaking || voiceState.isListening || activeIsThinking
-                          ? Math.max(0.55, uiConfig.horizonOpacity)
-                          : Math.min(0.42, uiConfig.horizonOpacity * 0.65),
+                          ? Math.max(0.74, uiConfig.horizonOpacity)
+                          : Math.min(0.68, Math.max(0.50, uiConfig.horizonOpacity * 0.85)),
                     }}
                   >
                     <BrailleHorizonCanvas
@@ -1676,8 +1676,8 @@ export function VoiceWorkspacePane({
                     style={{
                       opacity:
                         activeIsSpeaking || voiceState.isListening || activeIsThinking
-                          ? Math.max(0.62, uiConfig.horizonOpacity)
-                          : Math.min(0.46, uiConfig.horizonOpacity * 0.72),
+                          ? Math.max(0.76, uiConfig.horizonOpacity)
+                          : Math.min(0.68, Math.max(0.50, uiConfig.horizonOpacity * 0.85)),
                     }}
                   >
                     <BrailleHorizonCanvas

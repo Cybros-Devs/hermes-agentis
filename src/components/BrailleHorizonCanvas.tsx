@@ -136,11 +136,11 @@ export function BrailleHorizonCanvas({
       TonalDotBucketSpec,
       TonalDotBucketSpec,
     ] = [
-      { xy: b0XY, len: 0, hex: cachedLow, alpha: 0.30, diameterScale: 0.62 },
-      { xy: b1XY, len: 0, hex: cachedLow, alpha: 0.48, diameterScale: 0.74 },
-      { xy: b2XY, len: 0, hex: cachedAccent, alpha: 0.58, diameterScale: 0.84 },
-      { xy: b3XY, len: 0, hex: cachedAccentHigh, alpha: 0.78, diameterScale: 0.96 },
-      { xy: b4XY, len: 0, hex: '#F8FAFC', alpha: 0.94, diameterScale: 1.06 },
+      { xy: b0XY, len: 0, hex: cachedLow, alpha: 0.42, diameterScale: 0.68 },
+      { xy: b1XY, len: 0, hex: cachedLow, alpha: 0.58, diameterScale: 0.80 },
+      { xy: b2XY, len: 0, hex: cachedAccent, alpha: 0.70, diameterScale: 0.90 },
+      { xy: b3XY, len: 0, hex: cachedAccentHigh, alpha: 0.84, diameterScale: 1.00 },
+      { xy: b4XY, len: 0, hex: '#F8FAFC', alpha: 0.97, diameterScale: 1.08 },
     ];
 
     const drawFrame = (now: number) => {
@@ -289,23 +289,23 @@ export function BrailleHorizonCanvas({
 
       buckets[0].len = len0;
       buckets[0].hex = baseLow;
-      buckets[0].alpha = 0.30;
+      buckets[0].alpha = s.isActive ? 0.46 : 0.40;
 
       buckets[1].len = len1;
       buckets[1].hex = midHex;
-      buckets[1].alpha = s.isActive ? 0.52 : 0.46;
+      buckets[1].alpha = s.isActive ? 0.62 : 0.54;
 
       buckets[2].len = len2;
       buckets[2].hex = baseAccent;
-      buckets[2].alpha = s.isActive ? 0.64 : 0.54;
+      buckets[2].alpha = s.isActive ? 0.74 : 0.64;
 
       buckets[3].len = len3;
       buckets[3].hex = highGlowHex;
-      buckets[3].alpha = s.isActive ? 0.82 : 0.72;
+      buckets[3].alpha = s.isActive ? 0.88 : 0.78;
 
       buckets[4].len = len4;
       buckets[4].hex = s.isActive ? '#FFFFFF' : '#F8FAFC';
-      buckets[4].alpha = s.isActive ? 0.96 : 0.88;
+      buckets[4].alpha = s.isActive ? 0.98 : 0.92;
 
       rasterizeTonalDotBucketsToSurface(surface, buckets, dpr, dotDiameter, {
         dotProfile: s.dotProfile,

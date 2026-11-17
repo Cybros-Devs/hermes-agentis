@@ -782,3 +782,33 @@ test('idle portrait kinematics traverse smooth multi-harmonic head sway, breathi
   assert.ok(maxNod - minNod > 0.018, `Expected organic breathing nod span > 0.018, got ${maxNod - minNod}`);
   assert.ok(maxHair - minHair > 0.035, `Expected fluid hair follow-through span > 0.035, got ${maxHair - minHair}`);
 });
+
+test('neutral portrait kinematics maintain visible breathing, head turn parallax, and hair follow-through', () => {
+  const anim = createPortraitAnimator();
+  let minYaw = Infinity;
+  let maxYaw = -Infinity;
+  let minHair = Infinity;
+  let maxHair = -Infinity;
+
+  for (let i = 0; i < 180; i++) {
+    const s = anim.step(
+      {
+        time: i * 0.03,
+        mood: 'neutral',
+        viseme: 'closed',
+        eyeState: 'open',
+        energy: 0.06,
+        isSpeaking: false,
+        isListening: false,
+      },
+      0.03
+    );
+    minYaw = Math.min(minYaw, s.headYaw);
+    maxYaw = Math.max(maxYaw, s.headYaw);
+    minHair = Math.min(minHair, s.hairLagX);
+    maxHair = Math.max(maxHair, s.hairLagX);
+  }
+
+  assert.ok(maxYaw - minYaw > 0.30, `Expected lively neutral headYaw span > 0.30, got ${maxYaw - minYaw}`);
+  assert.ok(maxHair - minHair > 0.055, `Expected lively neutral hairLagX span > 0.055, got ${maxHair - minHair}`);
+});

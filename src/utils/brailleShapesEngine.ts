@@ -211,6 +211,8 @@ export interface BrailleShapeMotionState {
   hoverBoost: number; // 0 .. 1 pointer hover perk-up
   earTwitch: number;  // subtle ear/fin/ahoge perk twitch
   haloFloat: number;  // independent levitation offset for halo & crests
+  speakHalo?: number; // 0 .. 1 smoothed speaking acoustic ripple envelope
+  thinkHalo?: number; // 0 .. 1 smoothed thinking orbit sparks envelope
   idle: IdleActionFrame;
 }
 
@@ -348,6 +350,8 @@ export function createBrailleShapeAnimator() {
     hoverBoost: 0,
     earTwitch: 0,
     haloFloat: 0,
+    speakHalo: 0,
+    thinkHalo: 0,
     idle: evaluateIdleActionStep('tactician', 0, true),
   };
 
@@ -374,7 +378,7 @@ export function createBrailleShapeAnimator() {
 
       const suppressIdle = reducedMotion || input.isDragging;
       const targetBlend = reducedMotion ? 0 : input.isDragging ? 0 : input.isSpeaking ? 0.32 : 1;
-      idleBlend = expApproach(idleBlend, targetBlend, suppressIdle ? 10 : 7, clampedDt);
+      idleBlend = expApproach(idleBlend, targetBlend, suppressIdle ? 7.5 : 6.5, clampedDt);
       const rawIdle = evaluateIdleActionStep(setId, offsetTime, reducedMotion);
       const rawPose = rawIdle.pose;
       const idlePose: IdlePoseDeltas =
@@ -459,7 +463,7 @@ export function createBrailleShapeAnimator() {
         idleMouthTarget
       );
       const mouthStiffness = targetMouth > state.mouthOpen ? 102 : 84;
-      const mouthDamping = 19.5;
+      const mouthDamping = 20.5;
       mouthVel += ((targetMouth - state.mouthOpen) * mouthStiffness - mouthVel * mouthDamping) * clampedDt;
       state.mouthOpen = clamp01(state.mouthOpen + mouthVel * clampedDt);
 
@@ -496,6 +500,11 @@ export function createBrailleShapeAnimator() {
       state.gazeX = expApproach(state.gazeX, clamp(tGazeX, -1, 1), 14, clampedDt);
       state.gazeY = expApproach(state.gazeY, clamp(tGazeY, -1, 1), 14, clampedDt);
 
+      const targetSpeakHalo = input.isSpeaking && input.energy > 0.12 ? 1 : 0;
+      const targetThinkHalo = input.isThinking ? 1 : 0;
+      state.speakHalo = expApproach(state.speakHalo ?? 0, targetSpeakHalo, 11, clampedDt);
+      state.thinkHalo = expApproach(state.thinkHalo ?? 0, targetThinkHalo, 11, clampedDt);
+
       if (reducedMotion) {
         state.dragLift = expApproach(state.dragLift, input.isDragging ? 0.35 : 0, 8, clampedDt);
         state.dragTilt = 0;
@@ -512,53 +521,52 @@ export function createBrailleShapeAnimator() {
       }
 
       if (prevDragging && !input.isDragging) {
-        dropImpulse = -0.024;
-        liftVel -= 0.45;
-        earImpulse += 0.10;
-      } else if (!prevDragging && input.isDragging) {
-        liftVel += 0.42;
+        dropImpulse = -0.020;
+        liftVel -= 0.42;
         earImpulse += 0.08;
+      } else if (!prevDragging && input.isDragging) {
+        liftVel += 0.38;
+        earImpulse += 0.07;
       }
       if (!prevHovered && isHovered) {
-        hoverVel += 0.85;
-        earImpulse += 0.14;
-        bounceVel -= 0.08;
+        hoverVel += 0.82;
+        earImpulse += 0.12;
+        bounceVel -= 0.07;
       }
       if (!prevThinking && input.isThinking) {
-        earImpulse += 0.10;
+        earImpulse += 0.09;
       }
       prevDragging = input.isDragging;
       prevHovered = isHovered;
       prevThinking = input.isThinking;
 
-      dropImpulse *= Math.exp(-9 * clampedDt);
-      earImpulse *= Math.exp(-8 * clampedDt);
+      dropImpulse *= Math.exp(-9.2 * clampedDt);
+      earImpulse *= Math.exp(-8.2 * clampedDt);
 
       const targetLift = input.isDragging ? 1 : 0;
-      liftVel += ((targetLift - state.dragLift) * 105 - liftVel * 16.5) * clampedDt;
+      liftVel += ((targetLift - state.dragLift) * 105 - liftVel * 16.8) * clampedDt;
       state.dragLift = clamp(state.dragLift + liftVel * clampedDt, -0.18, 1.25);
 
       const targetHover = isHovered ? 1 : 0;
-      hoverVel += ((targetHover - state.hoverBoost) * 115 - hoverVel * 16.5) * clampedDt;
+      hoverVel += ((targetHover - state.hoverBoost) * 114 - hoverVel * 16.8) * clampedDt;
       state.hoverBoost = clamp(state.hoverBoost + hoverVel * clampedDt, 0, 1.2);
 
-      // Subtle periodic ear perk wave + gentle breath wiggle + reactive impulse + idle ear delta
+      // Smooth raised-cosine ear perk wave + gentle breath wiggle + reactive impulse + idle ear delta
       const sPerk = Math.max(0, Math.sin(offsetTime * 1.08));
       const s2 = sPerk * sPerk;
       const s4 = s2 * s2;
-      const s8 = s4 * s4;
-      const perkPulse = s8 * s8 * 0.13 + Math.sin(offsetTime * 2.15 - 0.4) * 0.018;
+      const perkPulse = s4 * s2 * 0.12 + Math.sin(offsetTime * 2.15 - 0.4) * 0.018;
       const idleEar = (idlePose.earLeft + idlePose.earRight) * 0.38;
       const targetEarTwitch = clamp(
         perkPulse + earImpulse + idleEar + (input.isSpeaking ? input.energy * 0.08 : 0),
         -0.25,
         0.34
       );
-      earTwitchVel += ((targetEarTwitch - state.earTwitch) * 140 - earTwitchVel * 16) * clampedDt;
+      earTwitchVel += ((targetEarTwitch - state.earTwitch) * 136 - earTwitchVel * 17.2) * clampedDt;
       state.earTwitch = clamp(state.earTwitch + earTwitchVel * clampedDt, -0.25, 0.35);
 
       state.haloFloat =
-        Math.sin(offsetTime * 2.15 + 0.4) * 0.028 -
+        Math.sin(offsetTime * 2.15 + 0.4) * 0.032 -
         state.hoverBoost * 0.016 -
         state.dragLift * 0.014 -
         idlePose.haloLift;
@@ -569,29 +577,29 @@ export function createBrailleShapeAnimator() {
         : input.isSpeaking
         ? Math.sin(offsetTime * 3.9) * (0.048 + input.energy * 0.052)
         : isHovered
-        ? Math.sin(offsetTime * 2.05) * 0.038 + idlePose.tilt * 0.55
-        : Math.sin(offsetTime * 1.25) * 0.024 +
-          Math.sin(offsetTime * 0.58 + 0.5) * 0.011 +
+        ? Math.sin(offsetTime * 2.05) * 0.044 + idlePose.tilt * 0.55
+        : Math.sin(offsetTime * 1.45) * 0.040 +
+          Math.sin(offsetTime * 0.65 + 0.5) * 0.016 +
           idlePose.tilt;
       const targetTilt = clamp(moodTilt - dragVx * 0.11, -0.22, 0.22);
-      tiltVel += ((targetTilt - state.dragTilt) * 100 - tiltVel * 15.5) * clampedDt;
+      tiltVel += ((targetTilt - state.dragTilt) * 86 - tiltVel * 17.2) * clampedDt;
       state.dragTilt = clamp(state.dragTilt + tiltVel * clampedDt, -0.24, 0.24);
 
-      const breathBob = Math.sin(offsetTime * 2.25) * 0.022 + Math.sin(offsetTime * 4.5 + 0.3) * 0.003;
+      const breathBob = Math.sin(offsetTime * 2.35) * 0.032 + Math.sin(offsetTime * 4.7 + 0.3) * 0.004;
       const speakBob = input.isSpeaking ? Math.abs(Math.sin(offsetTime * 7.2)) * (0.018 + input.energy * 0.030) : 0;
       const dragHoverY = state.dragLift * 0.032 + state.hoverBoost * 0.016;
       const targetBounceY = breathBob - speakBob - dragHoverY + dropImpulse + idlePose.headY;
-      bounceVel += ((targetBounceY - state.bounceY) * 115 - bounceVel * 16.5) * clampedDt;
+      bounceVel += ((targetBounceY - state.bounceY) * 96 - bounceVel * 18.0) * clampedDt;
       state.bounceY = clamp(state.bounceY + bounceVel * clampedDt, -0.11, 0.11);
 
       const desiredHairLag = clamp(
-        -tiltVel * 0.064 +
-          Math.sin(offsetTime * 2.25 - 0.75) * (0.030 + state.hoverBoost * 0.014) +
+        -tiltVel * 0.068 +
+          Math.sin(offsetTime * 2.35 - 0.72) * (0.040 + state.hoverBoost * 0.018) +
           idlePose.hairSway,
         -0.17,
         0.17
       );
-      hairVel += ((desiredHairLag - state.hairLag) * 80 - hairVel * 10.6) * clampedDt;
+      hairVel += ((desiredHairLag - state.hairLag) * 75 - hairVel * 12.2) * clampedDt;
       state.hairLag = clamp(state.hairLag + hairVel * clampedDt, -0.18, 0.18);
 
       state.idle = idle;
@@ -1449,11 +1457,15 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
   const hairLag = motion ? motion.hairLag : pose.hairSway;
   const bounceY = motion ? motion.bounceY : Math.sin(time * 2.2) * 0.016 + pose.headY;
 
-  const breath = Math.sin(time * 2.2) * 0.016;
+  const breath = Math.sin(time * 2.2) * 0.018;
   const mouthOpen = motion
     ? clamp01(motion.mouthOpen)
     : targetMouthOpenForViseme(viseme, energy, isSpeaking);
-  const speakBounce = isSpeaking ? Math.sin(time * 13.5) * energy * 0.024 : 0;
+  const speakBounce = motion
+    ? -motion.bounceY * 0.24 + Math.sin(time * 11.5) * motion.mouthOpen * 0.015
+    : isSpeaking
+    ? Math.sin(time * 13.5) * energy * 0.024
+    : 0;
 
   // Safe framing scale guarantees zero clipping across bust, halo, wings, and ambient props
   const safeBase = 0.89;
@@ -1501,7 +1513,7 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
     pose.hand !== 'none' ||
     pose.prop !== 'none';
 
-  const idleBreathSwayX = motion ? Math.sin(time * 1.05) * 0.010 : 0;
+  const idleBreathSwayX = motion ? Math.sin(time * 1.05) * 0.015 : 0;
   const invSubW = 1 / subW;
   const invSubH = 1 / subH;
   const invScaleX = 1 / scaleX;
@@ -1512,28 +1524,31 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
   const minBoundY = hasDynamicOverlay ? -0.88 : -0.84;
 
   // Hoist per-frame thinking orbit sparks & speaking acoustic ripple phases outside subpixel loops
+  const thinkHaloAmt = motion?.thinkHalo !== undefined ? motion.thinkHalo : isThinking ? 1 : 0;
+  const hasThinkHalo = thinkHaloAmt > 0.02;
   const orbitBase = time * 2.1;
   const ang0 = orbitBase;
   const ang1 = orbitBase + 2.0943951;
   const ang2 = orbitBase + 4.1887902;
   const ox0 = Math.cos(ang0) * 0.52;
   const oy0 = -0.58 + Math.sin(ang0) * 0.10;
-  const og0 = 0.78 + 0.20 * Math.sin(time * 4.5);
+  const og0 = (0.78 + 0.20 * Math.sin(time * 4.5)) * thinkHaloAmt;
   const ox1 = Math.cos(ang1) * 0.52;
   const oy1 = -0.58 + Math.sin(ang1) * 0.10;
-  const og1 = 0.78 + 0.20 * Math.sin(time * 4.5 + 1);
+  const og1 = (0.78 + 0.20 * Math.sin(time * 4.5 + 1)) * thinkHaloAmt;
   const ox2 = Math.cos(ang2) * 0.52;
   const oy2 = -0.58 + Math.sin(ang2) * 0.10;
-  const og2 = 0.78 + 0.20 * Math.sin(time * 4.5 + 2);
+  const og2 = (0.78 + 0.20 * Math.sin(time * 4.5 + 2)) * thinkHaloAmt;
 
-  const hasSpeakRipple = isSpeaking && energy > 0.14;
+  const speakHaloAmt = motion?.speakHalo !== undefined ? motion.speakHalo : isSpeaking && energy > 0.14 ? 1 : 0;
+  const hasSpeakRipple = speakHaloAmt > 0.02;
   const arcPhase = (time * 2.2) % 1;
   const phaseB = (arcPhase + 0.5) % 1;
   const rInner = 0.50 + arcPhase * 0.14;
   const rOuter = 0.56 + phaseB * 0.16;
   const arcFadeA = 1 - arcPhase;
   const arcFadeB = 1 - phaseB;
-  const speakRippleGain = clamp01(0.45 + energy * 0.55);
+  const speakRippleGain = clamp01(0.45 + energy * 0.55) * speakHaloAmt;
 
   // Conservative horizontal pixel scan bounds accounting for tilt, hairLag, headShift & earTwitch
   const xSlack = 0.22 + Math.abs(headShiftX) + Math.abs(hairLag) * 0.5 + Math.abs(earTwitch) * 0.2;
@@ -1602,7 +1617,7 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
 
       // Outside-bust status Braille VFX: hoisted orbiting cognition sparks (thinking) & acoustic ripple arcs (speaking)
       let statusVfxLum = 0;
-      if (isThinking && ny < -0.38 && ny > -0.78) {
+      if (hasThinkHalo && ny < -0.38 && ny > -0.78) {
         const d0x = nx - ox0;
         const d0y = ny - oy0;
         const sq0 = d0x * d0x + d0y * d0y;
@@ -1915,13 +1930,13 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
             lerp(eyeY + eyeRy * 0.98, eyeY + 0.022, lowerClose) -
             normDx * normDx * eyeRy * 0.20 * (1 - lowerClose * 0.45);
 
-          const lashThick = lerp(0.026, 0.032, Math.max(effectiveClose * 0.7, closeMorph));
+          const lashThick = lerp(0.020, 0.026, Math.max(effectiveClose * 0.7, closeMorph));
           const wingAngle = lerp(0.35, 0.26, closeMorph);
           const outerWing =
             happyArcBlend < 0.5 &&
             nearestDx * outerDir > rx * 0.72 &&
             nearestDx * outerDir < rx * lerp(1.36, 1.30, closeMorph) &&
-            Math.abs(ny - (lidY - (nearestDx * outerDir - rx * 0.72) * wingAngle)) < lerp(0.016, 0.022, closeMorph);
+            Math.abs(ny - (lidY - (nearestDx * outerDir - rx * 0.72) * wingAngle)) < lerp(0.014, 0.019, closeMorph);
 
           if ((Math.abs(nearestDx) < rx * lerp(1.18, 1.08, closeMorph) && Math.abs(ny - lidY) < lashThick) || outerWing) {
             lum = 0.015;
@@ -1939,7 +1954,7 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
                 if (irisX * irisX + irisY * irisY < 1.0) {
                   const g1x = nx - (nearestEyeX - rx * 0.24 + gx * 0.4);
                   const g1y = ny - (eyeY - eyeRy * 0.20 + gy * 0.4);
-                  const r1 = rx * 0.21;
+                  const r1 = rx * 0.22;
                   if (g1x * g1x + g1y * g1y < r1 * r1) {
                     eyeLum = catchlightShimmer;
                   } else if (dyEye > eyeRy * 0.48 && Math.abs(nearestDx) < rx * 0.40) {
@@ -1957,7 +1972,7 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
             happyArcBlend < 0.35 &&
             lowerClose < 0.90 &&
             Math.abs(nearestDx) < rx * 0.78 &&
-            Math.abs(ny - lowerLidY) < 0.012
+            Math.abs(ny - lowerLidY) < 0.010
           ) {
             // Delicate lower lash anchor rising subtly until eyelids meet
             lum = lerp(lum, 0.10, (1 - lowerClose) * (1 - happyArcBlend));
@@ -1967,17 +1982,17 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
         // 3. Delicate pointed anime nose shadow tick
         const ndx = nx - noseX;
         const ndy = ny - noseY;
-        if (ndx * ndx + ndy * ndy < 0.00038) {
+        if (ndx * ndx + ndy * ndy < 0.00028) {
           lum = 0.09;
         }
 
         // 4. Soft manga cheek blush hatch under eyes
         if ((mood === 'happy' || isSpeaking || smileAmt > 0.65 || pose.happyEyes > 0.4) && ny > eyeY + 0.08 && ny < eyeY + 0.17) {
-          const blx = (nx - (leftEyeX - 0.03)) / 0.052;
-          const brx = (nx - (rightEyeX + 0.03)) / 0.052;
-          const by = (ny - (eyeY + 0.12)) / 0.024;
+          const blx = (nx - (leftEyeX - 0.03)) / 0.046;
+          const brx = (nx - (rightEyeX + 0.03)) / 0.046;
+          const by = (ny - (eyeY + 0.12)) / 0.020;
           if (blx * blx + by * by < 1.0 || brx * brx + by * by < 1.0) {
-            lum *= 0.76;
+            lum *= 0.84;
           }
         }
 

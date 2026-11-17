@@ -289,18 +289,21 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
     if (isRibbon) {
       colCrest1[sx] =
         0.50 -
-        Math.sin(ux * 6.4 + time * 1.15) * c1Amp -
-        Math.cos(ux * 13.5 - time * 1.55) * (0.042 + energy * 0.04) -
-        cursorWave * 0.72 -
+        Math.sin(ux * 6.4 + time * 1.45) * c1Amp -
+        Math.cos(ux * 13.5 - time * 1.85) * (0.052 + energy * 0.045) -
+        cursorWave * 0.76 -
         wakeWave * 0.85 -
         bandBoost;
 
-      colCrest1Echo[sx] = colCrest1[sx];
+      colCrest1Echo[sx] =
+        0.50 -
+        Math.sin(ux * 6.4 + time * 1.45 - 0.65) * (c1Amp * 0.86) +
+        Math.sin(ux * 16.5 + time * 2.15) * (0.032 + energy * 0.025);
       colCrest2[sx] =
         0.52 -
-        Math.sin(ux * 4.6 - time * 0.82 + 1.6) * c2Amp -
-        Math.sin(ux * 18.0 + time * 2.05) * 0.026 -
-        cursorWave * 0.45 -
+        Math.sin(ux * 4.6 - time * 0.98 + 1.6) * c2Amp -
+        Math.sin(ux * 18.0 + time * 2.25) * 0.032 -
+        cursorWave * 0.48 -
         wakeWave * 0.55 -
         bandBoost * 0.55;
 
@@ -387,7 +390,8 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
     const edgeTaper = isRibbon
       ? smoothstep(0.0, 0.075, ux) * (1 - smoothstep(0.925, 1.0, ux))
       : 1;
-    colShimmer[sx] = (0.94 + shimmerScale * Math.sin(ux * 22 - time * 3.4)) * 0.98 * edgeTaper;
+    const harmonicShimmer = 0.74 * Math.sin(ux * 22 - time * 3.4) + 0.26 * Math.cos(ux * 11 + time * 1.85);
+    colShimmer[sx] = (0.94 + shimmerScale * harmonicShimmer) * 0.98 * edgeTaper;
     const sparkleGate = Math.sin(ux * 54 - time * 4.6) * Math.cos(ux * 31 + time * 2.9);
     colMist[sx] =
       !isRibbon && energy > 0.12
@@ -454,10 +458,13 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
 
       if (isRibbon) {
         const edgeMask = colShimmer[sx] > 0 ? Math.min(1, colShimmer[sx] / 0.94) : 0;
-        const ribbonSecondWeight = 0.64 * edgeMask;
+        const ribbonSecondWeight = 0.72 * edgeMask;
+        const dEchoR = uy > crest1Echo ? uy - crest1Echo : crest1Echo - uy;
+        const sEchoR = dEchoR * 52;
+        const lineEchoR = sEchoR < 2.83 ? fastFieldExpNeg(sEchoR * sEchoR) * 0.48 * edgeMask : 0;
         const line2 = s2 < 2.83 ? fastFieldExpNeg(s2 * s2) * ribbonSecondWeight : 0;
-        const tick = sx % sampleStep === 0 && sy === Math.floor(subH * 0.5) ? 0.42 * edgeMask : 0;
-        const maxLine = Math.max(line1, line2, tick);
+        const tick = sx % sampleStep === 0 && sy === Math.floor(subH * 0.5) ? 0.48 * edgeMask : 0;
+        const maxLine = Math.max(line1, line2, lineEchoR, tick);
         subLum[rowOff + sx] = clamp01(maxLine * fadeEnvelope);
         continue;
       }
@@ -469,8 +476,8 @@ export function renderBrailleHorizon(params: BrailleHorizonParams): BrailleHoriz
       // Interference node highlight where primary and echo traces cross
       const crossGap = Math.abs(crest1 - crest1Echo);
       const nodeLock =
-        crossGap < 0.016 && d1 < 0.018
-          ? (1 - crossGap / 0.016) * (1 - d1 / 0.018) * 0.45
+        crossGap < 0.018 && d1 < 0.020
+          ? (1 - crossGap / 0.018) * (1 - d1 / 0.020) * 0.48
           : 0;
 
       const d3 = uy > crest3 ? uy - crest3 : crest3 - uy;

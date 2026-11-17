@@ -312,21 +312,57 @@ export function AsciiPortraitCanvas({
     const isStage = variant === 'stage';
     const cols = isThumb ? 22 : isSidebar ? 44 : isCompact ? 48 : isStage ? 92 : 62;
     const rows = isThumb ? 11 : isSidebar ? 20 : isCompact ? 22 : isStage ? 42 : 28;
-    const width = isThumb ? 42 : isSidebar ? 84 : isCompact ? 116 : isStage ? 360 : 216;
-    const height = isThumb ? 42 : isSidebar ? 77 : isCompact ? 106 : isStage ? 330 : 198;
+    const defaultW = isThumb ? 42 : isSidebar ? 84 : isCompact ? 116 : isStage ? 360 : 216;
+    const defaultH = isThumb ? 42 : isSidebar ? 77 : isCompact ? 106 : isStage ? 330 : 198;
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    const surface = createRasterSurface(ctx, canvas.width, canvas.height);
+    let width = defaultW;
+    let height = defaultH;
+    if (isStage) {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width >= 60 && rect.height >= 55) {
+        width = Math.round(rect.width);
+        height = Math.round(rect.height);
+      }
+    }
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
+    let surface = createRasterSurface(ctx, canvas.width, canvas.height);
 
-    const cellW = width / cols;
-    const cellH = height / rows;
-    const dotW = cellW / 2;
-    const dotH = cellH / 4;
-    const dotRadius = isThumb
+    let cellW = width / cols;
+    let cellH = height / rows;
+    let dotW = cellW / 2;
+    let dotH = cellH / 4;
+    let dotRadius = isThumb
       ? 0.42
       : Math.min(dotW, dotH) * (isStage || isSidebar || isCompact ? 0.44 : 0.42);
+
+    const syncStageSurface = () => {
+      if (!isStage) return;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width < 60 || rect.height < 55) return;
+      const nextW = Math.round(rect.width);
+      const nextH = Math.round(rect.height);
+      if (Math.abs(nextW - width) < 2 && Math.abs(nextH - height) < 2) return;
+      width = nextW;
+      height = nextH;
+      canvas.width = Math.max(1, Math.round(width * dpr));
+      canvas.height = Math.max(1, Math.round(height * dpr));
+      surface = createRasterSurface(ctx, canvas.width, canvas.height);
+      cellW = width / cols;
+      cellH = height / rows;
+      dotW = cellW / 2;
+      dotH = cellH / 4;
+      dotRadius = Math.min(dotW, dotH) * 0.44;
+    };
+
+    const resizeObserver =
+      isStage && typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            syncStageSurface();
+          })
+        : null;
+    resizeObserver?.observe(canvas);
     const startTime = performance.now();
     const animator = createPortraitAnimator();
     animatorRef.current = animator;
@@ -357,11 +393,11 @@ export function AsciiPortraitCanvas({
       TonalDotBucketSpec,
       TonalDotBucketSpec,
     ] = [
-      { xy: b0XY, len: 0, hex: '#94A3B8', alpha: 0.48, diameterScale: 0.72 },
-      { xy: b1XY, len: 0, hex: '#CBD5E1', alpha: 0.68, diameterScale: 0.85 },
+      { xy: b0XY, len: 0, hex: '#94A3B8', alpha: 0.48, diameterScale: 0.75 },
+      { xy: b1XY, len: 0, hex: '#CBD5E1', alpha: 0.68, diameterScale: 0.86 },
       { xy: b2XY, len: 0, hex: '#E2E8F0', alpha: 0.84, diameterScale: 0.96 },
-      { xy: b3XY, len: 0, hex: '#F1F5F9', alpha: 0.94, diameterScale: 1.07 },
-      { xy: b4XY, len: 0, hex: '#FFFFFF', alpha: 0.99, diameterScale: 1.18 },
+      { xy: b3XY, len: 0, hex: '#F1F5F9', alpha: 0.94, diameterScale: 1.06 },
+      { xy: b4XY, len: 0, hex: '#FFFFFF', alpha: 0.99, diameterScale: 1.15 },
     ];
 
     const drawFrame = (now: number) => {
@@ -471,7 +507,7 @@ export function AsciiPortraitCanvas({
       let len3 = 0;
       let len4 = 0;
 
-      const dotDiameter = Math.max(1.15, dotRadius * 2.02);
+      const dotDiameter = Math.max(1.15, dotRadius * 1.96);
 
       for (let r = 0; r < frame.rows; r++) {
         const line = frame.lines[r];
@@ -647,6 +683,7 @@ export function AsciiPortraitCanvas({
     return () => {
       window.cancelAnimationFrame(rafId);
       if (hiddenTimerId) window.clearTimeout(hiddenTimerId);
+      resizeObserver?.disconnect();
       animatorRef.current = null;
     };
   }, [variant, sourceField, spriteBank, status]);

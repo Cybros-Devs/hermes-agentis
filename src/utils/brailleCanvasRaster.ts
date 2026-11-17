@@ -105,12 +105,12 @@ export function resolvePortraitTonePalette(params: PortraitToneParams): Portrait
 
   const boost = activeVoiceTint ? Math.min(0.06, energy * 0.05) : 0;
   const alphas: [number, number, number, number, number] = isLoading
-    ? [0.42, 0.58, 0.74, 0.86, 0.95]
+    ? [0.46, 0.62, 0.76, 0.88, 0.96]
     : [
-        Math.min(0.99, 0.48 + boost),
-        Math.min(0.99, 0.68 + boost),
-        Math.min(0.99, 0.84 + boost * 0.5),
-        0.94,
+        Math.min(0.99, 0.56 + boost),
+        Math.min(0.99, 0.74 + boost),
+        Math.min(0.99, 0.87 + boost * 0.5),
+        0.95,
         0.99,
       ];
 
@@ -287,8 +287,8 @@ export function rasterizeTonalDotBucketsToSurface(
 
   const profile = options?.dotProfile ?? 'balanced';
   const bloom = Math.max(0, Math.min(1.5, options?.bloom ?? 0));
-  const profileScale = profile === 'crisp' ? 0.80 : profile === 'phosphor' ? 1.08 : 0.90;
-  const softEdgeCut = profile === 'crisp' ? 0.50 : profile === 'phosphor' ? 0.28 : 0.40;
+  const profileScale = profile === 'crisp' ? 0.78 : profile === 'phosphor' ? 1.06 : 0.88;
+  const softEdgeCut = profile === 'crisp' ? 0.52 : profile === 'phosphor' ? 0.28 : 0.44;
   const invEdgeSpan = 1 / (1.3225 - softEdgeCut); // (1.15)^2 = 1.3225
 
   const baseDotPx = Math.max(0.72, baseDotDiameterCss * dpr * profileScale);
