@@ -8,3 +8,5 @@ coverage/
 !.env.example
 .duet-device
 blueprint-out/
+voxcell-desktop/target/
+*.rs.bk
