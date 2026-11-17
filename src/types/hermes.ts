@@ -32,6 +32,26 @@ export type HermesTransportMode = 'auto' | 'runs' | 'chat_completions' | 'sessio
 
 export type HermesSessionOrigin = 'workspace' | 'external';
 
+export type HermesProfileMode = 'multiplexed' | 'standalone';
+
+export type HermesProfileSource = 'env' | 'discovered' | 'custom';
+
+export interface HermesProfileSummary {
+  id: string;
+  label: string;
+  mode: HermesProfileMode;
+  baseUrl: string;
+  routePrefix: string;
+  source: HermesProfileSource;
+  hasApiKey: boolean;
+  isDefault?: boolean;
+  description?: string;
+  connected?: boolean;
+  activeModel?: string;
+  healthStatus?: string;
+  error?: string;
+}
+
 export interface HermesAgentSession {
   sessionId: string;
   sessionKey?: string;
@@ -39,6 +59,7 @@ export interface HermesAgentSession {
   name: string;
   persona: string;
   topic: string;
+  profile?: string;
   status: HermesSessionRuntimeStatus;
   turnCount: number;
   lastMessage?: string;
@@ -54,6 +75,7 @@ export interface Channel {
   name: string;
   sessionId: string;
   sessionKey?: string;
+  profile?: string;
   description: string;
   persona?: string;
   origin?: HermesSessionOrigin;
@@ -99,6 +121,7 @@ export interface BackgroundTask {
   id: string;
   channelId: ChannelId;
   sessionId?: string;
+  profile?: string;
   runId?: string;
   kind?: string;
   background?: boolean;

@@ -51,6 +51,7 @@ interface ThreadTaskWidgetProps {
   onStopSpeaking?: () => void;
   variant?: 'thread-trigger' | 'mobile-trigger' | 'thread-inline' | 'thread-sidebar';
   sidebarMode?: boolean;
+  overlayMode?: boolean;
 }
 
 interface TaskProgressTrackProps {
@@ -179,6 +180,7 @@ export function ThreadTaskBanner({
   onStopSpeaking,
   variant = 'thread-inline',
   sidebarMode = false,
+  overlayMode = false,
 }: ThreadTaskWidgetProps) {
   const partition = useMemo(
     () => partitionChannelTasks(tasks, activeChannel),
@@ -238,8 +240,6 @@ export function ThreadTaskBanner({
 
   const totalCount = summary.totalCount;
   const runningLead = partition.running[0];
-  const leadTask = runningLead ?? partition.paused[0] ?? partition.completed[0];
-  const leadProgress = useMemo(() => (leadTask ? resolveTaskProgress(leadTask) : null), [leadTask]);
 
   const triggerPulseState: 'thinking' | 'live' | 'idle' =
     hasRunningTask || activeIsThinking
@@ -259,10 +259,7 @@ export function ThreadTaskBanner({
     : `${partition.all.length}`;
 
   if (variant === 'mobile-trigger') {
-    const mobileBadge =
-      leadProgress && !leadProgress.isIndeterminate && partition.all.length > 0
-        ? `${leadProgress.pct}%`
-        : String(totalCount);
+    const mobileBadge = String(totalCount);
 
     return (
       <button
@@ -314,11 +311,7 @@ export function ThreadTaskBanner({
   if (variant === 'thread-trigger') {
     const summaryText =
       hasRunningTask || activeIsThinking
-        ? `${triggerLabel}${
-            leadProgress && !leadProgress.isIndeterminate && partition.all.length > 0
-              ? ` · ${leadProgress.pct}%`
-              : ''
-          }`
+        ? triggerLabel
         : partition.all.length > 0
         ? String(partition.all.length)
         : '';
@@ -474,22 +467,6 @@ export function ThreadTaskBanner({
                 </span>
               </div>
 
-              <TaskProgressTrack
-                compact
-                pct={aggregate.aggregatePct}
-                tone={
-                  aggregate.activeCount > 0
-                    ? 'amber'
-                    : aggregate.failedCount > 0 && aggregate.failedCount === aggregate.completedCount
-                    ? 'rose'
-                    : 'emerald'
-                }
-                isRunning={aggregate.activeCount > 0}
-                isIndeterminate={aggregate.activeCount > 0 && aggregate.aggregatePct === 0}
-                label={`Overall progress for #${activeChannel}`}
-                testId="thread-tasks-aggregate-progress"
-              />
-
               {showFilterTabs && (
                 <div
                   role="tablist"
@@ -559,16 +536,6 @@ export function ThreadTaskBanner({
                   </button>
                 )}
               </div>
-
-              <TaskProgressTrack
-                compact
-                pct={0}
-                tone="amber"
-                isRunning
-                isIndeterminate
-                label={`Active turn in ${activeSessionId}`}
-                testId="thread-live-turn-progress"
-              />
             </div>
           )}
 
@@ -720,23 +687,27 @@ export function ThreadTaskBanner({
                   </div>
                 </div>
 
-                {/* Progress Track + Collapsed Active Step Preview */}
-                <div className="space-y-1.5">
-                  <TaskProgressTrack
-                    pct={progressInfo.pct}
-                    tone={statusDisplay.tone}
-                    isRunning={isRunning}
-                    isIndeterminate={progressInfo.isIndeterminate}
-                    stepCount={breakdown.totalCount}
-                    label={`${task.title} progress`}
-                    testId={`thread-task-progress-${task.id}`}
-                  />
-                  {!isExpanded && breakdown.activeStepText && (
-                    <p className="text-[11.5px] text-emerald-100/65 truncate">
-                      {breakdown.activeStepText}
-                    </p>
-                  )}
-                </div>
+                {/* Progress Track (only for multi-step plans) + Collapsed Active Step Preview */}
+                {(breakdown.totalCount > 1 || (!isExpanded && breakdown.activeStepText)) && (
+                  <div className="space-y-1.5">
+                    {breakdown.totalCount > 1 && (
+                      <TaskProgressTrack
+                        pct={progressInfo.pct}
+                        tone={statusDisplay.tone}
+                        isRunning={isRunning}
+                        isIndeterminate={progressInfo.isIndeterminate}
+                        stepCount={breakdown.totalCount}
+                        label={`${task.title} progress`}
+                        testId={`thread-task-progress-${task.id}`}
+                      />
+                    )}
+                    {!isExpanded && breakdown.activeStepText && (
+                      <p className="text-[11.5px] text-emerald-100/65 truncate">
+                        {breakdown.activeStepText}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Inline Steer Composer */}
                 {isSteeringThis && (
@@ -879,7 +850,6 @@ export function ThreadTaskBanner({
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.015] divide-y divide-white/[0.07] overflow-hidden">
                 {visibleCompleted.map((task) => {
                   const breakdown = resolveTaskStepBreakdown(task);
-                  const progressInfo = resolveTaskProgress(task);
                   const statusDisplay = getTaskStatusDisplay(task);
                   const confirmState = getTaskConfirmationState(task);
                   const confirmLabel = getTaskConfirmationLabel(task);
@@ -965,16 +935,6 @@ export function ThreadTaskBanner({
                           />
                         </button>
                       </div>
-
-                      <TaskProgressTrack
-                        compact
-                        pct={progressInfo.pct}
-                        tone={statusDisplay.tone}
-                        isRunning={false}
-                        stepCount={breakdown.totalCount}
-                        label={`${task.title} progress`}
-                        testId={`thread-task-progress-${task.id}`}
-                      />
 
                       {!isExpanded && (outcomeSnippet || breakdown.steps.length > 0) && (
                         <p
@@ -1083,7 +1043,7 @@ export function ThreadTaskBanner({
                             <button
                               type="button"
                               onClick={() => onConfirmTask(task.id)}
-                              className="ui-tactile inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#34D399] text-[#05140E] font-semibold text-[11.5px] hover:bg-[#6EE7B7] transition-colors cursor-pointer whitespace-nowrap"
+                              className="ui-tactile inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#34D399]/12 border border-[#34D399]/30 text-[#6EE7B7] font-medium text-[11.5px] hover:bg-[#34D399]/22 transition-colors cursor-pointer whitespace-nowrap"
                             >
                               <Check className="w-3 h-3" />
                               <span>Mark done</span>
@@ -1116,54 +1076,68 @@ export function ThreadTaskBanner({
     if (!isOpen) return null;
 
     return (
-      <aside
-        id="thread-tasks-sidebar"
-        aria-label={`Tasks for #${activeChannel}`}
-        data-testid="thread-tasks-sidebar"
-        data-channel={activeChannel}
-        className="flex flex-col h-full min-h-0 w-[312px] xl:w-[328px] shrink-0 border-l border-white/[0.06] bg-white/[0.015] ui-drawer-enter"
-      >
-        <div className="px-3.5 pt-3 pb-2.5 border-b border-white/[0.06] flex items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-2 min-w-0 font-mono text-[10px] uppercase tracking-[0.14em] tabular-nums">
-            <span className="text-emerald-100/45">Tasks</span>
-            {summary.headerBadge && (
-              <>
-                <span aria-hidden="true" className="text-emerald-100/20">·</span>
-                <span
-                  className={
-                    summary.runningCount > 0
-                      ? 'text-amber-300/90'
-                      : summary.needsConfirmCount > 0
-                      ? 'text-[#6EE7B7]'
-                      : 'text-emerald-100/50'
-                  }
-                >
-                  {summary.headerBadge}
-                </span>
-              </>
-            )}
+      <>
+        {overlayMode && (
+          <div
+            aria-hidden="true"
+            onClick={onHide}
+            className="ui-backdrop-enter absolute inset-0 z-20 bg-black/45 backdrop-blur-[2px]"
+          />
+        )}
+        <aside
+          id="thread-tasks-sidebar"
+          aria-label={`Tasks for #${activeChannel}`}
+          data-testid="thread-tasks-sidebar"
+          data-channel={activeChannel}
+          data-dock-mode={overlayMode ? 'overlay' : 'split'}
+          className={`flex flex-col h-full min-h-0 ${
+            overlayMode
+              ? 'absolute inset-y-0 right-0 z-30 w-[min(324px,88%)] border-l border-white/[0.12] bg-[#07130F]/96 backdrop-blur-xl shadow-[-18px_0_44px_rgba(0,0,0,0.68)] ui-drawer-enter'
+              : 'w-[300px] xl:w-[328px] shrink-0 border-l border-white/[0.06] bg-white/[0.015] ui-drawer-enter'
+          }`}
+        >
+          <div className="px-3.5 pt-3 pb-2.5 border-b border-white/[0.06] flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2 min-w-0 font-mono text-[10px] uppercase tracking-[0.14em] tabular-nums">
+              <span className="text-emerald-100/45">Tasks</span>
+              {summary.headerBadge && (
+                <>
+                  <span aria-hidden="true" className="text-emerald-100/20">·</span>
+                  <span
+                    className={
+                      summary.runningCount > 0
+                        ? 'text-amber-300/90'
+                        : summary.needsConfirmCount > 0
+                        ? 'text-[#6EE7B7]'
+                        : 'text-emerald-100/50'
+                    }
+                  >
+                    {summary.headerBadge}
+                  </span>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              data-testid="thread-tasks-hide"
+              aria-label="Hide tasks sidebar"
+              title="Hide tasks sidebar"
+              onClick={onHide}
+              className="ui-tactile w-7 h-7 -mr-1 rounded-lg text-emerald-100/45 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            >
+              <PanelRightClose className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          <button
-            type="button"
-            data-testid="thread-tasks-hide"
-            aria-label="Hide tasks sidebar"
-            title="Hide tasks sidebar"
-            onClick={onHide}
-            className="ui-tactile w-7 h-7 -mr-1 rounded-lg text-emerald-100/45 hover:text-white hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+          <div
+            data-testid="thread-task-banner"
+            data-channel={activeChannel}
+            className="flex-1 min-h-0 overflow-y-auto cyber-scroll px-3 py-3 space-y-2.5"
           >
-            <PanelRightClose className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div
-          data-testid="thread-task-banner"
-          data-channel={activeChannel}
-          className="flex-1 min-h-0 overflow-y-auto cyber-scroll px-3 py-3 space-y-2.5"
-        >
-          {renderTaskCards()}
-        </div>
-      </aside>
+            {renderTaskCards()}
+          </div>
+        </aside>
+      </>
     );
   }
 

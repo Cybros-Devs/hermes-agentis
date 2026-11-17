@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Brain,
   ChevronDown,
@@ -83,6 +83,18 @@ export function MobileWorkspaceBar({
   onOpenStudio,
 }: MobileWorkspaceBarProps) {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!viewMenuOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setViewMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [viewMenuOpen]);
+
   const maxAvatars = 4;
   const visibleSessions = canvasSessions.slice(0, maxAvatars);
   const extraCount = Math.max(0, canvasSessions.length - maxAvatars);
@@ -225,11 +237,17 @@ export function MobileWorkspaceBar({
           </button>
 
           {viewMenuOpen && (
-            <div
-              role="menu"
-              aria-label="Workspace views"
-              className="ui-menu-pop absolute right-0 top-[calc(100%+8px)] w-48 rounded-2xl bg-[#091512]/96 backdrop-blur-xl border border-white/15 shadow-[0_18px_40px_rgba(0,0,0,0.65)] p-1.5 space-y-1 z-50"
-            >
+            <>
+              <div
+                aria-hidden="true"
+                onClick={() => setViewMenuOpen(false)}
+                className="fixed inset-0 z-40 bg-transparent"
+              />
+              <div
+                role="menu"
+                aria-label="Workspace views"
+                className="ui-menu-pop absolute right-0 top-[calc(100%+8px)] w-48 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-5.5rem)] overflow-y-auto cyber-scroll rounded-2xl bg-[#091512]/96 backdrop-blur-xl border border-white/15 shadow-[0_18px_40px_rgba(0,0,0,0.65)] p-1.5 space-y-1 z-50"
+              >
               {views.map((tab) => {
                 const active = panelView === tab.id;
                 return (
@@ -298,7 +316,8 @@ export function MobileWorkspaceBar({
                   <span>{hasChannel ? `Reset #${activeChannel}` : 'Reset session'}</span>
                 </button>
               </div>
-            </div>
+              </div>
+            </>
           )}
         </div>
       </div>

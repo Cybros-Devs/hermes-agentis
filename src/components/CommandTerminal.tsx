@@ -87,7 +87,7 @@ export function CommandTerminal({
           </span>
         </div>
 
-        <div className="flex flex-wrap sm:flex-nowrap items-center sm:justify-end gap-0.5 min-w-0">
+        <div className="flex flex-nowrap sm:flex-wrap lg:flex-nowrap items-center sm:justify-end gap-0.5 min-w-0 overflow-x-auto cyber-scroll">
           {QUICK_COMMANDS.map(({ cmd, summary }) => (
             <button
               key={cmd}

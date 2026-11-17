@@ -19,6 +19,7 @@ import {
 import type {
   ExpressionMood,
   HermesAgentSession,
+  HermesProfileSummary,
   MouthViseme,
   TerminalEntry,
 } from '../types/hermes';
@@ -33,6 +34,7 @@ import {
   type CanvasSession,
   type DotAutonomyMode,
 } from '../utils/canvasSessions';
+import { computeCanvasPopoverAlignment } from '../utils/responsiveLayout';
 import { BrailleShapeCanvas } from './BrailleShapeCanvas';
 import { DecodedText } from './DecodedText';
 import { ScrollToBottomButton, StatusPulse } from './ui';
@@ -59,6 +61,8 @@ interface CanvasSessionNodeProps {
   bloom?: number;
   speedScale?: number;
   reducedMotionOverride?: boolean;
+  profiles?: HermesProfileSummary[];
+  defaultProfile?: string;
   gazeRef: RefObject<{ clientX: number; clientY: number } | null>;
   onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
   onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => void;
@@ -73,7 +77,9 @@ interface CanvasSessionNodeProps {
   onRemoveSession: () => void;
   onUpdateDotConfig?: (
     id: string,
-    patch: Partial<Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills'>>
+    patch: Partial<
+      Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills' | 'profile'>
+    >
   ) => void;
 }
 
@@ -99,6 +105,8 @@ export function CanvasSessionNode({
   bloom = 0.75,
   speedScale = 1,
   reducedMotionOverride = false,
+  profiles = [],
+  defaultProfile = 'default',
   gazeRef,
   onPointerDown,
   onPointerUp,
@@ -207,6 +215,14 @@ export function CanvasSessionNode({
       ? 'watching'
       : 'scheduled'
     : null;
+
+  const popoverAlign = computeCanvasPopoverAlignment(livePos.xPct);
+  const popoverHorizontalClass =
+    popoverAlign === 'left'
+      ? 'sm:left-0 sm:translate-x-0'
+      : popoverAlign === 'right'
+      ? 'sm:right-0 sm:left-auto sm:translate-x-0'
+      : 'sm:left-1/2 sm:-translate-x-1/2';
 
   return (
     <div
@@ -380,7 +396,7 @@ export function CanvasSessionNode({
           data-testid={`session-chat-${session.channelId}`}
           onPointerDown={(e) => e.stopPropagation()}
           onWheelCapture={(e) => e.stopPropagation()}
-          className={`ui-chat-pop relative mt-2 w-[min(308px,calc(100vw-2rem))] sm:mt-0 sm:w-[308px] sm:absolute sm:left-1/2 sm:-translate-x-1/2 ${
+          className={`ui-chat-pop relative mt-2 w-full sm:mt-0 sm:w-[min(308px,calc(100cqw-2rem))] sm:absolute ${popoverHorizontalClass} ${
             livePos.yPct > 56 ? 'sm:bottom-[calc(100%+8px)]' : 'sm:top-[calc(100%+8px)]'
           } rounded-xl bg-[#07120F]/96 border border-[#34D399]/35 shadow-[0_14px_34px_rgba(0,0,0,0.62)] overflow-hidden flex flex-col z-40`}
         >
@@ -398,6 +414,7 @@ export function CanvasSessionNode({
               </span>
               <span className="text-[10px] text-emerald-100/45 truncate hidden sm:inline shrink-0">
                 · {meta.label}
+                {session.profile && session.profile !== 'default' ? ` · @${session.profile}` : ''}
               </span>
             </div>
 
@@ -600,6 +617,37 @@ export function CanvasSessionNode({
                 </button>
               </div>
 
+              {/* Isolated Profile Assignment */}
+              {onUpdateDotConfig &&
+                (profiles.length > 1 || (session.profile && session.profile !== 'default')) && (
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/8">
+                    <label
+                      htmlFor={`dot-profile-${session.channelId}`}
+                      className="text-[10.5px] font-medium text-emerald-100/75 shrink-0"
+                    >
+                      Hermes Profile
+                    </label>
+                    <select
+                      id={`dot-profile-${session.channelId}`}
+                      data-testid={`dot-profile-select-${session.channelId}`}
+                      value={session.profile || defaultProfile}
+                      onChange={(e) =>
+                        onUpdateDotConfig(session.id, { profile: e.target.value })
+                      }
+                      className="rounded-md bg-black/45 border border-white/15 focus:border-[#34D399] px-2 py-0.5 font-mono text-[10.5px] text-[#6EE7B7] focus:outline-none max-w-[140px]"
+                    >
+                      {(profiles.length > 0
+                        ? profiles
+                        : [{ id: defaultProfile || 'default' }]
+                      ).map((p) => (
+                        <option key={p.id} value={p.id}>
+                          @{p.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
               {/* Always-On Autonomy & Cadence Controls */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
@@ -698,7 +746,7 @@ export function CanvasSessionNode({
         data-testid={`session-input-form-${session.channelId}`}
         className={`${compact ? 'mt-1' : 'mt-1.5'} ${
           isChatOpen
-            ? 'w-[min(308px,calc(100vw-2rem))] sm:w-[308px]'
+            ? 'w-full sm:w-[min(308px,calc(100cqw-2rem))]'
             : compact
             ? 'w-full max-w-[196px] sm:w-[200px] sm:max-w-none'
             : 'w-full max-w-[196px] sm:w-[216px] sm:max-w-none'

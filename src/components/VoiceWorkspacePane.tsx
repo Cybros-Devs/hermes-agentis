@@ -30,6 +30,8 @@ import type {
   HermesAgentSession,
   HermesCronJob,
   HermesGatewayStatus,
+  HermesProfileMode,
+  HermesProfileSummary,
   HermesSkill,
   HermesToolset,
   HermesTransportMode,
@@ -53,6 +55,10 @@ import {
 import { computeThreadScrollPin } from '../utils/threadScroll';
 import { shouldShowScrollTopFade } from '../utils/motionChoreography';
 import { partitionChannelTasks } from '../utils/taskInsights';
+import {
+  resolveStageHeaderSize,
+  resolveThreadTasksLayoutMode,
+} from '../utils/responsiveLayout';
 import { DEFAULT_UI_CONFIG, type UiCustomizationConfig } from '../utils/uiCustomization';
 import type { CreateDotSessionPayload } from './AddSessionShapeModal';
 import { AsciiPortraitCanvas } from './AsciiPortraitCanvas';
@@ -131,7 +137,9 @@ interface VoiceWorkspacePaneProps {
   onAddCanvasSession: (payload: CreateDotSessionPayload) => void;
   onUpdateDotConfig?: (
     id: string,
-    patch: Partial<Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills'>>
+    patch: Partial<
+      Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills' | 'profile'>
+    >
   ) => void;
   onAddCanvasPin: (pin: Omit<CanvasPin, 'id'>) => void;
   onMoveCanvasPin: (id: string, xPct: number, yPct: number) => void;
@@ -144,6 +152,18 @@ interface VoiceWorkspacePaneProps {
   threadVisitNonce?: number;
   homeSessionDraft?: boolean;
   onStartNewSession?: () => void;
+  profiles?: HermesProfileSummary[];
+  draftProfile?: string;
+  onChangeDraftProfile?: (profileId: string) => void;
+  onSaveProfile?: (payload: {
+    id: string;
+    label?: string;
+    mode: HermesProfileMode;
+    baseUrl?: string;
+    apiKey?: string;
+    description?: string;
+  }) => Promise<unknown>;
+  onDeleteProfile?: (profileId: string) => Promise<unknown>;
   uiConfig?: UiCustomizationConfig;
   onOpenStudio?: () => void;
 }
@@ -213,6 +233,11 @@ export function VoiceWorkspacePane({
   threadVisitNonce = 0,
   homeSessionDraft = false,
   onStartNewSession,
+  profiles = [],
+  draftProfile = 'default',
+  onChangeDraftProfile,
+  onSaveProfile,
+  onDeleteProfile,
   uiConfig = DEFAULT_UI_CONFIG,
   onOpenStudio,
 }: VoiceWorkspacePaneProps) {
@@ -230,6 +255,13 @@ export function VoiceWorkspacePane({
   const [isDesktopLg, setIsDesktopLg] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
   );
+  const [stageWidth, setStageWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? Math.max(360, window.innerWidth - 340) : 1100
+  );
+  const [viewportHeight, setViewportHeight] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerHeight : 900
+  );
+  const stageRef = useRef<HTMLElement | null>(null);
   const [activeMinimapTurnId, setActiveMinimapTurnId] = useState<string | null>(null);
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -248,10 +280,30 @@ export function VoiceWorkspacePane({
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const mq = window.matchMedia('(min-width: 1024px)');
-    const sync = () => setIsDesktopLg(mq.matches);
+    const sync = () => {
+      setIsDesktopLg(mq.matches);
+      setViewportHeight(window.innerHeight);
+    };
     sync();
     mq.addEventListener('change', sync);
-    return () => mq.removeEventListener('change', sync);
+    window.addEventListener('resize', sync);
+    return () => {
+      mq.removeEventListener('change', sync);
+      window.removeEventListener('resize', sync);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const updateWidth = () => {
+      const next = Math.round(el.getBoundingClientRect().width);
+      if (next > 0) setStageWidth(next);
+    };
+    updateWidth();
+    const ro = new ResizeObserver(updateWidth);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const isHomeOverview = panelView === 'home';
@@ -261,6 +313,20 @@ export function VoiceWorkspacePane({
     () => canvasSessions.find((s) => s.channelId === activeChannel) ?? null,
     [canvasSessions, activeChannel]
   );
+  const activeChannelObj = useMemo(
+    () => channels.find((c) => c.id === activeChannel) ?? null,
+    [channels, activeChannel]
+  );
+  const activeProfile =
+    activeCanvasSession?.profile || activeChannelObj?.profile || gatewayStatus?.profile || 'default';
+  const sessionCountByProfile = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const ch of channels) {
+      const pid = ch.profile || 'default';
+      counts[pid] = (counts[pid] ?? 0) + 1;
+    }
+    return counts;
+  }, [channels]);
   const activeHermesSessionId =
     activeCanvasSession?.hermesSessionId ?? (activeChannel ? `hermes-${activeChannel}` : 'new session');
   const rawIsThinking = Boolean(thinkingByChannel[activeChannel]);
@@ -269,13 +335,21 @@ export function VoiceWorkspacePane({
   const activeIsThinking = isHomeNewDraft ? false : rawIsThinking;
   const activeIsSpeaking = isHomeNewDraft ? false : rawIsSpeaking;
 
+  const threadTasksDockMode = resolveThreadTasksLayoutMode(stageWidth, isDesktopLg);
+  const stageHeaderSize = resolveStageHeaderSize({
+    panelView,
+    viewportHeightPx: viewportHeight,
+  });
+
   const activeChannelTasksPartition = useMemo(
     () => partitionChannelTasks(tasks, activeChannel),
     [tasks, activeChannel]
   );
   const threadTasksOpen =
     threadTasksOverrideByChannel[activeChannel] ??
-    (isDesktopLg ? activeChannelTasksPartition.all.length > 0 || activeIsThinking : false);
+    (threadTasksDockMode === 'split'
+      ? activeChannelTasksPartition.all.length > 0 || activeIsThinking
+      : false);
 
   const toggleThreadTasksOpen = () => {
     const current = threadTasksOpen;
@@ -698,7 +772,8 @@ export function VoiceWorkspacePane({
     uiConfig.portraitTintHex ??
     (uiConfig.accentPreset === 'emerald' ? null : uiConfig.accentSoftHex);
 
-  const isThreadSplitLayout = panelView === 'voice' && isDesktopLg;
+  const isThreadSplitLayout = panelView === 'voice' && threadTasksDockMode === 'split';
+  const showDesktopThreadSidebar = panelView === 'voice' && isDesktopLg;
 
   const composerDock =
     panelView !== 'canvas' ? (
@@ -886,6 +961,7 @@ export function VoiceWorkspacePane({
 
   return (
     <section
+      ref={stageRef}
       aria-label="Hermes Voice Conversation Workspace"
       data-testid="ascii-stage"
       data-engine="halftone-portrait-ascii"
@@ -896,7 +972,7 @@ export function VoiceWorkspacePane({
       data-speaking={String(voiceState.isSpeaking)}
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
-      className="ui-stage-shell relative flex flex-col h-full rounded-2xl border overflow-hidden"
+      className="@container ui-stage-shell relative flex flex-col h-full min-w-0 rounded-2xl border overflow-hidden"
     >
       {/* Mobile Reference-Inspired Dual-Pill Header & Parallel Session Avatar Strip */}
       <MobileWorkspaceBar
@@ -927,7 +1003,7 @@ export function VoiceWorkspacePane({
 
       {/* Unified Clean Top Bar (Desktop lg+) */}
       {uiConfig.showTopNav ? (
-        <div className="hidden lg:flex items-center justify-between gap-6 px-6 pt-3 pb-2 border-b border-white/6 z-30 shrink-0">
+        <div className="hidden lg:flex items-center justify-between gap-3 xl:gap-6 px-4 xl:px-6 pt-3 pb-2 border-b border-white/6 z-30 shrink-0">
           <div className="flex items-center gap-4 min-w-0 overflow-x-auto cyber-scroll">
             {onOpenMobileSidebar && (
               <button
@@ -1028,8 +1104,9 @@ export function VoiceWorkspacePane({
           key="view-home"
           ref={portraitWrapRef}
           data-testid="home-character-overview"
-          className="ui-view-enter relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center px-5 sm:px-10 pb-24 lg:pb-28"
+          className="ui-view-enter relative z-10 flex-1 min-h-0 overflow-y-auto cyber-scroll flex flex-col items-center px-5 sm:px-10 pt-2 pb-28 sm:pb-32 lg:pb-24"
         >
+          <div className="my-auto w-full flex flex-col items-center">
           {uiConfig.portraitVisible && (
             <div
               className="relative flex flex-col items-center justify-center transition-transform duration-200"
@@ -1089,8 +1166,36 @@ export function VoiceWorkspacePane({
                     data-testid="home-session-badge"
                     className="font-mono text-[11px] text-[#6EE7B7]/85"
                   >
-                    {isHomeNewDraft || !activeChannel ? 'new session' : `#${activeChannel}`}
+                    {isHomeNewDraft || !activeChannel
+                      ? 'new session'
+                      : `#${activeChannel}${activeProfile !== 'default' ? ` · @${activeProfile}` : ''}`}
                   </span>
+                  {isHomeNewDraft && profiles.length > 1 && onChangeDraftProfile ? (
+                    <select
+                      data-testid="home-profile-select"
+                      aria-label="Hermes profile for new session"
+                      value={draftProfile}
+                      onChange={(e) => onChangeDraftProfile(e.target.value)}
+                      className="rounded-md bg-black/40 border border-white/15 px-1.5 py-0.5 font-mono text-[10.5px] text-[#6EE7B7] focus:outline-none focus:border-[#34D399]"
+                    >
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          @{p.id}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    isHomeNewDraft && (
+                      <button
+                        type="button"
+                        data-testid="home-add-profile-btn"
+                        onClick={() => onChangePanelView('queue')}
+                        className="font-mono text-[10.5px] text-emerald-100/50 hover:text-[#6EE7B7] transition-colors cursor-pointer"
+                      >
+                        @{draftProfile} · + profile
+                      </button>
+                    )
+                  )}
                   {onRefreshGateway && (
                     <>
                       <span aria-hidden="true" className="text-emerald-100/25">·</span>
@@ -1105,7 +1210,7 @@ export function VoiceWorkspacePane({
                   )}
                 </div>
               ) : (
-                <div className="relative z-10 flex items-center gap-2 mt-2.5 text-xs text-emerald-100/70">
+                <div className="relative z-10 flex flex-wrap items-center justify-center gap-2 mt-2.5 text-xs text-emerald-100/70">
                   <StatusPulse state={statusPulseState} />
                   <span>{statusText}</span>
                   <span aria-hidden="true" className="text-emerald-100/30">·</span>
@@ -1113,8 +1218,36 @@ export function VoiceWorkspacePane({
                     data-testid="home-session-badge"
                     className="font-mono text-[11px] text-[#6EE7B7]/85"
                   >
-                    {isHomeNewDraft || !activeChannel ? 'new session' : `#${activeChannel}`}
+                    {isHomeNewDraft || !activeChannel
+                      ? 'new session'
+                      : `#${activeChannel}${activeProfile !== 'default' ? ` · @${activeProfile}` : ''}`}
                   </span>
+                  {isHomeNewDraft && profiles.length > 1 && onChangeDraftProfile ? (
+                    <select
+                      data-testid="home-profile-select"
+                      aria-label="Hermes profile for new session"
+                      value={draftProfile}
+                      onChange={(e) => onChangeDraftProfile(e.target.value)}
+                      className="rounded-md bg-black/40 border border-white/15 px-1.5 py-0.5 font-mono text-[10.5px] text-[#6EE7B7] focus:outline-none focus:border-[#34D399]"
+                    >
+                      {profiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          @{p.id}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    isHomeNewDraft && (
+                      <button
+                        type="button"
+                        data-testid="home-add-profile-btn"
+                        onClick={() => onChangePanelView('queue')}
+                        className="font-mono text-[10.5px] text-emerald-100/50 hover:text-[#6EE7B7] transition-colors cursor-pointer"
+                      >
+                        @{draftProfile} · + profile
+                      </button>
+                    )
+                  )}
                 </div>
               )}
 
@@ -1189,6 +1322,7 @@ export function VoiceWorkspacePane({
               </div>
             </>
           )}
+          </div>
         </div>
       ) : panelView === 'canvas' ? (
         <BrailleSessionsCanvas
@@ -1207,6 +1341,8 @@ export function VoiceWorkspacePane({
           horizonStyle={uiConfig.horizonStyle}
           speedScale={uiConfig.animationSpeed}
           reducedMotionOverride={uiConfig.reducedMotion}
+          profiles={profiles}
+          defaultProfile={draftProfile}
           onSelectSession={onSelectCanvasSession}
           onMoveSession={onMoveCanvasSession}
           onAddSession={onAddCanvasSession}
@@ -1223,10 +1359,10 @@ export function VoiceWorkspacePane({
           onOpenSessionThread={onOpenSessionThread}
         />
       ) : (
-        <div className="flex-1 min-h-0 flex flex-row">
+        <div className="relative flex-1 min-h-0 min-w-0 flex flex-row overflow-hidden">
           <div className="flex-1 min-w-0 flex flex-col min-h-0">
             {/* Desktop Compact Top-Center Character Stage — integrated seamlessly with Thread/Queue/CLI */}
-            {uiConfig.portraitVisible ? (
+            {uiConfig.portraitVisible && stageHeaderSize !== 'strip' ? (
               <div
                 ref={portraitWrapRef}
                 className="relative hidden lg:flex flex-col items-center justify-center pt-1.5 pb-1.5 shrink-0"
@@ -1280,6 +1416,17 @@ export function VoiceWorkspacePane({
                   >
                     {activeHermesSessionId}
                   </span>
+                  {activeProfile && activeProfile !== 'default' && (
+                    <>
+                      <span aria-hidden="true" className="text-emerald-100/25">·</span>
+                      <span
+                        data-testid="active-thread-profile"
+                        className="font-mono text-[11px] text-emerald-200/75"
+                      >
+                        @{activeProfile}
+                      </span>
+                    </>
+                  )}
                   {panelView === 'voice' && (
                     <>
                       <span aria-hidden="true" className="text-emerald-100/25">·</span>
@@ -1354,6 +1501,14 @@ export function VoiceWorkspacePane({
                       >
                         {activeHermesSessionId}
                       </span>
+                      {activeProfile && activeProfile !== 'default' && (
+                        <span
+                          data-testid="active-thread-profile"
+                          className="font-mono text-[11px] text-emerald-200/75 shrink-0"
+                        >
+                          @{activeProfile}
+                        </span>
+                      )}
                     </div>
                     <ThreadTaskBanner
                       variant="thread-trigger"
@@ -1382,6 +1537,7 @@ export function VoiceWorkspacePane({
                     <span aria-hidden="true" className="text-emerald-100/25">·</span>
                     <span className="font-mono text-[11px] text-[#6EE7B7]/85 truncate">
                       {activeChannel ? `#${activeChannel}` : 'new-session'}
+                      {activeProfile && activeProfile !== 'default' ? ` · @${activeProfile}` : ''}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -1469,6 +1625,12 @@ export function VoiceWorkspacePane({
                     onResumeJob={onResumeJob}
                     onRunJob={onRunJob}
                     onDeleteJob={onDeleteJob}
+                    profiles={profiles}
+                    selectedProfileId={draftProfile}
+                    onSelectDefaultProfile={onChangeDraftProfile}
+                    onSaveProfile={onSaveProfile}
+                    onDeleteProfile={onDeleteProfile}
+                    sessionCountByProfile={sessionCountByProfile}
                   />
                 </div>
               </div>
@@ -1781,10 +1943,11 @@ export function VoiceWorkspacePane({
             {isThreadSplitLayout && composerDock}
           </div>
 
-          {/* Dedicated Right Tasks Sidebar on Desktop Thread view */}
-          {isThreadSplitLayout && (
+          {/* Dedicated Right Tasks Sidebar (Split on >=900px stage, Overlay drawer on narrower desktop stages) */}
+          {showDesktopThreadSidebar && (
             <ThreadTaskBanner
               variant="thread-sidebar"
+              overlayMode={threadTasksDockMode === 'overlay'}
               activeChannel={activeChannel}
               activeSessionId={activeHermesSessionId}
               tasks={tasks}

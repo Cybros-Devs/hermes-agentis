@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import type { ExpressionMood } from '../types/hermes';
+import type { ExpressionMood, HermesProfileSummary } from '../types/hermes';
 import type { BrailleDotProfile } from '../utils/brailleCanvasRaster';
 import {
   BRAILLE_SHAPE_CATALOG,
@@ -30,12 +30,15 @@ export interface CreateDotSessionPayload {
   scheduleLabel?: string;
   sandboxEnv?: DotSandboxEnv;
   skills?: string[];
+  profile?: string;
 }
 
 interface AddSessionShapeModalProps {
   open: boolean;
   dotProfile?: BrailleDotProfile;
   bloom?: number;
+  profiles?: HermesProfileSummary[];
+  defaultProfile?: string;
   onClose: () => void;
   onCreate: (payload: CreateDotSessionPayload) => void;
 }
@@ -53,6 +56,8 @@ export function AddSessionShapeModal({
   open,
   dotProfile = 'balanced',
   bloom = 0.75,
+  profiles = [],
+  defaultProfile = 'default',
   onClose,
   onCreate,
 }: AddSessionShapeModalProps) {
@@ -66,11 +71,18 @@ export function AddSessionShapeModal({
   const [scheduleLabel, setScheduleLabel] = useState('On-demand');
   const [sandboxEnv, setSandboxEnv] = useState<DotSandboxEnv>('cloud-sandbox');
   const [skills, setSkills] = useState<string[]>(['browser', 'files']);
+  const [profile, setProfile] = useState<string>(defaultProfile);
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [persona, setPersona] = useState(defaultMeta.defaultAgentPersona);
   const [personaEdited, setPersonaEdited] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      setProfile(defaultProfile);
+    }
+  }, [open, defaultProfile]);
 
   if (!open) return null;
 
@@ -136,6 +148,7 @@ export function AddSessionShapeModal({
       scheduleLabel,
       sandboxEnv,
       skills,
+      profile,
     });
     setName('');
     setTopic('');
@@ -178,10 +191,10 @@ export function AddSessionShapeModal({
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 cyber-scroll">
-          <div className="grid grid-cols-1 md:grid-cols-[270px_1fr] gap-5 items-start">
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 cyber-scroll">
+          <div className="grid grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)] gap-4 sm:gap-5 items-start">
             {/* Left Column: Large Interactive Character Audition Stage + Tint & Eyes */}
-            <div className="rounded-xl border border-white/10 bg-[#050E0B]/85 p-4 flex flex-col items-center space-y-3.5">
+            <div className="min-w-0 rounded-xl border border-white/10 bg-[#050E0B]/85 p-3.5 sm:p-4 flex flex-col items-center space-y-3.5">
               <div className="w-full flex items-center justify-between text-[11px]">
                 <span className="font-mono font-medium text-white">{activeMeta.label}</span>
                 <span className="font-mono text-emerald-100/50">{activeMeta.animeTitle}</span>
@@ -302,14 +315,14 @@ export function AddSessionShapeModal({
               </div>
             </div>
 
-            {/* Right Column: Starter Template, 3x3 Silhouette Picker, Autonomy & Persona */}
-            <div className="space-y-3.5">
+            {/* Right Column: Starter Template, Silhouette Picker, Autonomy & Persona */}
+            <div className="min-w-0 space-y-3.5">
               {/* Starter Templates */}
               <div className="space-y-1.5">
                 <span className="block text-xs font-medium text-emerald-50/85">
                   Dot Starter Template
                 </span>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {DOT_STARTER_TEMPLATES.map((tpl) => {
                     const active = selectedTemplateId === tpl.id;
                     return (
@@ -317,13 +330,13 @@ export function AddSessionShapeModal({
                         key={tpl.id}
                         type="button"
                         onClick={() => handleApplyTemplate(tpl.id)}
-                        className={`px-3 py-1.5 rounded-lg border text-left cursor-pointer ${
+                        className={`min-w-0 px-3 py-1.5 rounded-lg border text-left cursor-pointer ${
                           active
                             ? 'border-[#34D399] bg-[#34D399]/14'
                             : 'border-white/10 bg-white/[0.03] hover:border-white/25'
                         }`}
                       >
-                        <div className="text-[11.5px] font-semibold text-white whitespace-nowrap">
+                        <div className="text-[11.5px] font-semibold text-white truncate">
                           {tpl.label}
                         </div>
                         <div className="text-[10px] text-emerald-100/55 truncate">
@@ -340,7 +353,7 @@ export function AddSessionShapeModal({
                 <span className="block text-xs font-medium text-emerald-50/85">
                   Anime Character Silhouette
                 </span>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {BRAILLE_SHAPE_CATALOG.map((meta) => {
                     const isSelected = meta.kind === selectedShape;
                     const displayTint = isSelected ? selectedTint : meta.defaultTint;
@@ -351,7 +364,7 @@ export function AddSessionShapeModal({
                         onClick={() => handleSelectShape(meta.kind)}
                         aria-pressed={isSelected}
                         aria-label={`Select ${meta.label} (${meta.animeTitle})`}
-                        className={`flex flex-col items-center justify-center gap-0.5 rounded-xl border px-2 py-1.5 cursor-pointer ${
+                        className={`min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-xl border px-2 py-1.5 cursor-pointer ${
                           isSelected
                             ? 'border-[#34D399] bg-[#34D399]/14'
                             : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]'
@@ -367,9 +380,9 @@ export function AddSessionShapeModal({
                           bloom={bloom}
                           reducedMotionOverride={!isSelected}
                         />
-                        <div className="text-center leading-tight">
-                          <div className="text-xs font-semibold text-white">{meta.label}</div>
-                          <div className="text-[10.5px] text-emerald-100/55 whitespace-nowrap">
+                        <div className="w-full text-center leading-tight">
+                          <div className="text-xs font-semibold text-white truncate">{meta.label}</div>
+                          <div className="text-[10.5px] text-emerald-100/55 leading-snug line-clamp-1">
                             {meta.tagline}
                           </div>
                         </div>
@@ -471,21 +484,45 @@ export function AddSessionShapeModal({
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label htmlFor="canvas-session-persona" className="block text-xs font-medium text-emerald-50/85">
-                  hermes-agent System Persona
-                </label>
-                <input
-                  id="canvas-session-persona"
-                  type="text"
-                  value={persona}
-                  onChange={(e) => {
-                    setPersona(e.target.value);
-                    setPersonaEdited(true);
-                  }}
-                  placeholder={activeMeta.defaultAgentPersona}
-                  className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-1.5 text-xs font-mono text-emerald-50/90 placeholder:text-emerald-100/35 focus:outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label htmlFor="canvas-session-profile" className="block text-xs font-medium text-emerald-50/85">
+                    Hermes Profile
+                  </label>
+                  <select
+                    id="canvas-session-profile"
+                    data-testid="add-dot-profile-select"
+                    value={profile}
+                    onChange={(e) => setProfile(e.target.value)}
+                    className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-1.5 text-xs font-mono text-white focus:outline-none"
+                  >
+                    {(profiles.length > 0
+                      ? profiles
+                      : [{ id: defaultProfile || 'default', label: defaultProfile || 'default' }]
+                    ).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        @{p.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="canvas-session-persona" className="block text-xs font-medium text-emerald-50/85">
+                    hermes-agent System Persona
+                  </label>
+                  <input
+                    id="canvas-session-persona"
+                    type="text"
+                    value={persona}
+                    onChange={(e) => {
+                      setPersona(e.target.value);
+                      setPersonaEdited(true);
+                    }}
+                    placeholder={activeMeta.defaultAgentPersona}
+                    className="w-full rounded-lg bg-[#060E0C] border border-white/15 focus:border-[#34D399] px-3 py-1.5 text-xs font-mono text-emerald-50/90 placeholder:text-emerald-100/35 focus:outline-none"
+                  />
+                </div>
               </div>
 
               {error && (
@@ -497,7 +534,7 @@ export function AddSessionShapeModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-white/10 bg-[#0A1613] shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2.5 px-4 sm:px-5 py-3.5 border-t border-white/10 bg-[#0A1613] shrink-0">
           <button
             type="button"
             onClick={onClose}

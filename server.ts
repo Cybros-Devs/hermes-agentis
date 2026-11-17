@@ -1,5 +1,7 @@
 import dotenv from "dotenv";
 import express from "express";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createServer as createHttpServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -30,9 +32,20 @@ import {
   sanitizeSessionKeyHeader,
   type TerminalTurnOutcome,
 } from "./src/utils/hermesProtocol.ts";
+import {
+  buildProfileCatalog,
+  isValidCustomProfileSlug,
+  isValidHttpUrl,
+  normalizeBaseUrl,
+  normalizeProfileId,
+  toRedactedProfileSummary,
+  type HermesProfileDefinition,
+  type HermesProfileRuntime,
+} from "./src/utils/profileRegistry.ts";
 import type {
   HermesCapabilities,
   HermesGatewayStatus,
+  HermesProfileMode,
   HermesSessionOrigin,
   HermesToolset,
   HermesTransportMode,
@@ -59,8 +72,25 @@ const HOST = parseArgFlag("host") || "0.0.0.0";
 const BOOT_ID = Math.random().toString(36).slice(2, 8);
 const HERMES_CHAT_TIMEOUT_MS = Number(process.env.HERMES_CHAT_TIMEOUT_MS || 300_000);
 
-function getGatewayConfig() {
-  return resolveProfileGatewayConfig(process.env);
+function getGatewayConfig(profileId?: string | null) {
+  if (!profileId || !profileId.trim()) {
+    return resolveProfileGatewayConfig(process.env);
+  }
+  const clean = normalizeProfileId(profileId);
+  const runtimes = listAllProfileRuntimes();
+  const match = runtimes.find((r) => r.id === clean);
+  if (match) {
+    return {
+      baseUrl: match.baseUrl,
+      profile: match.id,
+      apiKey: match.apiKey,
+      routePrefix: match.routePrefix,
+    };
+  }
+  return resolveProfileGatewayConfig({
+    ...process.env,
+    HERMES_PROFILE: clean,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +142,7 @@ interface HermesTask {
   background?: boolean;
   handover_id?: string;
   session_id?: string;
+  profile?: string;
   run_id?: string;
   progress?: string;
   steps?: { text: string; done?: boolean; active?: boolean }[];
@@ -128,6 +159,7 @@ interface HermesChannel {
   name: string;
   session_id: string;
   session_key: string;
+  profile?: string | null;
   topic?: string | null;
   persona?: string | null;
   source?: string | null;
@@ -149,11 +181,58 @@ const items: HermesItem[] = [];
 const sessionStatusMap = new Map<string, SessionRuntimeStatus>();
 const activeRunAborts = new Map<string, AbortController>();
 const activeGatewayRunIds = new Map<string, string>();
+const runProfileMap = new Map<string, string>();
 const workspaceSessionIds = new Set<string>();
 const workspaceChannelIds = new Set<string>();
 
-let cachedCapabilities: HermesCapabilities | null = null;
-let cachedGatewayStatus: HermesGatewayStatus | null = null;
+const customProfileDefs = new Map<string, HermesProfileDefinition>();
+const cachedCapabilitiesByProfile = new Map<string, HermesCapabilities | null>();
+const cachedGatewayStatusByProfile = new Map<string, HermesGatewayStatus>();
+
+const PROFILE_MARKER_FILES = [
+  "config.yaml",
+  "profile.yaml",
+  ".env",
+  "SOUL.md",
+  "auth.json",
+  "state.db",
+];
+
+function discoverLocalHermesProfiles(): HermesProfileDefinition[] {
+  const out: HermesProfileDefinition[] = [];
+  try {
+    const hermesHomeRoot = process.env.HERMES_HOME_ROOT || path.join(os.homedir(), ".hermes");
+    const profilesDir = path.join(hermesHomeRoot, "profiles");
+    if (!fs.existsSync(profilesDir)) return out;
+    const entries = fs.readdirSync(profilesDir, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const slug = normalizeProfileId(ent.name);
+      if (!slug || slug === "default") continue;
+      const dirPath = path.join(profilesDir, ent.name);
+      const hasMarker = PROFILE_MARKER_FILES.some((f) => fs.existsSync(path.join(dirPath, f)));
+      if (!hasMarker) continue;
+      out.push({
+        id: slug,
+        label: ent.name,
+        mode: "multiplexed",
+        source: "discovered",
+        description: `~/.hermes/profiles/${ent.name}`,
+      });
+    }
+  } catch {
+    // ignore inaccessible home directory in sandboxed containers
+  }
+  return out;
+}
+
+function listAllProfileRuntimes(): HermesProfileRuntime[] {
+  return buildProfileCatalog({
+    env: process.env,
+    discoveredProfiles: discoverLocalHermesProfiles(),
+    customProfiles: Array.from(customProfileDefs.values()),
+  }).runtimes;
+}
 
 function normalizeChannelKey(raw?: string | null): string {
   return String(raw ?? "")
@@ -196,6 +275,7 @@ function upsertLocalChannel(opts: {
   name?: string;
   sessionId: string;
   sessionKey?: string;
+  profile?: string | null;
   topic?: string | null;
   persona?: string | null;
   source?: string | null;
@@ -210,6 +290,11 @@ function upsertLocalChannel(opts: {
     existingBySid?.id ||
     normalizeChannelKey(opts.channelId || opts.sessionId) ||
     "session";
+
+  const resolvedProfile =
+    opts.profile && opts.profile.trim()
+      ? normalizeProfileId(opts.profile)
+      : undefined;
 
   let existing = existingBySid || channels.find((c) => c.id === cleanId);
   if (!existing) {
@@ -232,6 +317,7 @@ function upsertLocalChannel(opts: {
       name: (opts.name || opts.topic || cleanId).replace(/^#/, ""),
       session_id: opts.sessionId,
       session_key: resolvedKey,
+      profile: resolvedProfile ?? null,
       topic: opts.topic ?? null,
       persona: opts.persona ?? null,
       source: opts.source ?? null,
@@ -245,6 +331,7 @@ function upsertLocalChannel(opts: {
   } else {
     if (opts.name) existing.name = opts.name.replace(/^#/, "");
     if (opts.sessionId) existing.session_id = opts.sessionId;
+    if (resolvedProfile) existing.profile = resolvedProfile;
     if (opts.topic !== undefined && opts.topic !== null) existing.topic = opts.topic;
     if (opts.persona !== undefined && opts.persona !== null) existing.persona = opts.persona;
     if (opts.source !== undefined) existing.source = opts.source;
@@ -314,6 +401,7 @@ function buildSessionSnapshot(ch: HermesChannel) {
     name: ch.name,
     persona: ch.persona || "",
     topic: ch.topic || ch.name,
+    profile: ch.profile || getGatewayConfig().profile,
     status,
     turnCount,
     lastMessage: lastMsg?.text?.trim() || ch.last_message || ch.topic || "",
@@ -349,9 +437,10 @@ async function fetchHermesGateway(
   pathname: string,
   init?: RequestInit & { unprefixed?: boolean },
   timeoutMs = 3000,
-  externalSignal?: AbortSignal
+  externalSignal?: AbortSignal,
+  profileId?: string | null
 ): Promise<Response> {
-  const cfg = getGatewayConfig();
+  const cfg = getGatewayConfig(profileId);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onExternalAbort = () => controller.abort();
@@ -378,8 +467,8 @@ async function fetchHermesGateway(
   }
 }
 
-async function probeHermesGateway(): Promise<HermesGatewayStatus> {
-  const cfg = getGatewayConfig();
+async function probeHermesGateway(profileId?: string | null): Promise<HermesGatewayStatus> {
+  const cfg = getGatewayConfig(profileId);
   const checkedAtMs = Date.now();
 
   let connected = false;
@@ -395,13 +484,19 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
 
   // 1. Primary probe: GET /v1/capabilities
   try {
-    const capRes = await fetchHermesGateway("/v1/capabilities", { method: "GET" }, 1800);
+    const capRes = await fetchHermesGateway(
+      "/v1/capabilities",
+      { method: "GET" },
+      1800,
+      undefined,
+      cfg.profile
+    );
     if (capRes.ok) {
       connected = true;
       const body = await capRes.json().catch(() => null);
       capabilities = parseCapabilitiesPayload(body);
       if (capabilities) {
-        cachedCapabilities = capabilities;
+        cachedCapabilitiesByProfile.set(cfg.profile, capabilities);
         if (!activeModel && capabilities.model) {
           activeModel = capabilities.model;
         }
@@ -423,7 +518,9 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
     const hRes = await fetchHermesGateway(
       "/health",
       { method: "GET", unprefixed: cfg.routePrefix === "" },
-      1200
+      1200,
+      undefined,
+      cfg.profile
     );
     if (hRes.ok) {
       const hJson = (await hRes.json().catch(() => null)) as { status?: string } | null;
@@ -435,7 +532,9 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
       const rootHealthRes = await fetchHermesGateway(
         "/health",
         { method: "GET", unprefixed: true },
-        1200
+        1200,
+        undefined,
+        cfg.profile
       ).catch(() => null);
       if (rootHealthRes?.ok) {
         const hj = (await rootHealthRes.json().catch(() => null)) as { status?: string } | null;
@@ -449,7 +548,13 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
   // 3. Model picker inventory: GET /api/model/options primary, /v1/models fallback
   if (connected) {
     try {
-      const optRes = await fetchHermesGateway("/api/model/options", { method: "GET" }, 2000);
+      const optRes = await fetchHermesGateway(
+        "/api/model/options",
+        { method: "GET" },
+        2000,
+        undefined,
+        cfg.profile
+      );
       if (optRes.ok) {
         const parsed = extractModelOptions(await optRes.json().catch(() => null));
         models = parsed.models;
@@ -463,7 +568,13 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
 
     if (models.length === 0) {
       try {
-        const mRes = await fetchHermesGateway("/v1/models", { method: "GET" }, 1500);
+        const mRes = await fetchHermesGateway(
+          "/v1/models",
+          { method: "GET" },
+          1500,
+          undefined,
+          cfg.profile
+        );
         if (mRes.ok) {
           const mj = (await mRes.json().catch(() => null)) as {
             data?: Array<{ id?: string }>;
@@ -485,8 +596,12 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
 
     // 4. Deterministic skills & toolsets discovery
     const [skillsRes, toolsetsRes] = await Promise.all([
-      fetchHermesGateway("/v1/skills", { method: "GET" }, 1800).catch(() => null),
-      fetchHermesGateway("/v1/toolsets", { method: "GET" }, 1800).catch(() => null),
+      fetchHermesGateway("/v1/skills", { method: "GET" }, 1800, undefined, cfg.profile).catch(
+        () => null
+      ),
+      fetchHermesGateway("/v1/toolsets", { method: "GET" }, 1800, undefined, cfg.profile).catch(
+        () => null
+      ),
     ]);
     if (skillsRes?.ok) {
       const mapped = mapGatewaySkills(await skillsRes.json().catch(() => null));
@@ -496,7 +611,7 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
       toolsets = mapGatewayToolsets(await toolsetsRes.json().catch(() => null));
     }
   } else {
-    cachedCapabilities = null;
+    cachedCapabilitiesByProfile.set(cfg.profile, null);
   }
 
   const resolvedModel = activeModel || models[0] || "hermes-agent";
@@ -523,53 +638,72 @@ async function probeHermesGateway(): Promise<HermesGatewayStatus> {
     ...(errorMsg && !connected ? { error: errorMsg } : {}),
   };
 
-  cachedGatewayStatus = status;
+  cachedGatewayStatusByProfile.set(cfg.profile, status);
   return status;
 }
 
 async function syncSessionsFromGateway(): Promise<void> {
-  try {
-    const res = await fetchHermesGateway(
-      "/api/sessions?limit=100&include_children=false",
-      { method: "GET" },
-      2200
-    );
-    if (!res.ok) return;
-    const raw = await res.json().catch(() => null);
-    const gwSessions = mapGatewaySessions(raw);
-    const activeIds = new Set(gwSessions.map((s) => s.id));
+  const runtimes = listAllProfileRuntimes();
+  const primaryProfile = getGatewayConfig().profile;
+  const profilesToSync = runtimes.filter(
+    (r) => r.id === primaryProfile || r.source === "custom" || r.source === "env"
+  );
 
-    for (const s of gwSessions) {
-      upsertLocalChannel({
-        sessionId: s.id,
-        sessionKey: s.sessionKey,
-        name: s.title || s.id,
-        topic: s.title || s.id,
-        source: s.source ?? null,
-        model: s.model ?? null,
-        messageCount: s.messageCount ?? null,
-        lastMessage: s.lastMessage ?? null,
-        lastAt: s.updatedAtMs ?? s.createdAtMs ?? null,
-      });
-    }
+  const syncedIdsByProfile = new Map<string, Set<string>>();
 
-    // Drop stale local entries that were deleted externally on the gateway unless they have active runs
-    for (let i = channels.length - 1; i >= 0; i--) {
-      const ch = channels[i];
-      if (!activeIds.has(ch.session_id) && !activeRunAborts.has(ch.id)) {
-        channels.splice(i, 1);
+  await Promise.all(
+    profilesToSync.map(async (rt) => {
+      try {
+        const res = await fetchHermesGateway(
+          "/api/sessions?limit=100&include_children=false",
+          { method: "GET" },
+          2000,
+          undefined,
+          rt.id
+        );
+        if (!res.ok) return;
+        const raw = await res.json().catch(() => null);
+        const gwSessions = mapGatewaySessions(raw);
+        const idSet = new Set<string>(gwSessions.map((s) => s.id));
+        syncedIdsByProfile.set(rt.id, idSet);
+
+        for (const s of gwSessions) {
+          upsertLocalChannel({
+            sessionId: s.id,
+            sessionKey: s.sessionKey,
+            profile: rt.id,
+            name: s.title || s.id,
+            topic: s.title || s.id,
+            source: s.source ?? null,
+            model: s.model ?? null,
+            messageCount: s.messageCount ?? null,
+            lastMessage: s.lastMessage ?? null,
+            lastAt: s.updatedAtMs ?? s.createdAtMs ?? null,
+          });
+        }
+      } catch {
+        // gateway offline or /api/sessions unavailable for this profile
       }
+    })
+  );
+
+  // Drop stale local entries only for profiles that responded cleanly
+  for (let i = channels.length - 1; i >= 0; i--) {
+    const ch = channels[i];
+    const chProfile = ch.profile || primaryProfile;
+    const activeIds = syncedIdsByProfile.get(chProfile);
+    if (activeIds && !activeIds.has(ch.session_id) && !activeRunAborts.has(ch.id)) {
+      channels.splice(i, 1);
     }
-  } catch {
-    // gateway offline or /api/sessions unavailable
   }
 }
 
-async function fetchGatewayContext() {
-  const status = await probeHermesGateway();
+async function fetchGatewayContext(profileId?: string | null) {
+  const status = await probeHermesGateway(profileId);
   if (!status.connected) {
     return {
       connected: false,
+      profile: status.profile,
       skills: [],
       toolsets: [],
       cronJobs: [],
@@ -579,9 +713,15 @@ async function fetchGatewayContext() {
   }
 
   const [skillsRes, toolsetsRes, jobsRes] = await Promise.all([
-    fetchHermesGateway("/v1/skills", { method: "GET" }, 2000).catch(() => null),
-    fetchHermesGateway("/v1/toolsets", { method: "GET" }, 2000).catch(() => null),
-    fetchHermesGateway("/api/jobs", { method: "GET" }, 2000).catch(() => null),
+    fetchHermesGateway("/v1/skills", { method: "GET" }, 2000, undefined, status.profile).catch(
+      () => null
+    ),
+    fetchHermesGateway("/v1/toolsets", { method: "GET" }, 2000, undefined, status.profile).catch(
+      () => null
+    ),
+    fetchHermesGateway("/api/jobs", { method: "GET" }, 2000, undefined, status.profile).catch(
+      () => null
+    ),
   ]);
 
   const skills = skillsRes?.ok
@@ -596,6 +736,7 @@ async function fetchGatewayContext() {
 
   return {
     connected: true,
+    profile: status.profile,
     skills,
     toolsets,
     cronJobs,
@@ -814,13 +955,20 @@ async function executeGatewayTurn(
     provider,
   } = params;
 
-  if (!cachedCapabilities) {
-    await probeHermesGateway().catch(() => null);
+  const targetProfile = channel.profile || getGatewayConfig().profile;
+  if (!cachedCapabilitiesByProfile.has(targetProfile)) {
+    await probeHermesGateway(targetProfile).catch(() => null);
   }
-  const transport = chooseGatewayTransport(transportMode, cachedCapabilities);
-  const cfg = getGatewayConfig();
-  const resolvedModel = model || cachedGatewayStatus?.activeModel || process.env.API_SERVER_MODEL_NAME || "hermes-agent";
-  const resolvedProvider = provider || cachedGatewayStatus?.activeProvider;
+  const profileCapabilities = cachedCapabilitiesByProfile.get(targetProfile) ?? null;
+  const profileStatus = cachedGatewayStatusByProfile.get(targetProfile);
+  const transport = chooseGatewayTransport(transportMode, profileCapabilities);
+  const cfg = getGatewayConfig(targetProfile);
+  const resolvedModel =
+    model ||
+    profileStatus?.activeModel ||
+    process.env.API_SERVER_MODEL_NAME ||
+    "hermes-agent";
+  const resolvedProvider = provider || profileStatus?.activeProvider;
 
   const reasoningItemIdRef = { current: null as string | null };
   const seqRef = { current: 0 };
@@ -881,7 +1029,8 @@ async function executeGatewayTurn(
             body: JSON.stringify(runBody),
           },
           HERMES_CHAT_TIMEOUT_MS,
-          abortSignal
+          abortSignal,
+          targetProfile
         ),
       { signal: abortSignal }
     );
@@ -913,6 +1062,7 @@ async function executeGatewayTurn(
     }
 
     activeGatewayRunIds.set(channel.id, gwRunId);
+    runProfileMap.set(gwRunId, targetProfile);
     turnTask.run_id = gwRunId;
     broadcastEvent({ type: "task", task: turnTask });
 
@@ -924,7 +1074,8 @@ async function executeGatewayTurn(
           headers: { Accept: "text/event-stream" },
         },
         HERMES_CHAT_TIMEOUT_MS,
-        abortSignal
+        abortSignal,
+        targetProfile
       );
 
       if (!eventsRes.ok || !eventsRes.body) {
@@ -1026,7 +1177,9 @@ async function executeGatewayTurn(
             const runPoll = await fetchHermesGateway(
               `/v1/runs/${encodeURIComponent(gwRunId)}`,
               { method: "GET" },
-              1500
+              1500,
+              undefined,
+              targetProfile
             );
             if (runPoll.ok) {
               const runState = (await runPoll.json().catch(() => null)) as {
@@ -1155,7 +1308,8 @@ async function executeGatewayTurn(
             }),
           },
           HERMES_CHAT_TIMEOUT_MS,
-          abortSignal
+          abortSignal,
+          targetProfile
         ),
       { signal: abortSignal }
     );
@@ -1246,7 +1400,8 @@ async function executeGatewayTurn(
           body: JSON.stringify(chatBody),
         },
         HERMES_CHAT_TIMEOUT_MS,
-        abortSignal
+        abortSignal,
+        targetProfile
       ),
     { signal: abortSignal }
   );
@@ -1370,19 +1525,117 @@ async function createServer() {
     });
   });
 
-  app.get("/api/hermes/gateway", async (_req, res) => {
-    const status = await probeHermesGateway();
+  app.get("/api/hermes/gateway", async (req, res) => {
+    const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
+    const status = await probeHermesGateway(profileParam);
     res.json(status);
   });
 
-  app.get("/api/hermes/context", async (_req, res) => {
-    const ctx = await fetchGatewayContext();
+  app.get("/api/hermes/profiles", async (req, res) => {
+    const refresh = req.query.refresh === "1" || req.query.refresh === "true";
+    const runtimes = listAllProfileRuntimes();
+    const defaultProfileId = getGatewayConfig().profile;
+
+    if (refresh) {
+      await Promise.all(runtimes.map((rt) => probeHermesGateway(rt.id).catch(() => null)));
+    } else if (!cachedGatewayStatusByProfile.has(defaultProfileId)) {
+      await probeHermesGateway(defaultProfileId).catch(() => null);
+    }
+
+    const profiles = runtimes.map((rt) =>
+      toRedactedProfileSummary(rt, cachedGatewayStatusByProfile.get(rt.id))
+    );
+    res.json({ defaultProfileId, profiles });
+  });
+
+  app.post("/api/hermes/profiles", async (req, res) => {
+    const { id: rawId, label, mode, baseUrl, apiKey, description } = (req.body ?? {}) as {
+      id?: string;
+      label?: string;
+      mode?: HermesProfileMode;
+      baseUrl?: string;
+      apiKey?: string;
+      description?: string;
+    };
+
+    if (!isValidCustomProfileSlug(rawId)) {
+      res.status(400).json({
+        error:
+          'Enter a valid profile slug (lowercase letters, digits, "-" or "_", not "default" or reserved path).',
+      });
+      return;
+    }
+
+    const cleanId = normalizeProfileId(rawId);
+    const resolvedMode: HermesProfileMode = mode === "standalone" ? "standalone" : "multiplexed";
+    if (resolvedMode === "standalone" && !isValidHttpUrl(baseUrl)) {
+      res.status(400).json({
+        error: "Standalone profile requires a valid http:// or https:// gateway URL (e.g. http://127.0.0.1:8643).",
+      });
+      return;
+    }
+
+    const existing = customProfileDefs.get(cleanId);
+    customProfileDefs.set(cleanId, {
+      id: cleanId,
+      label: label?.trim() || cleanId,
+      mode: resolvedMode,
+      baseUrl: resolvedMode === "standalone" ? normalizeBaseUrl(baseUrl) : undefined,
+      apiKey: typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : existing?.apiKey,
+      source: "custom",
+      description: description?.trim() || existing?.description,
+    });
+
+    const status = await probeHermesGateway(cleanId);
+    const runtimes = listAllProfileRuntimes();
+    const defaultProfileId = getGatewayConfig().profile;
+    const profiles = runtimes.map((rt) =>
+      toRedactedProfileSummary(rt, cachedGatewayStatusByProfile.get(rt.id))
+    );
+    const saved = profiles.find((p) => p.id === cleanId);
+
+    res.status(200).json({
+      ok: true,
+      defaultProfileId,
+      profile: saved,
+      status,
+      profiles,
+    });
+  });
+
+  app.delete("/api/hermes/profiles/:profileId", (req, res) => {
+    const targetId = normalizeProfileId(req.params.profileId);
+    const primaryProfile = getGatewayConfig().profile;
+    if (targetId === "default" || targetId === primaryProfile) {
+      res.status(400).json({ error: `Cannot delete primary profile "${targetId}".` });
+      return;
+    }
+    const existed = customProfileDefs.delete(targetId);
+    cachedCapabilitiesByProfile.delete(targetId);
+    cachedGatewayStatusByProfile.delete(targetId);
+
+    const runtimes = listAllProfileRuntimes();
+    const profiles = runtimes.map((rt) =>
+      toRedactedProfileSummary(rt, cachedGatewayStatusByProfile.get(rt.id))
+    );
+    res.status(200).json({
+      ok: true,
+      removed: existed,
+      defaultProfileId: primaryProfile,
+      profiles,
+    });
+  });
+
+  app.get("/api/hermes/context", async (req, res) => {
+    const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
+    const ctx = await fetchGatewayContext(profileParam);
     res.json(ctx);
   });
 
-  app.get("/api/hermes/skills", async (_req, res) => {
+  app.get("/api/hermes/skills", async (req, res) => {
+    const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
     try {
-      const r = await fetchHermesGateway("/v1/skills", { method: "GET" }, 2500);
+      const r = await fetchHermesGateway("/v1/skills", { method: "GET" }, 2500, undefined, profileParam);
       if (!r.ok) {
         const err = await readGatewayErrorBody(r);
         res.status(r.status).json({ error: err.message, skills: [] });
@@ -1397,9 +1650,10 @@ async function createServer() {
     }
   });
 
-  app.get("/api/hermes/toolsets", async (_req, res) => {
+  app.get("/api/hermes/toolsets", async (req, res) => {
+    const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
     try {
-      const r = await fetchHermesGateway("/v1/toolsets", { method: "GET" }, 2500);
+      const r = await fetchHermesGateway("/v1/toolsets", { method: "GET" }, 2500, undefined, profileParam);
       if (!r.ok) {
         const err = await readGatewayErrorBody(r);
         res.status(r.status).json({ error: err.message, toolsets: [] });
@@ -1417,9 +1671,10 @@ async function createServer() {
   // -------------------------------------------------------------------------
   // Jobs API (/api/jobs -> /api/hermes/jobs*)
   // -------------------------------------------------------------------------
-  app.get("/api/hermes/jobs", async (_req, res) => {
+  app.get("/api/hermes/jobs", async (req, res) => {
+    const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
     try {
-      const r = await fetchHermesGateway("/api/jobs", { method: "GET" }, 2500);
+      const r = await fetchHermesGateway("/api/jobs", { method: "GET" }, 2500, undefined, profileParam);
       if (!r.ok) {
         const err = await readGatewayErrorBody(r);
         res.status(r.status).json({ error: err.message, jobs: [] });
@@ -1435,11 +1690,14 @@ async function createServer() {
   });
 
   app.post("/api/hermes/jobs", async (req, res) => {
+    const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
     try {
       const r = await fetchHermesGateway(
         "/api/jobs",
         { method: "POST", body: JSON.stringify(req.body ?? {}) },
-        4000
+        4000,
+        undefined,
+        profileParam
       );
       const body = await r.json().catch(() => ({}));
       res.status(r.status).json(body);
@@ -1449,11 +1707,14 @@ async function createServer() {
   });
 
   app.patch("/api/hermes/jobs/:jobId", async (req, res) => {
+    const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
     try {
       const r = await fetchHermesGateway(
         `/api/jobs/${encodeURIComponent(req.params.jobId)}`,
         { method: "PATCH", body: JSON.stringify(req.body ?? {}) },
-        4000
+        4000,
+        undefined,
+        profileParam
       );
       const body = await r.json().catch(() => ({}));
       res.status(r.status).json(body);
@@ -1463,11 +1724,14 @@ async function createServer() {
   });
 
   app.delete("/api/hermes/jobs/:jobId", async (req, res) => {
+    const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
     try {
       const r = await fetchHermesGateway(
         `/api/jobs/${encodeURIComponent(req.params.jobId)}`,
         { method: "DELETE" },
-        4000
+        4000,
+        undefined,
+        profileParam
       );
       const body = await r.json().catch(() => ({ ok: r.ok }));
       res.status(r.status).json(body);
@@ -1478,11 +1742,14 @@ async function createServer() {
 
   for (const action of ["pause", "resume", "run"] as const) {
     app.post(`/api/hermes/jobs/:jobId/${action}`, async (req, res) => {
+      const profileParam = typeof req.query.profile === "string" ? req.query.profile : undefined;
       try {
         const r = await fetchHermesGateway(
           `/api/jobs/${encodeURIComponent(req.params.jobId)}/${action}`,
           { method: "POST" },
-          4000
+          4000,
+          undefined,
+          profileParam
         );
         const body = await r.json().catch(() => ({ ok: r.ok }));
         res.status(r.status).json(body);
@@ -1516,7 +1783,9 @@ async function createServer() {
         const msgRes = await fetchHermesGateway(
           `/api/sessions/${encodeURIComponent(channel.session_id)}/messages?inline_images=false`,
           { method: "GET" },
-          2500
+          2500,
+          undefined,
+          channel.profile
         );
         if (msgRes.ok) {
           const gwMessages = mapGatewaySessionMessages(
@@ -1578,6 +1847,7 @@ async function createServer() {
       session_id,
       session_key,
       persona,
+      profile,
       transport_mode,
       idempotency_key,
       model,
@@ -1590,6 +1860,7 @@ async function createServer() {
       session_id?: string;
       session_key?: string;
       persona?: string;
+      profile?: string;
       transport_mode?: HermesTransportMode;
       idempotency_key?: string;
       model?: string;
@@ -1610,6 +1881,7 @@ async function createServer() {
       name,
       sessionId: resolvedSessionId,
       sessionKey: session_key,
+      profile,
       topic,
       persona,
       origin: "workspace",
@@ -1638,7 +1910,9 @@ async function createServer() {
       void fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(priorGwRun)}/stop`,
         { method: "POST" },
-        1500
+        1500,
+        undefined,
+        channel.profile
       ).catch(() => {});
     }
 
@@ -1673,6 +1947,7 @@ async function createServer() {
       kind: "In chat",
       background: false,
       session_id: channel.session_id,
+      profile: channel.profile || getGatewayConfig().profile,
       channel_id: channel.id,
       progress: "0/1",
       steps: [],
@@ -1934,8 +2209,8 @@ async function createServer() {
             broadcastEvent({ type: "item", item: stoppedItem });
           }
         } else {
-          const cfg = getGatewayConfig();
-          const errText = `Hermes Gateway offline at ${cfg.baseUrl}: ${
+          const cfg = getGatewayConfig(channel.profile);
+          const errText = `Hermes Gateway offline (${cfg.profile}) at ${cfg.baseUrl}${cfg.routePrefix}: ${
             err instanceof Error ? err.message : String(err)
           }`;
           const finalized = finalizeTurnTaskSteps(
@@ -1980,12 +2255,14 @@ async function createServer() {
       channelId = "general",
       sessionId,
       sessionKey,
+      profile,
       idempotencyKey,
     } = (req.body ?? {}) as {
       message?: string;
       channelId?: string;
       sessionId?: string;
       sessionKey?: string;
+      profile?: string;
       idempotencyKey?: string;
     };
     if (!message || typeof message !== "string") {
@@ -1993,7 +2270,7 @@ async function createServer() {
       return;
     }
 
-    const cfg = getGatewayConfig();
+    const cfg = getGatewayConfig(profile);
     const resolvedSessionId = sessionId?.trim() || `hermes-${normalizeChannelKey(channelId) || "general"}`;
     const resolvedSessionKey =
       sanitizeSessionKeyHeader(sessionKey) ||
@@ -2003,6 +2280,7 @@ async function createServer() {
       createIdempotencyKey("chat");
 
     try {
+      const profileStatus = cachedGatewayStatusByProfile.get(cfg.profile);
       const gwRes = await fetchWithConcurrentRetry(() =>
         fetchHermesGateway(
           "/v1/chat/completions",
@@ -2015,12 +2293,14 @@ async function createServer() {
               Accept: "application/json",
             },
             body: JSON.stringify({
-              model: cachedGatewayStatus?.activeModel || process.env.API_SERVER_MODEL_NAME || "hermes-agent",
+              model: profileStatus?.activeModel || process.env.API_SERVER_MODEL_NAME || "hermes-agent",
               messages: [{ role: "user", content: message }],
               stream: false,
             }),
           },
-          HERMES_CHAT_TIMEOUT_MS
+          HERMES_CHAT_TIMEOUT_MS,
+          undefined,
+          cfg.profile
         )
       );
 
@@ -2052,13 +2332,14 @@ async function createServer() {
         outcome: parsed.outcome,
         errorCode: parsed.errorCode,
         sourceMode: "hermes-gateway",
+        profile: cfg.profile,
         sessionId: parsed.sessionId || resolvedSessionId,
       });
     } catch (err) {
       res.status(503).json({
         sourceMode: "gateway-offline",
         sessionId: resolvedSessionId,
-        error: `Hermes Gateway unreachable at ${cfg.baseUrl}: ${
+        error: `Hermes Gateway unreachable (${cfg.profile}) at ${cfg.baseUrl}${cfg.routePrefix}: ${
           err instanceof Error ? err.message : String(err)
         }`,
       });
@@ -2070,6 +2351,7 @@ async function createServer() {
   // -------------------------------------------------------------------------
   app.post("/api/hermes/sessions/:channelId/abort", async (req, res) => {
     const slug = normalizeChannelKey(req.params.channelId) || "general";
+    const ch = channels.find((c) => c.id === slug);
     const gwRunId = activeGatewayRunIds.get(slug);
     let stoppedOnGateway = false;
 
@@ -2078,7 +2360,9 @@ async function createServer() {
         const stopRes = await fetchHermesGateway(
           `/v1/runs/${encodeURIComponent(gwRunId)}/stop`,
           { method: "POST" },
-          2500
+          2500,
+          undefined,
+          ch?.profile || runProfileMap.get(gwRunId)
         );
         stoppedOnGateway = stopRes.ok;
       } catch {
@@ -2137,13 +2421,16 @@ async function createServer() {
     }
 
     try {
+      const targetProfile = runProfileMap.get(req.params.runId);
       const r = await fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(req.params.runId)}/approval`,
         {
           method: "POST",
           body: JSON.stringify({ request_id, execution_generation, choice }),
         },
-        4000
+        4000,
+        undefined,
+        targetProfile
       );
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -2191,13 +2478,16 @@ async function createServer() {
       return;
     }
     try {
+      const targetProfile = runProfileMap.get(req.params.runId);
       const r = await fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(req.params.runId)}/clarify`,
         {
           method: "POST",
           body: JSON.stringify({ request_id, execution_generation, answer }),
         },
-        4000
+        4000,
+        undefined,
+        targetProfile
       );
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -2224,10 +2514,13 @@ async function createServer() {
       return;
     }
     try {
+      const targetProfile = runProfileMap.get(req.params.runId);
       const r = await fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(req.params.runId)}/steer`,
         { method: "POST", body: JSON.stringify({ text: text.trim() }) },
-        3000
+        3000,
+        undefined,
+        targetProfile
       );
       const body = await r.json().catch(() => ({}));
       res.status(r.status).json(body);
@@ -2238,10 +2531,13 @@ async function createServer() {
 
   app.post("/api/hermes/runs/:runId/stop", async (req, res) => {
     try {
+      const targetProfile = runProfileMap.get(req.params.runId);
       const r = await fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(req.params.runId)}/stop`,
         { method: "POST" },
-        3000
+        3000,
+        undefined,
+        targetProfile
       );
       const body = await r.json().catch(() => ({}));
       res.status(r.status).json(body);
@@ -2260,13 +2556,16 @@ async function createServer() {
       return;
     }
     try {
+      const targetProfile = runProfileMap.get(req.params.runId);
       const r = await fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(req.params.runId)}/resolve-unknown`,
         {
           method: "POST",
           body: JSON.stringify({ admission_id, execution_generation }),
         },
-        3000
+        3000,
+        undefined,
+        targetProfile
       );
       const body = await r.json().catch(() => ({}));
       res.status(r.status).json(body);
@@ -2284,7 +2583,7 @@ async function createServer() {
   });
 
   app.post("/api/hermes/sessions", async (req, res) => {
-    const { channelId, name, sessionId, sessionKey, topic, persona, requireFresh } =
+    const { channelId, name, sessionId, sessionKey, topic, persona, profile, requireFresh } =
       (req.body ?? {}) as {
         channelId?: string;
         name?: string;
@@ -2292,6 +2591,7 @@ async function createServer() {
         sessionKey?: string;
         topic?: string;
         persona?: string;
+        profile?: string;
         requireFresh?: boolean;
       };
     const rawKey = channelId || name;
@@ -2311,6 +2611,9 @@ async function createServer() {
         })()
       : baseKey;
 
+    const resolvedProfile =
+      profile && profile.trim() ? normalizeProfileId(profile) : getGatewayConfig().profile;
+
     let resolvedSessionId = sessionId?.trim() || `hermes-${resolvedKey}`;
     const resolvedSessionKey =
       sanitizeSessionKeyHeader(sessionKey) || defaultSessionKeyForChannel(resolvedKey);
@@ -2325,7 +2628,9 @@ async function createServer() {
             title: topic || name || resolvedKey,
           }),
         },
-        2500
+        2500,
+        undefined,
+        resolvedProfile
       );
       if (createRes.ok) {
         const created = (await createRes.json().catch(() => null)) as {
@@ -2348,6 +2653,7 @@ async function createServer() {
       name: name || resolvedKey,
       sessionId: resolvedSessionId,
       sessionKey: resolvedSessionKey,
+      profile: resolvedProfile,
       topic: topic || name || resolvedKey,
       persona,
       origin: "workspace",
@@ -2369,6 +2675,8 @@ async function createServer() {
 
   app.post("/api/hermes/sessions/:channelId/reset", async (req, res) => {
     const slug = normalizeChannelKey(req.params.channelId) || "general";
+    const existing = channels.find((c) => c.id === slug);
+    const targetProfile = existing?.profile || getGatewayConfig().profile;
     activeRunAborts.get(slug)?.abort();
     const gwRun = activeGatewayRunIds.get(slug);
     if (gwRun) {
@@ -2376,11 +2684,12 @@ async function createServer() {
       void fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(gwRun)}/stop`,
         { method: "POST" },
-        1500
+        1500,
+        undefined,
+        targetProfile
       ).catch(() => {});
     }
 
-    const existing = channels.find((c) => c.id === slug);
     const oldSessionId = existing?.session_id || `hermes-${slug}`;
     let nextSessionId = `${oldSessionId}-r${Date.now().toString(36).slice(-4)}`;
 
@@ -2392,7 +2701,9 @@ async function createServer() {
           method: "POST",
           body: JSON.stringify({ title: existing?.topic || existing?.name || slug }),
         },
-        2500
+        2500,
+        undefined,
+        targetProfile
       );
       if (createRes.ok) {
         const created = (await createRes.json().catch(() => null)) as {
@@ -2414,6 +2725,7 @@ async function createServer() {
       name: existing?.name || slug,
       sessionId: nextSessionId,
       sessionKey: existing?.session_key || defaultSessionKeyForChannel(slug),
+      profile: targetProfile,
       topic: existing?.topic,
       persona: existing?.persona,
       origin: "workspace",
@@ -2442,6 +2754,10 @@ async function createServer() {
 
   app.delete("/api/hermes/sessions/:channelId", async (req, res) => {
     const channelId = normalizeChannelKey(req.params.channelId);
+    const idx = channels.findIndex((c) => c.id === channelId);
+    const targetChannel = idx >= 0 ? channels[idx] : undefined;
+    const targetProfile = targetChannel?.profile || getGatewayConfig().profile;
+
     activeRunAborts.get(channelId)?.abort();
     const gwRun = activeGatewayRunIds.get(channelId);
     if (gwRun) {
@@ -2449,17 +2765,20 @@ async function createServer() {
       void fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(gwRun)}/stop`,
         { method: "POST" },
-        1500
+        1500,
+        undefined,
+        targetProfile
       ).catch(() => {});
     }
 
-    const idx = channels.findIndex((c) => c.id === channelId);
-    const targetSessionId = idx >= 0 ? channels[idx].session_id : undefined;
+    const targetSessionId = targetChannel?.session_id;
     if (targetSessionId) {
       await fetchHermesGateway(
         `/api/sessions/${encodeURIComponent(targetSessionId)}`,
         { method: "DELETE" },
-        2500
+        2500,
+        undefined,
+        targetProfile
       ).catch(() => {});
     }
 
@@ -2517,12 +2836,16 @@ async function createServer() {
       return;
     }
     const chSlug = normalizeChannelKey(task.channel_id || "general") || "general";
+    const ch = channels.find((c) => c.id === chSlug);
     const gwRunId = task.run_id || activeGatewayRunIds.get(chSlug);
+    const targetProfile = task.profile || ch?.profile || (gwRunId ? runProfileMap.get(gwRunId) : undefined);
     if (gwRunId) {
       await fetchHermesGateway(
         `/v1/runs/${encodeURIComponent(gwRunId)}/stop`,
         { method: "POST" },
-        2500
+        2500,
+        undefined,
+        targetProfile
       ).catch(() => {});
     }
 
@@ -2579,13 +2902,17 @@ async function createServer() {
       return;
     }
     const chSlug = normalizeChannelKey(task.channel_id || "general") || "general";
+    const ch = channels.find((c) => c.id === chSlug);
     const gwRunId = task.run_id || activeGatewayRunIds.get(chSlug);
+    const targetProfile = task.profile || ch?.profile || (gwRunId ? runProfileMap.get(gwRunId) : undefined);
     if (gwRunId) {
       try {
         const steerRes = await fetchHermesGateway(
           `/v1/runs/${encodeURIComponent(gwRunId)}/steer`,
           { method: "POST", body: JSON.stringify({ text: text.trim() }) },
-          3000
+          3000,
+          undefined,
+          targetProfile
         );
         if (!steerRes.ok) {
           const err = await readGatewayErrorBody(steerRes);

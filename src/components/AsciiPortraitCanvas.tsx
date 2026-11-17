@@ -705,7 +705,7 @@ export function AsciiPortraitCanvas({
             isSidebar
               ? 'w-[72px] h-[66px] block'
               : isStage
-              ? 'block w-[clamp(230px,38vmin,540px)] aspect-[12/11]'
+              ? 'block w-[clamp(164px,min(44vw,29dvh),480px)] sm:w-[clamp(204px,min(38vw,33dvh),500px)] aspect-[12/11]'
               : 'w-[216px] h-[198px] block'
           }
         />

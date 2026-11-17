@@ -7,6 +7,8 @@ import type {
   HermesAgentSession,
   HermesCronJob,
   HermesGatewayStatus,
+  HermesProfileMode,
+  HermesProfileSummary,
   HermesSkill,
   HermesToolset,
   HermesTransportMode,
@@ -65,6 +67,7 @@ interface HermesTaskPayload {
   background?: boolean;
   handover_id?: string;
   session_id?: string;
+  profile?: string;
   run_id?: string;
   error_code?: string;
   progress?: string;
@@ -83,6 +86,7 @@ interface HermesChannelPayload {
   slug?: string;
   session_id: string;
   session_key?: string;
+  profile?: string | null;
   topic?: string | null;
   instructions?: string | null;
   persona?: string | null;
@@ -248,6 +252,7 @@ function mapTask(t: HermesTaskPayload, aliases?: ReadonlyMap<string, string>): B
     id: t.id,
     channelId: resolvedChannelId,
     sessionId: t.session_id,
+    ...(t.profile ? { profile: t.profile } : {}),
     runId: t.run_id,
     errorCode: t.error_code,
     kind: t.kind ?? (t.background === false ? 'In chat' : 'Background'),
@@ -276,6 +281,7 @@ function mapChannel(ch: HermesChannelPayload & { sessionId?: string }): Channel 
     name: ch.name || id,
     sessionId: ch.session_id || ch.sessionId || `hermes-${id}`,
     sessionKey: ch.session_key,
+    ...(ch.profile ? { profile: ch.profile } : {}),
     description: ch.topic ?? '',
     persona: ch.persona ?? ch.instructions ?? undefined,
     origin: ch.origin,
@@ -287,6 +293,7 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
   const [initialLoading, setInitialLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<HermesGatewayStatus | null>(null);
+  const [profiles, setProfiles] = useState<HermesProfileSummary[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [sessions, setSessions] = useState<HermesAgentSession[]>([]);
   const [approvals, setApprovals] = useState<ApprovalCard[]>([]);
@@ -302,11 +309,72 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
   const spokenItemIdsRef = useRef<Set<string>>(new Set());
   const loadedChannelsRef = useRef<Set<string>>(new Set());
 
+  const refreshProfiles = useCallback(async (refresh = false) => {
+    try {
+      const res = await fetch(`/api/hermes/profiles${refresh ? '?refresh=1' : ''}`);
+      if (!res.ok) return [];
+      const data = (await res.json()) as { profiles?: HermesProfileSummary[] };
+      const list = Array.isArray(data.profiles) ? data.profiles : [];
+      setProfiles(list);
+      return list;
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const saveProfile = useCallback(
+    async (payload: {
+      id: string;
+      label?: string;
+      mode: HermesProfileMode;
+      baseUrl?: string;
+      apiKey?: string;
+      description?: string;
+    }) => {
+      const res = await fetch('/api/hermes/profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        profiles?: HermesProfileSummary[];
+        profile?: HermesProfileSummary;
+      };
+      if (!res.ok) {
+        throw new Error(data.error || `Save profile failed: HTTP ${res.status}`);
+      }
+      if (Array.isArray(data.profiles)) {
+        setProfiles(data.profiles);
+      }
+      return data;
+    },
+    []
+  );
+
+  const deleteProfile = useCallback(async (profileId: string) => {
+    const res = await fetch(`/api/hermes/profiles/${encodeURIComponent(profileId)}`, {
+      method: 'DELETE',
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      profiles?: HermesProfileSummary[];
+    };
+    if (!res.ok) {
+      throw new Error(data.error || `Delete profile failed: HTTP ${res.status}`);
+    }
+    if (Array.isArray(data.profiles)) {
+      setProfiles(data.profiles);
+    }
+    return data;
+  }, []);
+
   const refreshGateway = useCallback(async () => {
     try {
-      const [gwRes, ctxRes] = await Promise.all([
+      const [gwRes, ctxRes, profRes] = await Promise.all([
         fetch('/api/hermes/gateway'),
         fetch('/api/hermes/context').catch(() => null),
+        fetch('/api/hermes/profiles?refresh=1').catch(() => null),
       ]);
       let nextGw: HermesGatewayStatus | null = null;
       if (gwRes.ok) {
@@ -325,6 +393,10 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
         if (Array.isArray(ctx.skills)) setSkills(ctx.skills);
         if (Array.isArray(ctx.toolsets)) setToolsets(ctx.toolsets);
         if (Array.isArray(ctx.cronJobs)) setCronJobs(ctx.cronJobs);
+      }
+      if (profRes?.ok) {
+        const profData = (await profRes.json()) as { profiles?: HermesProfileSummary[] };
+        if (Array.isArray(profData.profiles)) setProfiles(profData.profiles);
       }
       return nextGw;
     } catch {
@@ -403,10 +475,11 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
     let active = true;
     (async () => {
       try {
-        const [stateRes, gwRes, ctxRes] = await Promise.all([
+        const [stateRes, gwRes, ctxRes, profRes] = await Promise.all([
           fetch('/api/hermes/state'),
           fetch('/api/hermes/gateway').catch(() => null),
           fetch('/api/hermes/context').catch(() => null),
+          fetch('/api/hermes/profiles').catch(() => null),
         ]);
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const snap = (await stateRes.json()) as HermesStateSnapshot;
@@ -456,6 +529,10 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
           if (Array.isArray(ctx.skills)) setSkills(ctx.skills);
           if (Array.isArray(ctx.toolsets)) setToolsets(ctx.toolsets);
           if (Array.isArray(ctx.cronJobs)) setCronJobs(ctx.cronJobs);
+        }
+        if (profRes?.ok) {
+          const profData = (await profRes.json()) as { profiles?: HermesProfileSummary[] };
+          if (Array.isArray(profData.profiles)) setProfiles(profData.profiles);
         }
 
         setConnected(true);
@@ -551,6 +628,7 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
         sessionId?: string;
         sessionKey?: string;
         persona?: string;
+        profile?: string;
         transportMode?: HermesTransportMode;
         idempotencyKey?: string;
         model?: string;
@@ -572,6 +650,7 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
           session_id: sessionMeta?.sessionId,
           session_key: sessionMeta?.sessionKey,
           persona: sessionMeta?.persona,
+          ...(sessionMeta?.profile ? { profile: sessionMeta.profile } : {}),
           transport_mode: sessionMeta?.transportMode ?? transportMode,
           idempotency_key: idemKey,
           model: sessionMeta?.model,
@@ -610,6 +689,7 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
       sessionId: string;
       topic: string;
       persona: string;
+      profile?: string;
       skipWelcome?: boolean;
       requireFresh?: boolean;
     }) => {
@@ -871,7 +951,11 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
       initialLoading,
       connected,
       gatewayStatus,
+      profiles,
       refreshGateway,
+      refreshProfiles,
+      saveProfile,
+      deleteProfile,
       channels,
       sessions,
       approvals,
@@ -907,7 +991,11 @@ export function useHermesAgent(opts: UseHermesAgentOptions) {
       initialLoading,
       connected,
       gatewayStatus,
+      profiles,
       refreshGateway,
+      refreshProfiles,
+      saveProfile,
+      deleteProfile,
       channels,
       sessions,
       approvals,

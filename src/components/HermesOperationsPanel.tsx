@@ -19,6 +19,8 @@ import type {
   ChannelId,
   HermesCronJob,
   HermesGatewayStatus,
+  HermesProfileMode,
+  HermesProfileSummary,
   HermesSkill,
   HermesToolset,
   HermesTransportMode,
@@ -48,6 +50,19 @@ interface HermesOperationsPanelProps {
   onResumeJob?: (jobId: string) => Promise<void>;
   onRunJob?: (jobId: string) => Promise<void>;
   onDeleteJob?: (jobId: string) => Promise<void>;
+  profiles?: HermesProfileSummary[];
+  selectedProfileId?: string;
+  onSelectDefaultProfile?: (profileId: string) => void;
+  onSaveProfile?: (payload: {
+    id: string;
+    label?: string;
+    mode: HermesProfileMode;
+    baseUrl?: string;
+    apiKey?: string;
+    description?: string;
+  }) => Promise<unknown>;
+  onDeleteProfile?: (profileId: string) => Promise<unknown>;
+  sessionCountByProfile?: Record<string, number>;
 }
 
 type OpsTab = 'runtime' | 'approvals' | 'jobs';
@@ -72,6 +87,12 @@ export function HermesOperationsPanel({
   onResumeJob,
   onRunJob,
   onDeleteJob,
+  profiles = [],
+  selectedProfileId = 'default',
+  onSelectDefaultProfile,
+  onSaveProfile,
+  onDeleteProfile,
+  sessionCountByProfile = {},
 }: HermesOperationsPanelProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending').length;
 
@@ -87,6 +108,13 @@ export function HermesOperationsPanel({
   const [newJobName, setNewJobName] = useState('');
   const [jobBusyId, setJobBusyId] = useState<string | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
+  const [showAddProfileForm, setShowAddProfileForm] = useState(false);
+  const [profileIdInput, setProfileIdInput] = useState('');
+  const [profileModeInput, setProfileModeInput] = useState<HermesProfileMode>('multiplexed');
+  const [profileBaseUrlInput, setProfileBaseUrlInput] = useState('');
+  const [profileApiKeyInput, setProfileApiKeyInput] = useState('');
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const opsTabs: MorphTabItem<OpsTab>[] = [
     { id: 'runtime', label: 'Gateway & Tools' },
@@ -138,6 +166,52 @@ export function HermesOperationsPanel({
     }
   };
 
+  const handleSaveProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onSaveProfile) return;
+    const cleanId = profileIdInput.trim().toLowerCase();
+    if (!cleanId) {
+      setProfileError('Enter a profile slug (e.g. coder, research).');
+      return;
+    }
+    if (profileModeInput === 'standalone' && !profileBaseUrlInput.trim()) {
+      setProfileError('Standalone profiles need a gateway URL (e.g. http://127.0.0.1:8643).');
+      return;
+    }
+    setProfileError(null);
+    setProfileBusy(true);
+    try {
+      await onSaveProfile({
+        id: cleanId,
+        label: cleanId,
+        mode: profileModeInput,
+        baseUrl: profileModeInput === 'standalone' ? profileBaseUrlInput.trim() : undefined,
+        apiKey: profileApiKeyInput.trim() || undefined,
+      });
+      setProfileIdInput('');
+      setProfileBaseUrlInput('');
+      setProfileApiKeyInput('');
+      setShowAddProfileForm(false);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to save profile');
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const handleRemoveProfile = async (profileId: string) => {
+    if (!onDeleteProfile) return;
+    setProfileError(null);
+    setProfileBusy(true);
+    try {
+      await onDeleteProfile(profileId);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to remove profile');
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
   const isConnected = Boolean(gatewayStatus?.connected);
   const capabilities = gatewayStatus?.capabilities;
   const routeDisplay = `${gatewayStatus?.gatewayUrl || 'http://127.0.0.1:8642'}${gatewayStatus?.routePrefix || ''}`;
@@ -149,10 +223,10 @@ export function HermesOperationsPanel({
       className="flex flex-col rounded-xl bg-white/[0.025] border border-white/10 overflow-hidden"
     >
       {/* Session Lane Strip */}
-      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-white/[0.06] bg-white/[0.015]">
+      <div className="flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2 border-b border-white/[0.06] bg-white/[0.015] min-w-0">
         <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto cyber-scroll pr-2">
           {channels.length === 0 ? (
-            <span className="font-mono text-[11px] text-emerald-100/45">
+            <span className="font-mono text-[11px] text-emerald-100/45 truncate">
               No active sessions synced from gateway
             </span>
           ) : (
@@ -188,7 +262,7 @@ export function HermesOperationsPanel({
             })
           )}
         </div>
-        <span className="shrink-0 pl-3 border-l border-white/[0.08] font-mono text-[10.5px] text-emerald-100/45 whitespace-nowrap">
+        <span className="hidden sm:inline shrink-0 pl-3 border-l border-white/[0.08] font-mono text-[10.5px] text-emerald-100/45 whitespace-nowrap">
           {gatewayStatus?.sessionKeyHeader || 'X-Hermes-Session-Key'}
         </span>
       </div>
@@ -227,9 +301,9 @@ export function HermesOperationsPanel({
                     data-testid={`approval-card-${card.id}`}
                     className="rounded-xl bg-white/[0.04] border border-white/10 hover:border-white/20 transition-colors p-3 space-y-2.5"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-emerald-100/55">
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-mono text-emerald-100/55">
                           <span className="max-w-[160px] truncate">run:{card.runId || card.id}</span>
                           {card.requestId && (
                             <>
@@ -252,10 +326,10 @@ export function HermesOperationsPanel({
                             </>
                           )}
                         </div>
-                        <h3 className="text-sm font-semibold text-white mt-0.5">{card.title}</h3>
+                        <h3 className="text-sm font-semibold text-white mt-0.5 break-words">{card.title}</h3>
                       </div>
                       <span
-                        className={`inline-flex items-center gap-1.5 font-mono text-[11px] uppercase font-semibold ${
+                        className={`inline-flex items-center gap-1.5 font-mono text-[11px] uppercase font-semibold shrink-0 ${
                           card.status === 'approved'
                             ? 'text-emerald-400'
                             : card.status === 'rejected'
@@ -337,11 +411,11 @@ export function HermesOperationsPanel({
 
         {activeTab === 'jobs' && (
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-mono text-xs text-white font-semibold">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-mono text-xs text-white font-semibold min-w-0 truncate">
                 Scheduled Jobs (GET /api/jobs)
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {onRefreshGateway && (
                   <button
                     type="button"
@@ -437,8 +511,8 @@ export function HermesOperationsPanel({
                       data-testid={`cron-job-${job.id}`}
                       className="rounded-xl bg-white/[0.04] border border-white/10 p-3 space-y-2"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
+                      <div className="flex flex-wrap sm:flex-nowrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
                             <span className="text-[#6EE7B7] font-semibold">{job.schedule}</span>
                             <span className="text-emerald-100/40">·</span>
@@ -448,7 +522,7 @@ export function HermesOperationsPanel({
                             <span className="text-emerald-100/40">·</span>
                             <span className="text-emerald-100/50 truncate">{job.id}</span>
                           </div>
-                          <p className="text-xs text-white mt-1">{job.summary}</p>
+                          <p className="text-xs text-white mt-1 break-words">{job.summary}</p>
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
@@ -634,9 +708,219 @@ export function HermesOperationsPanel({
               )}
             </div>
 
+            {/* Parallel Profiles (~/.hermes/profiles/* & Gateway Routes) */}
+            <div data-testid="ops-parallel-profiles" className="py-3 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-xs font-semibold text-white">
+                    Parallel Profiles
+                  </h3>
+                  <p className="font-mono text-[10.5px] text-emerald-100/45 mt-0.5">
+                    Isolated ~/.hermes/profiles/&lt;name&gt; memories &amp; tools runnable side-by-side
+                  </p>
+                </div>
+                {onSaveProfile && (
+                  <button
+                    type="button"
+                    data-testid="ops-add-profile-toggle"
+                    onClick={() => {
+                      setProfileError(null);
+                      setShowAddProfileForm((v) => !v);
+                    }}
+                    className="ui-tactile px-2.5 py-1 rounded-md bg-[#34D399]/16 border border-[#34D399]/35 text-[11px] font-mono text-[#6EE7B7] hover:bg-[#34D399]/24 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add Profile</span>
+                  </button>
+                )}
+              </div>
+
+              {profileError && (
+                <div className="rounded-lg bg-rose-500/15 border border-rose-400/30 px-3 py-2 font-mono text-[11px] text-rose-200">
+                  {profileError}
+                </div>
+              )}
+
+              {showAddProfileForm && onSaveProfile && (
+                <form
+                  data-testid="ops-add-profile-form"
+                  onSubmit={(e) => void handleSaveProfileSubmit(e)}
+                  className="rounded-xl bg-black/35 border border-[#34D399]/30 p-3 space-y-2.5"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label htmlFor="profile-id-input" className="block font-mono text-[10.5px] text-emerald-100/65">
+                        Profile Slug
+                      </label>
+                      <input
+                        id="profile-id-input"
+                        data-testid="ops-profile-id-input"
+                        type="text"
+                        value={profileIdInput}
+                        onChange={(e) => setProfileIdInput(e.target.value)}
+                        placeholder="e.g. coder, research"
+                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="profile-mode-select" className="block font-mono text-[10.5px] text-emerald-100/65">
+                        Gateway Mode
+                      </label>
+                      <select
+                        id="profile-mode-select"
+                        data-testid="ops-profile-mode-select"
+                        value={profileModeInput}
+                        onChange={(e) => setProfileModeInput(e.target.value as HermesProfileMode)}
+                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                      >
+                        <option value="multiplexed">Multiplexed (/p/&lt;name&gt;)</option>
+                        <option value="standalone">Standalone Gateway Port</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {profileModeInput === 'standalone' && (
+                    <div className="space-y-1">
+                      <label htmlFor="profile-baseurl-input" className="block font-mono text-[10.5px] text-emerald-100/65">
+                        Standalone Gateway URL (hermes -p &lt;name&gt; gateway start)
+                      </label>
+                      <input
+                        id="profile-baseurl-input"
+                        data-testid="ops-profile-baseurl-input"
+                        type="text"
+                        value={profileBaseUrlInput}
+                        onChange={(e) => setProfileBaseUrlInput(e.target.value)}
+                        placeholder="http://127.0.0.1:8643"
+                        className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    <label htmlFor="profile-apikey-input" className="block font-mono text-[10.5px] text-emerald-100/65">
+                      Profile API Key (optional, stored server-side only)
+                    </label>
+                    <input
+                      id="profile-apikey-input"
+                      data-testid="ops-profile-apikey-input"
+                      type="password"
+                      value={profileApiKeyInput}
+                      onChange={(e) => setProfileApiKeyInput(e.target.value)}
+                      placeholder="Leave empty to inherit primary or env key"
+                      className="w-full rounded-lg bg-black/45 border border-white/12 px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#34D399]/60"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddProfileForm(false);
+                        setProfileError(null);
+                      }}
+                      className="px-3 py-1 rounded-md text-xs text-emerald-100/65 hover:text-white cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      data-testid="ops-profile-save-btn"
+                      disabled={profileBusy}
+                      className="px-3 py-1 rounded-md bg-[#34D399] text-[#05140E] font-semibold text-xs hover:bg-[#6EE7B7] disabled:opacity-45 cursor-pointer"
+                    >
+                      {profileBusy ? 'Saving…' : 'Save Profile'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.015] divide-y divide-white/[0.06]">
+                {(profiles.length > 0
+                  ? profiles
+                  : [
+                      {
+                        id: gatewayStatus?.profile || 'default',
+                        label: gatewayStatus?.profile || 'default',
+                        mode: 'multiplexed' as const,
+                        source: 'primary' as const,
+                        baseUrl: gatewayStatus?.gatewayUrl || 'http://127.0.0.1:8642',
+                        routePrefix: gatewayStatus?.routePrefix || '',
+                        hasApiKey: false,
+                        connected: isConnected,
+                        activeModel: gatewayStatus?.activeModel,
+                      },
+                    ]
+                ).map((p) => {
+                  const isDefault = p.id === selectedProfileId;
+                  const count = sessionCountByProfile[p.id] ?? 0;
+                  const routeLabel =
+                    p.mode === 'standalone'
+                      ? p.baseUrl
+                      : `${p.baseUrl}${p.routePrefix || (p.id === 'default' ? '' : `/p/${p.id}`)}`;
+                  return (
+                    <div
+                      key={p.id}
+                      data-testid={`ops-profile-row-${p.id}`}
+                      className="px-3 py-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <div className="flex items-center gap-2 font-mono">
+                          <StatusPulse state={p.connected ? 'live' : 'idle'} size="sm" />
+                          <span className="text-white font-semibold truncate">@{p.id}</span>
+                          <span className="text-[10.5px] text-emerald-100/45 shrink-0">
+                            {p.mode === 'standalone' ? 'standalone' : p.routePrefix || '/'}
+                          </span>
+                          {p.activeModel && (
+                            <span className="hidden sm:inline text-[10.5px] text-[#6EE7B7]/85 truncate">
+                              · {p.activeModel}
+                            </span>
+                          )}
+                          {count > 0 && (
+                            <span className="text-[10.5px] text-emerald-100/55 shrink-0 tabular-nums">
+                              · {count} {count === 1 ? 'lane' : 'lanes'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="font-mono text-[10.5px] text-emerald-100/45 truncate">
+                          {routeLabel} · {p.source}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {onSelectDefaultProfile && (
+                          <button
+                            type="button"
+                            onClick={() => onSelectDefaultProfile(p.id)}
+                            className={`px-2 py-1 rounded-md font-mono text-[10.5px] transition-colors cursor-pointer ${
+                              isDefault
+                                ? 'bg-[#34D399]/16 text-[#6EE7B7] font-medium'
+                                : 'bg-white/[0.04] text-emerald-100/60 hover:text-white hover:bg-white/[0.08]'
+                            }`}
+                          >
+                            {isDefault ? 'Default' : 'Use default'}
+                          </button>
+                        )}
+                        {p.source === 'custom' && onDeleteProfile && (
+                          <button
+                            type="button"
+                            disabled={profileBusy}
+                            aria-label={`Delete profile ${p.id}`}
+                            onClick={() => void handleRemoveProfile(p.id)}
+                            className="p-1 rounded-md text-rose-300/80 hover:text-rose-200 hover:bg-rose-500/15 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Toolsets from GET /v1/toolsets */}
             <div className="py-3 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-xs font-semibold text-white">
                   Toolsets
                 </h3>
@@ -660,20 +944,20 @@ export function HermesOperationsPanel({
                         <button
                           type="button"
                           onClick={() => setExpandedToolset(isOpen ? null : ts.name)}
-                          className="w-full text-left flex items-center justify-between gap-2 font-mono text-[11px] cursor-pointer hover:text-white"
+                          className="w-full text-left flex items-center justify-between gap-2 font-mono text-[11px] cursor-pointer hover:text-white min-w-0"
                         >
-                          <span className={ts.enabled ? 'text-[#6EE7B7] font-semibold' : 'text-emerald-100/45'}>
+                          <span className={`truncate ${ts.enabled ? 'text-[#6EE7B7] font-semibold' : 'text-emerald-100/45'}`}>
                             {ts.label}
                           </span>
-                          <span className="text-emerald-100/50">
+                          <span className="text-emerald-100/50 shrink-0 whitespace-nowrap">
                             {ts.enabled ? (ts.configured === false ? 'unconfigured' : 'enabled') : 'disabled'} · {ts.tools.length} tools
                           </span>
                         </button>
                         {ts.description && (
-                          <p className="text-emerald-100/60 text-[11px] mt-0.5">{ts.description}</p>
+                          <p className="text-emerald-100/60 text-[11px] mt-0.5 break-words">{ts.description}</p>
                         )}
                         {isOpen && ts.tools.length > 0 && (
-                          <div className="mt-1 font-mono text-[10.5px] text-emerald-100/75 bg-black/30 rounded p-2">
+                          <div className="mt-1 font-mono text-[10.5px] text-emerald-100/75 bg-black/30 rounded p-2 break-words">
                             {ts.tools.join(', ')}
                           </div>
                         )}
@@ -686,7 +970,7 @@ export function HermesOperationsPanel({
 
             {/* Skills from GET /v1/skills */}
             <div className="py-3 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-xs font-semibold text-white">
                   Skills
                 </h3>

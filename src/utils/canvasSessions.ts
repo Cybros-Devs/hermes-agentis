@@ -28,6 +28,7 @@ export interface CanvasSession {
   id: string;
   channelId: ChannelId;
   hermesSessionId: string;
+  profile?: string;
   agentPersona: string;
   name: string;
   topic: string;
@@ -300,7 +301,7 @@ export function isCanvasBackgroundRun(
 }
 
 export function formatCanvasDotLabel(
-  session: Pick<CanvasSession, 'channelId' | 'hermesSessionId' | 'name' | 'topic'>,
+  session: Pick<CanvasSession, 'channelId' | 'hermesSessionId' | 'name' | 'topic' | 'profile'>,
   hermesSession?: HermesAgentSession,
   turnCount = 0
 ): {
@@ -341,6 +342,10 @@ export function formatCanvasDotLabel(
   const parts: string[] = [];
   if (!titleInfo.isOpaque) {
     parts.push(sourceLabel);
+  }
+  const boundProfile = (hermesSession?.profile || session.profile || '').trim();
+  if (boundProfile && boundProfile !== 'default') {
+    parts.push(`@${boundProfile}`);
   }
   const effectiveTurns = Math.max(turnCount, hermesSession?.turnCount ?? 0);
   if (effectiveTurns > 0) {
@@ -878,6 +883,9 @@ export function normalizeCanvasSessions(rawList: Partial<CanvasSession>[]): Canv
         !/^duet(-|$)/i.test(item.hermesSessionId.trim())
           ? item.hermesSessionId.trim()
           : createHermesSessionId(channelId),
+      ...(typeof item.profile === 'string' && item.profile.trim()
+        ? { profile: item.profile.trim().toLowerCase() }
+        : {}),
       agentPersona:
         typeof item.agentPersona === 'string' && item.agentPersona.trim()
           ? item.agentPersona.trim()

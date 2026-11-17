@@ -335,7 +335,7 @@ export function GuidedOnboarding() {
       <div
         ref={modalCardRef}
         tabIndex={-1}
-        className={`onboarding-modal-card relative flex flex-col w-full max-w-[540px] max-h-[92vh] rounded-2xl border border-[#34D399]/35 bg-[#081310]/86 backdrop-blur-xl shadow-[0_24px_72px_rgba(0,0,0,0.62)] p-4 sm:p-5 text-[#ECF3F0] focus:outline-none ${
+        className={`onboarding-modal-card relative flex flex-col w-full max-w-[540px] max-h-[92dvh] rounded-2xl border border-[#34D399]/35 bg-[#081310]/86 backdrop-blur-xl shadow-[0_24px_72px_rgba(0,0,0,0.62)] p-4 sm:p-5 text-[#ECF3F0] focus:outline-none ${
           visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-2 scale-[0.98]'
         }`}
       >
@@ -410,9 +410,11 @@ export function GuidedOnboarding() {
           {/* Step body — one decision per step, reuses BackgroundControls */}
           <div className="pt-2.5 space-y-3">
             {currentStep.id === 'welcome' && (
-              <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3.5 py-2.5 flex items-center justify-between text-xs text-emerald-100/70">
-                <span>Live glass backdrop &amp; contrast setup</span>
-                <span className="font-mono text-[11px] text-[#6EE7B7]">4 quick steps</span>
+              <div className="rounded-xl border border-white/10 bg-white/[0.025] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-100/70">
+                <span className="min-w-0">Live glass backdrop &amp; contrast setup</span>
+                <span className="font-mono text-[11px] text-[#6EE7B7] whitespace-nowrap shrink-0">
+                  4 quick steps
+                </span>
               </div>
             )}
 

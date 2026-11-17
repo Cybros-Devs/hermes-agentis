@@ -150,6 +150,7 @@ export default function App() {
   );
 
   const [entries, setEntries] = useState<TerminalEntry[]>([]);
+  const [draftProfile, setDraftProfile] = useState<string>('default');
   const [uiConfig, setUiConfig] = useState<UiCustomizationConfig>(INITIAL_UI_CONFIG);
   const [customizerOpen, setCustomizerOpen] = useState(false);
   const [customizerTab, setCustomizerTab] = useState<StudioTab>('theme');
@@ -163,6 +164,7 @@ export default function App() {
     channels,
     panelView,
     homeSessionDraft,
+    draftProfile,
     approvals,
     tasks,
     brief,
@@ -175,6 +177,7 @@ export default function App() {
     channels,
     panelView,
     homeSessionDraft,
+    draftProfile,
     approvals,
     tasks,
     brief,
@@ -407,7 +410,10 @@ export default function App() {
   const {
     connected: hermesConnected,
     gatewayStatus,
+    profiles,
     refreshGateway,
+    saveProfile,
+    deleteProfile,
     skills,
     toolsets,
     cronJobs,
@@ -472,9 +478,21 @@ export default function App() {
         const nextName = ch.name || cs.name;
         const nextTopic = ch.description || cs.topic;
         const nextSid = ch.sessionId || cs.hermesSessionId;
-        if (nextName !== cs.name || nextTopic !== cs.topic || nextSid !== cs.hermesSessionId) {
+        const nextProfile = ch.profile ?? cs.profile;
+        if (
+          nextName !== cs.name ||
+          nextTopic !== cs.topic ||
+          nextSid !== cs.hermesSessionId ||
+          nextProfile !== cs.profile
+        ) {
           changed = true;
-          return { ...cs, name: nextName, topic: nextTopic, hermesSessionId: nextSid };
+          return {
+            ...cs,
+            name: nextName,
+            topic: nextTopic,
+            hermesSessionId: nextSid,
+            profile: nextProfile,
+          };
         }
         return cs;
       });
@@ -507,6 +525,7 @@ export default function App() {
           id: rowId,
           channelId: ch.id,
           hermesSessionId: ch.sessionId || createHermesSessionId(ch.id),
+          profile: ch.profile,
           agentPersona: ch.persona || 'Hermes Agent session synced from gateway.',
           name: ch.name || ch.id,
           topic: ch.description || ch.name || ch.id,
@@ -551,6 +570,7 @@ export default function App() {
           sessionId: cs.hermesSessionId,
           topic: cs.topic,
           persona: cs.agentPersona,
+          profile: cs.profile,
         }).catch(() => {});
       }
     }
@@ -565,6 +585,7 @@ export default function App() {
           id: cs.channelId,
           name: cs.name,
           sessionId: cs.hermesSessionId,
+          profile: cs.profile,
           description: cs.topic,
           persona: cs.agentPersona,
           origin: cs.origin === 'imported' ? 'external' : 'workspace',
@@ -749,15 +770,18 @@ export default function App() {
       ch: ChannelId,
       promptText: string,
       source: 'voice' | 'cli',
-      meta?: { name?: string; topic?: string; sessionId?: string; persona?: string },
+      meta?: { name?: string; topic?: string; sessionId?: string; persona?: string; profile?: string },
       echoUserIfOffline = true
     ) => {
       const targetShape = stateRef.current.canvasSessions.find((s) => s.channelId === ch);
+      const targetChannel = stateRef.current.channels.find((c) => c.id === ch);
       const targetHermesSessionId =
         meta?.sessionId ?? targetShape?.hermesSessionId ?? createHermesSessionId(ch);
       const targetPersona = meta?.persona ?? targetShape?.agentPersona;
       const targetTopic = meta?.topic ?? targetShape?.topic;
       const targetName = meta?.name ?? targetShape?.name ?? ch;
+      const targetProfile =
+        meta?.profile ?? targetShape?.profile ?? targetChannel?.profile ?? stateRef.current.draftProfile;
 
       // Client-side UI commands phrased in natural language still work without inventing an agent reply.
       const localIntentPatch = parseNaturalUiIntent(promptText, stateRef.current.uiConfig);
@@ -774,6 +798,7 @@ export default function App() {
             topic: targetTopic,
             sessionId: targetHermesSessionId,
             persona: targetPersona,
+            profile: targetProfile,
             transportMode,
           });
           if (item) {
@@ -866,6 +891,7 @@ export default function App() {
   const startHomeSessionAndSend = useCallback(
     async (promptText: string, source: 'voice' | 'cli') => {
       const currentSessions = stateRef.current.canvasSessions;
+      const selectedProfile = stateRef.current.draftProfile || 'default';
       const existingIds = new Set<string>([
         ...currentSessions.map((s) => s.channelId),
         ...stateRef.current.channels.map((c) => c.id),
@@ -878,6 +904,7 @@ export default function App() {
         id: `session-${derived.slug}-${Date.now().toString(36)}`,
         channelId: derived.slug,
         hermesSessionId: derived.hermesSessionId,
+        profile: selectedProfile,
         agentPersona: derived.persona,
         name: derived.slug,
         topic: derived.topic,
@@ -917,6 +944,7 @@ export default function App() {
                 id: derived.slug,
                 name: derived.slug,
                 sessionId: derived.hermesSessionId,
+                profile: selectedProfile,
                 description: derived.topic,
                 persona: derived.persona,
                 origin: 'workspace',
@@ -940,6 +968,7 @@ export default function App() {
             sessionId: derived.hermesSessionId,
             topic: derived.topic,
             persona: derived.persona,
+            profile: selectedProfile,
             skipWelcome: true,
             requireFresh: true,
           });
@@ -997,6 +1026,7 @@ export default function App() {
           topic: derived.topic,
           sessionId: finalSessionId,
           persona: derived.persona,
+          profile: selectedProfile,
         },
         hermesConnected
       );
@@ -1062,6 +1092,8 @@ export default function App() {
         gatewayUrl: gatewayStatus?.gatewayUrl,
         activeModel: gatewayStatus?.activeModel,
         gatewayProfile: gatewayStatus?.profile,
+        profiles,
+        draftProfile: stateRef.current.draftProfile,
         routePrefix: gatewayStatus?.routePrefix,
         healthStatus: gatewayStatus?.healthStatus,
         sessionKeyHeader: gatewayStatus?.sessionKeyHeader,
@@ -1081,6 +1113,9 @@ export default function App() {
             handleStartNewHomeSession();
           }
           return;
+        }
+        if (result.switchProfile) {
+          setDraftProfile(result.switchProfile);
         }
         if (result.uiPatch) {
           applyAgentUiPatch(result.uiPatch, 'cli');
@@ -1162,6 +1197,7 @@ export default function App() {
       handleRejectCard,
       handleStartNewHomeSession,
       hermesConnected,
+      profiles,
       sendDirectChannelPrompt,
       setChannelThinking,
       setTransportMode,
@@ -1502,10 +1538,12 @@ export default function App() {
           : autonomyMode === 'watch'
           ? 'Continuous watch'
           : 'On-demand');
+      const targetProfile = payload.profile || stateRef.current.draftProfile || 'default';
       const nextSession: CanvasSession = {
         id: `session-${slug}-${Date.now().toString(36)}`,
         channelId: slug,
         hermesSessionId,
+        profile: targetProfile,
         agentPersona: payload.persona,
         name: slug,
         topic: payload.topic,
@@ -1538,7 +1576,7 @@ export default function App() {
       setActiveChannel(slug);
       setMood('happy');
 
-      const msg = `Isolated Dot ${hermesSessionId} online (#${slug} · ${scheduleLabel}). ${payload.topic}`;
+      const msg = `Isolated Dot ${hermesSessionId} online (#${slug}${targetProfile !== 'default' ? ` · @${targetProfile}` : ''} · ${scheduleLabel}). ${payload.topic}`;
       updateSpokenLine(msg, slug);
 
       if (hermesConnected) {
@@ -1548,6 +1586,7 @@ export default function App() {
           sessionId: hermesSessionId,
           topic: payload.topic,
           persona: payload.persona,
+          profile: targetProfile,
         }).catch(() => {
           appendEntry({
             channelId: slug,
@@ -1573,13 +1612,31 @@ export default function App() {
   const handleUpdateDotConfig = useCallback(
     (
       id: string,
-      patch: Partial<Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills'>>
+      patch: Partial<
+        Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills' | 'profile'>
+      >
     ) => {
+      const target = stateRef.current.canvasSessions.find((s) => s.id === id);
       setCanvasSessions((prev) =>
         prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
       );
+      if (target && patch.profile !== undefined) {
+        setChannels((prev) =>
+          prev.map((c) => (c.id === target.channelId ? { ...c, profile: patch.profile } : c))
+        );
+        if (hermesConnected) {
+          void createHermesSession({
+            channelId: target.channelId,
+            name: target.name,
+            sessionId: target.hermesSessionId,
+            topic: target.topic,
+            persona: target.agentPersona,
+            profile: patch.profile,
+          }).catch(() => {});
+        }
+      }
     },
-    []
+    [createHermesSession, hermesConnected]
   );
 
   const handleAddCanvasPin = useCallback((pin: Omit<CanvasPin, 'id'>) => {
@@ -1717,23 +1774,23 @@ export default function App() {
   const mainGridClass = !uiConfig.sidebarVisible
     ? 'grid-cols-1'
     : uiConfig.sidebarPosition === 'right'
-    ? 'grid-cols-1 lg:grid-cols-[1fr_var(--ui-sidebar-w,296px)]'
-    : 'grid-cols-1 lg:grid-cols-[var(--ui-sidebar-w,296px)_1fr]';
+    ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_min(var(--ui-sidebar-w,296px),260px)] xl:grid-cols-[minmax(0,1fr)_var(--ui-sidebar-w,296px)]'
+    : 'grid-cols-1 lg:grid-cols-[min(var(--ui-sidebar-w,296px),260px)_minmax(0,1fr)] xl:grid-cols-[var(--ui-sidebar-w,296px)_minmax(0,1fr)]';
 
   const gridGapClass =
     uiConfig.density === 'compact' ? 'gap-2' : uiConfig.density === 'airy' ? 'gap-4' : 'gap-3';
 
   return (
     <div
-      className={`h-[100dvh] min-h-[500px] emerald-ambient-bg text-[#ECF3F0] ${rootDensityPadding} flex flex-col overflow-hidden`}
+      className={`h-[100dvh] min-h-[360px] emerald-ambient-bg text-[#ECF3F0] ${rootDensityPadding} flex flex-col overflow-hidden`}
     >
-      <main id="top" className={`flex-1 min-h-0 w-full mx-auto grid ${mainGridClass} ${gridGapClass}`}>
+      <main id="top" className={`flex-1 min-h-0 min-w-0 w-full mx-auto grid ${mainGridClass} ${gridGapClass}`}>
         {/* Sidebar Window: Tasks, Approvals, Halftone Thumb & Lanes */}
         {uiConfig.sidebarVisible && (
           <div
             className={`${mobileSidebarOpen ? 'flex' : 'hidden'} lg:flex ${
               uiConfig.sidebarPosition === 'right' ? 'lg:order-2' : 'lg:order-1'
-            } flex-col min-h-0 h-full`}
+            } flex-col min-h-0 min-w-0 h-full`}
           >
             <SidebarWorkspace
               channels={channels}
@@ -1805,7 +1862,7 @@ export default function App() {
         <div
           className={`${mobileSidebarOpen && uiConfig.sidebarVisible ? 'hidden' : 'flex'} lg:flex ${
             uiConfig.sidebarPosition === 'right' ? 'lg:order-1' : 'lg:order-2'
-          } flex-col min-h-0 h-full`}
+          } flex-col min-h-0 min-w-0 h-full`}
         >
           <VoiceWorkspacePane
             channels={channels}
@@ -1901,6 +1958,11 @@ export default function App() {
             onOpenSessionThread={handleOpenSessionThread}
             homeSessionDraft={homeSessionDraft}
             onStartNewSession={handleStartNewHomeSession}
+            profiles={profiles}
+            draftProfile={draftProfile}
+            onChangeDraftProfile={setDraftProfile}
+            onSaveProfile={saveProfile}
+            onDeleteProfile={deleteProfile}
             uiConfig={uiConfig}
             onOpenStudio={() => setCustomizerOpen(true)}
           />

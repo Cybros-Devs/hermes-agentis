@@ -6,6 +6,7 @@ import type {
   ExpressionMood,
   HermesCapabilities,
   HermesCronJob,
+  HermesProfileSummary,
   HermesSkill,
   HermesToolset,
   HermesTransportMode,
@@ -32,6 +33,8 @@ export interface CliContext {
   gatewayUrl?: string;
   activeModel?: string;
   gatewayProfile?: string;
+  profiles?: HermesProfileSummary[];
+  draftProfile?: string;
   routePrefix?: string;
   healthStatus?: string;
   sessionKeyHeader?: string;
@@ -48,6 +51,7 @@ export type CliExecutionResult =
       mood: ExpressionMood;
       spokenText: string;
       switchChannel?: ChannelId;
+      switchProfile?: string;
       startNewSession?: boolean;
       newSessionPrompt?: string;
       approveCardId?: string;
@@ -70,6 +74,8 @@ export type CliExecutionResult =
 export const AVAILABLE_COMMANDS = [
   '/help',
   '/new',
+  '/profiles',
+  '/profile',
   '/brief',
   '/tasks',
   '/skills',
@@ -152,6 +158,8 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         output: [
           'HERMES AGENT // COMMAND REFERENCE',
           '  /new [prompt]          Start a fresh isolated Hermes Agent session',
+          '  /profiles              List Hermes profiles for parallel sessions',
+          '  /profile <slug>        Set default Hermes profile for new Home/Dot launches',
           '  /tasks                 List run & turn tasks per session',
           '  /skills                List skills from GET /v1/skills',
           '  /toolsets              List toolsets & tools from GET /v1/toolsets',
@@ -185,6 +193,51 @@ export function executeCliInput(rawInput: string, ctx: CliContext): CliExecution
         output: argStr
           ? `Starting fresh Hermes Agent session for: "${argStr}"`
           : 'New Hermes Agent session armed on Home. Prompt anything to start.',
+      };
+    }
+
+    case '/profiles':
+    case '/profile': {
+      const profiles = ctx.profiles ?? [];
+      const currentDraft = ctx.draftProfile || ctx.gatewayProfile || 'default';
+      if (!argStr) {
+        if (profiles.length === 0) {
+          return {
+            type: 'handled',
+            mood: 'neutral',
+            spokenText: `Active profile is ${currentDraft}. Configure extra profiles in Queue -> Gateway & Tools.`,
+            output: `HERMES PROFILES // active default="${currentDraft}"\n  Add parallel profiles in Queue -> Gateway & Tools or set HERMES_PROFILES.`,
+          };
+        }
+        const lines = profiles.map((p) => {
+          const route = p.mode === 'multiplexed' ? `${p.baseUrl}${p.routePrefix}` : p.baseUrl;
+          const marker = p.id === currentDraft ? '[DRAFT]' : '       ';
+          const state = p.connected ? 'READY' : 'OFFLINE';
+          return `  ${marker} @${p.id.padEnd(14)} ${p.mode.padEnd(11)} ${state.padEnd(7)} · ${route}`;
+        });
+        return {
+          type: 'handled',
+          mood: 'focused',
+          spokenText: `${profiles.length} Hermes profiles registered. Default launch profile is ${currentDraft}.`,
+          output: ['HERMES AGENT // PARALLEL PROFILES', ...lines, '  Usage: /profile <slug>'].join('\n'),
+        };
+      }
+      const normalized = argStr.replace(/^@/, '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+      const found = profiles.find((p) => p.id === normalized);
+      if (profiles.length > 0 && !found) {
+        return {
+          type: 'handled',
+          mood: 'alert',
+          spokenText: `Profile ${normalized} is not registered.`,
+          output: `Unknown profile "${normalized}". Available: ${profiles.map((p) => p.id).join(', ')}.\nAdd custom profiles in Queue -> Gateway & Tools.`,
+        };
+      }
+      return {
+        type: 'handled',
+        mood: 'happy',
+        switchProfile: normalized || 'default',
+        spokenText: `Default profile for new parallel sessions set to ${normalized || 'default'}.`,
+        output: `HERMES PROFILE // New Home & Dot sessions will launch on @${normalized || 'default'}.`,
       };
     }
 

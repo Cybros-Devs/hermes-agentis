@@ -423,24 +423,6 @@ export function SidebarWorkspace({
               <p className="font-mono text-[10px] text-amber-200/82 truncate mt-0.5">
                 {charState.activeTask.stepText}
               </p>
-              <div
-                aria-hidden="true"
-                className="mt-1.5 h-[2.5px] w-full rounded-full bg-white/[0.08] overflow-hidden"
-              >
-                {charState.activeTask.isIndeterminate ? (
-                  <span className="block h-full w-full rounded-full bg-amber-400/90 ui-progress-indeterminate" />
-                ) : (
-                  <span
-                    className="block h-full w-full origin-left rounded-full bg-amber-400/90 ui-progress-fill"
-                    style={{
-                      transform: `scaleX(${Math.max(
-                        0.06,
-                        Math.min(1, charState.activeTask.progressPct / 100)
-                      )})`,
-                    }}
-                  />
-                )}
-              </div>
             </button>
           ) : (
             charState.topApproval && (

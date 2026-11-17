@@ -340,7 +340,7 @@ export function UiCustomizerStudio({
         </div>
 
         {/* Scrollable Settings Controls */}
-        <div key={activeTab} className="ui-card-enter flex-1 min-h-0 overflow-y-auto cyber-scroll p-4 sm:px-5 sm:py-3.5 pb-5 space-y-3.5">
+        <div key={activeTab} className="ui-card-enter flex-1 min-w-0 min-h-0 overflow-y-auto cyber-scroll p-4 sm:px-5 sm:py-3.5 pb-5 space-y-3.5">
             {activeTab === 'theme' && (
               <>
                 <div className="space-y-2">
@@ -804,8 +804,8 @@ export function UiCustomizerStudio({
         </div>
 
         {/* Footer Undo / Reset / Done */}
-        <div className="px-5 py-3.5 border-t border-white/10 bg-black/25 flex items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-2">
+        <div className="px-4 sm:px-5 py-3.5 border-t border-white/10 bg-black/25 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               disabled={!canUndo}

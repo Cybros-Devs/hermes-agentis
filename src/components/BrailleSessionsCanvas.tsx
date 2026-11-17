@@ -16,6 +16,7 @@ import type {
   ApprovalCard,
   ChannelId,
   HermesAgentSession,
+  HermesProfileSummary,
   MouthViseme,
   TerminalEntry,
   VoiceState,
@@ -61,12 +62,16 @@ interface BrailleSessionsCanvasProps {
   horizonStyle?: BrailleHorizonStyle;
   speedScale?: number;
   reducedMotionOverride?: boolean;
+  profiles?: HermesProfileSummary[];
+  defaultProfile?: string;
   onSelectSession: (session: CanvasSession) => void;
   onMoveSession: (id: string, xPct: number, yPct: number) => void;
   onAddSession: (payload: CreateDotSessionPayload) => void;
   onUpdateDotConfig?: (
     id: string,
-    patch: Partial<Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills'>>
+    patch: Partial<
+      Pick<CanvasSession, 'autonomyMode' | 'scheduleLabel' | 'autonomyPaused' | 'skills' | 'profile'>
+    >
   ) => void;
   onAddPin: (pin: Omit<CanvasPin, 'id'>) => void;
   onMovePin: (id: string, xPct: number, yPct: number) => void;
@@ -107,6 +112,8 @@ export function BrailleSessionsCanvas({
   horizonStyle = 'silk',
   speedScale = 1,
   reducedMotionOverride = false,
+  profiles = [],
+  defaultProfile = 'default',
   onSelectSession,
   onMoveSession,
   onAddSession,
@@ -600,7 +607,7 @@ export function BrailleSessionsCanvas({
       onPointerUp={handleStagePointerUp}
       onPointerLeave={handleStagePointerLeave}
       onWheel={handleStageWheel}
-      className={`ui-view-enter relative flex-1 min-h-0 flex flex-col justify-between overflow-hidden select-none ${
+      className={`@container ui-view-enter relative flex-1 min-h-0 min-w-0 flex flex-col justify-between overflow-hidden select-none ${
         isPanning ? 'cursor-grabbing' : 'sm:cursor-grab'
       }`}
     >
@@ -647,7 +654,7 @@ export function BrailleSessionsCanvas({
       {/* Block Berd × OpenAI Dots Spatial Toolbar */}
       <div
         onPointerDown={(e) => e.stopPropagation()}
-        className="relative z-20 flex items-center justify-between gap-3 px-4 sm:px-6 pt-3 pb-2 shrink-0"
+        className="relative z-20 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 sm:px-5 pt-3 pb-2 shrink-0"
       >
         <div className="flex items-baseline gap-2.5 min-w-0">
           <h1 className="text-sm sm:text-base font-semibold text-white tracking-tight truncate">
@@ -660,12 +667,12 @@ export function BrailleSessionsCanvas({
           </span>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0">
           {sessions.length > 0 && (
             <>
-              {/* Status Filter Segment (only shown when autonomous or live Dots exist) */}
+              {/* Status Filter Segment (shown across mobile and desktop when autonomous or live Dots exist) */}
               {(autonomousCount > 0 || runningCount > 0) && (
-                <div className="hidden sm:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                <div className="flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
                   {(
                     [
                       { id: 'all', label: `All ${sessions.length}` },
@@ -696,7 +703,7 @@ export function BrailleSessionsCanvas({
               {/* Formation Switcher (Constellation | Orbit | Grid) when 2+ Dots */}
               {sessions.length >= 2 && (
                 <>
-                  <div className="hidden md:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                  <div className="hidden @[660px]:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
                     {(
                       [
                         { id: 'constellation', label: 'Constellation', icon: Sparkles },
@@ -730,7 +737,7 @@ export function BrailleSessionsCanvas({
                     })}
                   </div>
 
-                  {/* Mobile/Compact Arrange Button */}
+                  {/* Compact Arrange Button when container is narrower than 660px */}
                   <button
                     type="button"
                     onClick={() => {
@@ -738,14 +745,15 @@ export function BrailleSessionsCanvas({
                       onArrangeFormation(activeFormation);
                     }}
                     aria-label="Auto arrange sessions on canvas"
-                    className="md:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                    title="Arrange dots"
+                    className="@[660px]:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-emerald-50/85 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                   </button>
                 </>
               )}
 
-              {/* Pan & Zoom Controls (sm+) */}
+              {/* Pan & Zoom Controls (sm+ spatial stage) */}
               <div className="hidden sm:flex items-center rounded-lg border border-white/10 bg-white/[0.03] px-1 py-0.5 gap-0.5 shrink-0">
                 <button
                   type="button"
@@ -783,13 +791,13 @@ export function BrailleSessionsCanvas({
             </>
           )}
 
-          {/* Drop Workspace Pin (sm+) */}
+          {/* Drop Workspace Pin */}
           <button
             type="button"
             data-testid="canvas-add-pin-btn"
             onClick={() => setIsPinComposerOpen((prev) => !prev)}
             aria-expanded={isPinComposerOpen}
-            className={`hidden sm:inline-flex ui-tactile px-2.5 py-1.5 rounded-lg border text-xs font-medium items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`ui-tactile px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${
               isPinComposerOpen
                 ? 'border-[#34D399]/55 bg-[#34D399]/16 text-[#6EE7B7]'
                 : 'border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-emerald-50/85 hover:text-white'
@@ -1101,6 +1109,8 @@ export function BrailleSessionsCanvas({
                   bloom={bloom}
                   speedScale={speedScale}
                   reducedMotionOverride={reducedMotionOverride}
+                  profiles={profiles}
+                  defaultProfile={defaultProfile}
                   gazeRef={gazeRef}
                   onPointerDown={(e) => handleCreaturePointerDown(e, session)}
                   onPointerUp={(e) => handleCreaturePointerUp(e, session)}
@@ -1144,6 +1154,8 @@ export function BrailleSessionsCanvas({
         open={isAddOpen}
         dotProfile={dotProfile}
         bloom={bloom}
+        profiles={profiles}
+        defaultProfile={defaultProfile}
         onClose={() => setIsAddOpen(false)}
         onCreate={(payload) => {
           onAddSession(payload);

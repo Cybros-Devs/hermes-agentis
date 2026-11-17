@@ -170,7 +170,7 @@ export function ThreadTurnMinimap({
           role="tooltip"
           data-testid="minimap-preview-card"
           style={{ top: `${popoverTop}px` }}
-          className="ui-pop-in pointer-events-none absolute left-full ml-2 w-[268px] sm:w-[304px] rounded-xl border border-white/[0.18] bg-[#091511] px-3.5 py-2.5 shadow-[0_20px_48px_rgba(0,0,0,0.78)]"
+          className="ui-pop-in pointer-events-none absolute left-full ml-2 w-[min(268px,calc(100vw-4.5rem))] sm:w-[min(304px,calc(100vw-5rem))] rounded-xl border border-white/[0.18] bg-[#091511] px-3.5 py-2.5 shadow-[0_20px_48px_rgba(0,0,0,0.78)]"
         >
           <p className="text-[13px] font-semibold text-white leading-snug line-clamp-2 break-words">
             {previewTurn.title}

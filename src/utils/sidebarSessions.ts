@@ -259,6 +259,7 @@ function synthesizeSessionFromGateway(hs: HermesAgentSession): CanvasSession {
     id: `gw-${channelId}`,
     channelId,
     hermesSessionId: hs.sessionId || createHermesSessionId(channelId),
+    ...(hs.profile ? { profile: hs.profile } : {}),
     agentPersona: hs.persona || 'Hermes Agent session synced from gateway.',
     name: (hs.name || hs.topic || channelId).replace(/^#/, ''),
     topic: hs.topic || hs.name || channelId,
@@ -352,9 +353,13 @@ export function buildSidebarSessionEntries(params: {
       hasActiveWork,
     });
 
+    const profileId = (hs?.profile || session.profile || '').trim();
     const metaParts: string[] = [];
     if (!titleInfo.isOpaque) {
       metaParts.push(sourceLabel);
+    }
+    if (profileId && profileId !== 'default') {
+      metaParts.push(`@${profileId}`);
     }
     if (turnCount > 0) {
       metaParts.push(`${turnCount} ${turnCount === 1 ? 'turn' : 'turns'}`);
@@ -377,9 +382,11 @@ export function buildSidebarSessionEntries(params: {
     }
 
     const activeTaskTitle = activity?.primaryTitle?.trim() || undefined;
+    const activeLeadLabel =
+      profileId && profileId !== 'default' ? `${sourceLabel} · @${profileId}` : sourceLabel;
     const metadataLine =
       hasActiveWork && activeTaskTitle
-        ? `${sourceLabel} · ${activeTaskTitle}`
+        ? `${activeLeadLabel} · ${activeTaskTitle}`
         : metaParts.join(' · ');
 
     const searchText = [
@@ -388,6 +395,7 @@ export function buildSidebarSessionEntries(params: {
       session.name,
       session.channelId,
       session.hermesSessionId,
+      profileId,
       sourceLabel,
       hs?.source ?? '',
       hs?.model ?? '',
@@ -397,6 +405,7 @@ export function buildSidebarSessionEntries(params: {
       .toLowerCase();
 
     const tooltipParts = [titleInfo.title];
+    if (profileId && profileId !== 'default') tooltipParts.push(`@${profileId}`);
     if (sourceLabel) tooltipParts.push(sourceLabel);
     if (relativeTime) tooltipParts.push(relativeTime);
     tooltipParts.push(session.hermesSessionId);
