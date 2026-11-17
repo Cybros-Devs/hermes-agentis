@@ -285,6 +285,28 @@ async function runGit(appRoot: string, args: string[], timeoutMs = 15_000): Prom
   return stdout.trim();
 }
 
+/**
+ * Checks whether `commitSha` is an ancestor of local HEAD. Returns true when
+ * local already contains that commit, false when local is missing it, and null
+ * when git could not answer (unknown object, git failure, non-repo).
+ */
+export async function isCommitAncestorOfHead(
+  appRoot: string,
+  commitSha: string,
+  timeoutMs = 10_000
+): Promise<boolean | null> {
+  try {
+    await runGit(appRoot, ['merge-base', '--is-ancestor', commitSha, 'HEAD'], timeoutMs);
+    return true;
+  } catch (err) {
+    const exitCode = (err as { code?: unknown })?.code;
+    if (typeof exitCode === 'number' && exitCode === 1) {
+      return false;
+    }
+    return null;
+  }
+}
+
 export async function readLocalBuildMetadata(appRoot: string): Promise<LocalBuildMetadata> {
   const version = readPackageVersion(appRoot);
   const gitDir = path.join(appRoot, '.git');
@@ -406,6 +428,13 @@ export function buildAppUpdateStatus(opts: {
   upstream: UpstreamReleaseInfo | null;
   receipt: UpdateReceipt | null;
   checkedAt?: number;
+  /**
+   * True when the upstream tip commit is already an ancestor of local HEAD
+   * (local is up to date or AHEAD of upstream — no pull needed). False when
+   * upstream has commits local is missing. Null/undefined when ancestry could
+   * not be determined; falls back to the commit-divergence heuristic.
+   */
+  upstreamAncestorOfLocal?: boolean | null;
 }): AppUpdateStatus {
   const { local, upstream, receipt } = opts;
   const checkedAt = opts.checkedAt ?? Date.now();
@@ -422,7 +451,10 @@ export function buildAppUpdateStatus(opts: {
     !latestCommit.startsWith(local.commit) &&
     !local.commit.startsWith(latestCommit)
   ) {
-    updateAvailable = true;
+    // Local may simply be ahead of upstream (unpushed commits on top of the
+    // upstream tip) — that is NOT an update. Only flag when ancestry proves
+    // local is missing upstream commits, or when ancestry is unknown.
+    updateAvailable = opts.upstreamAncestorOfLocal !== true;
   }
 
   return {

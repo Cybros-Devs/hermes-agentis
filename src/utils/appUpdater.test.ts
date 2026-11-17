@@ -165,6 +165,42 @@ test('buildAppUpdateStatus detects version updates, commit divergence, and dirty
   assert.equal(dirtyRepo.dirtyWorktree, true);
 });
 
+test('buildAppUpdateStatus does not flag an update when local is ahead of upstream (upstream commit is an ancestor of HEAD)', () => {
+  const local: Parameters<typeof buildAppUpdateStatus>[0]['local'] = {
+    version: '0.1.0',
+    hasGitRepo: true,
+    commit: 'b58f223',
+    branch: 'main',
+    dirtyWorktree: false,
+  };
+
+  // Local HEAD contains the upstream tip (e.g. local has an unpushed commit on top)
+  const ahead = buildAppUpdateStatus({
+    local,
+    upstream: { latestVersion: null, latestCommit: 'fd4ae0a' },
+    receipt: null,
+    upstreamAncestorOfLocal: true,
+  });
+  assert.equal(ahead.updateAvailable, false);
+
+  // Upstream genuinely newer: ancestry check says upstream is NOT in local history
+  const behind = buildAppUpdateStatus({
+    local,
+    upstream: { latestVersion: null, latestCommit: '9998887' },
+    receipt: null,
+    upstreamAncestorOfLocal: false,
+  });
+  assert.equal(behind.updateAvailable, true);
+
+  // Ancestry unknown (git error / missing object): fall back to divergence heuristic
+  const unknownAncestry = buildAppUpdateStatus({
+    local,
+    upstream: { latestVersion: null, latestCommit: '9998887' },
+    receipt: null,
+  });
+  assert.equal(unknownAncestry.updateAvailable, true);
+});
+
 test('resolveVoxcellDataDir honors VOXCELL_DATA_DIR override', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'voxcell-env-test-'));
   try {

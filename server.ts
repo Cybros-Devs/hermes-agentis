@@ -55,6 +55,7 @@ import {
   buildAppUpdateStatus,
   createPreferencesVaultStore,
   fetchUpstreamReleaseInfo,
+  isCommitAncestorOfHead,
   readLocalBuildMetadata,
   readPackageVersion,
   resolveVoxcellDataDir,
@@ -3169,10 +3170,15 @@ async function createServer() {
         return info;
       })(),
     ]);
+    const upstreamAncestorOfLocal =
+      local.hasGitRepo && local.commit && upstream?.latestCommit
+        ? await isCommitAncestorOfHead(__dirname, upstream.latestCommit)
+        : null;
     return buildAppUpdateStatus({
       local,
       upstream,
       receipt: preferencesStore.readReceipt(),
+      upstreamAncestorOfLocal,
     });
   }
 
