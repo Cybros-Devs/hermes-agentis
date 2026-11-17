@@ -483,7 +483,7 @@ pub fn render_sidebar(state: &AppState, theme: &VoxcellTheme, _cx: &mut Cx<AppSt
             .variant(if state.phone_widget_open {
                 ButtonVariant::Submit
             } else {
-                ButtonVariant::Ghost
+                ButtonVariant::Neutral
             })
             .control_size(ControlSize::Small)
             .on_press(|s: &mut AppState| {

@@ -122,7 +122,8 @@ pub fn render_home(state: &AppState, theme: &VoxcellTheme, _cx: &mut Cx<AppState
     // 3. Pointer & Audio Reactive Halftone Horizon Wave Strip
     let horizon_strip = el()
         .key("home-horizon-strip")
-        .w(680.0)
+        .w_full()
+        .max_w(680.0)
         .h(88.0)
         .radius(10.0)
         .on_pointer_move_local(|s: &mut AppState, ev, _tx| {
@@ -132,7 +133,7 @@ pub fn render_home(state: &AppState, theme: &VoxcellTheme, _cx: &mut Cx<AppState
         })
         .child(
             el().key("home-horizon-pixels")
-                .w(680.0)
+                .w_full()
                 .h(88.0)
                 .pixels_fit(&state.horizon_pixels, SurfaceFit::Fill),
         );
@@ -141,7 +142,8 @@ pub fn render_home(state: &AppState, theme: &VoxcellTheme, _cx: &mut Cx<AppState
     let mic_active = state.voice.hands_free_vad || state.audio.is_listening;
     let composer = row()
         .key("home-composer")
-        .w(680.0)
+        .w_full()
+        .max_w(680.0)
         .padding(8.0)
         .gap(8.0)
         .radius(10.0)

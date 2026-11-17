@@ -68,6 +68,22 @@ fn on_key(state: &mut AppState, ev: &KeyEvent, _tx: &mut Tx) -> bool {
                 state.active_view = ActiveView::Cli;
                 return true;
             }
+            Key::Text(t) if t == "b" || t == "B" => {
+                state.ui_config.sidebar_collapsed = !state.ui_config.sidebar_collapsed;
+                return true;
+            }
+            Key::Text(t) if t == "p" || t == "P" => {
+                let next = !state.phone_widget_open;
+                state.phone_widget_open = next;
+                state.pending_commands.push(voxcell_ui::UiCommand::TogglePhoneWindow(next));
+                return true;
+            }
+            Key::Text(t) if t == " " && ev.mods.shift => {
+                let next = !state.voice.hands_free_vad;
+                state.voice.hands_free_vad = next;
+                state.pending_commands.push(voxcell_ui::UiCommand::ToggleMic(next));
+                return true;
+            }
             Key::Text(t) if t == "," => {
                 state.settings_open = !state.settings_open;
                 return true;

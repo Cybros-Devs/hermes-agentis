@@ -225,6 +225,7 @@ pub fn render_canvas(state: &AppState, theme: &VoxcellTheme, _cx: &mut Cx<AppSta
     {
         let ch_id_prompt = sel.channel_id.clone();
         let ch_id_thread = sel.channel_id.clone();
+        let dot_id_del = sel.id.clone();
         row()
             .key("canvas-selected-bar")
             .w_full()
@@ -264,6 +265,19 @@ pub fn render_canvas(state: &AppState, theme: &VoxcellTheme, _cx: &mut Cx<AppSta
                     .on_press(move |s: &mut AppState| {
                         s.active_channel_id = ch_id_thread.clone();
                         s.active_view = ActiveView::Thread;
+                    })
+                    .build(k),
+            )
+            .child(
+                Button::new("Remove")
+                    .variant(ButtonVariant::Danger)
+                    .control_size(ControlSize::Small)
+                    .on_press(move |s: &mut AppState| {
+                        s.dots.retain(|d| d.id != dot_id_del);
+                        if s.selected_dot_id.as_deref() == Some(dot_id_del.as_str()) {
+                            s.selected_dot_id = None;
+                        }
+                        s.pending_commands.push(UiCommand::PersistDots);
                     })
                     .build(k),
             )
