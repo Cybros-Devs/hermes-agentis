@@ -4,7 +4,6 @@ import {
   FolderGit2,
   LayoutGrid,
   Maximize2,
-  Orbit,
   Pin,
   Sparkles,
   StickyNote,
@@ -703,15 +702,14 @@ export function BrailleSessionsCanvas({
               {/* Formation Switcher (Constellation | Orbit | Grid) when 2+ Dots */}
               {sessions.length >= 2 && (
                 <>
-                  <div className="hidden @[660px]:flex items-center p-0.5 rounded-lg border border-white/10 bg-white/[0.03]">
+                  <div className="hidden @[660px]:flex items-center p-0.5 rounded-lg bg-white/[0.035]">
                     {(
                       [
-                        { id: 'constellation', label: 'Constellation', icon: Sparkles },
-                        { id: 'orbit', label: 'Orbit', icon: Orbit },
-                        { id: 'grid', label: 'Grid', icon: LayoutGrid },
+                        { id: 'constellation', label: 'Constellation' },
+                        { id: 'orbit', label: 'Orbit' },
+                        { id: 'grid', label: 'Grid' },
                       ] as const
                     ).map((fmt) => {
-                      const Icon = fmt.icon;
                       const active = activeFormation === fmt.id;
                       return (
                         <button
@@ -724,14 +722,13 @@ export function BrailleSessionsCanvas({
                             onArrangeFormation(fmt.id);
                           }}
                           aria-label={`Arrange dots in ${fmt.label} formation`}
-                          className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                             active
                               ? 'bg-white/12 text-white'
                               : 'text-zinc-400 hover:text-white'
                           }`}
                         >
-                          <Icon className="w-3 h-3" />
-                          <span>{fmt.label}</span>
+                          {fmt.label}
                         </button>
                       );
                     })}
@@ -746,15 +743,15 @@ export function BrailleSessionsCanvas({
                     }}
                     aria-label="Auto arrange sessions on canvas"
                     title="Arrange dots"
-                    className="@[660px]:hidden ui-tactile px-2.5 py-1.5 rounded-lg border border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-xs font-medium text-zinc-200 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                    className="@[660px]:hidden ui-tactile px-2 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/[0.06] flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                   </button>
                 </>
               )}
 
-              {/* Pan & Zoom Controls (sm+ spatial stage) */}
-              <div className="hidden sm:flex items-center rounded-lg border border-white/10 bg-white/[0.03] px-1 py-0.5 gap-0.5 shrink-0">
+              {/* Quiet Unboxed Pan & Zoom Controls */}
+              <div className="hidden sm:flex items-center gap-0.5 pl-1.5 ml-0.5 border-l border-white/[0.08] shrink-0">
                 <button
                   type="button"
                   onClick={() => handleStepZoom(-CANVAS_ZOOM_BOUNDS.step)}
@@ -770,7 +767,7 @@ export function BrailleSessionsCanvas({
                   onClick={() => setViewport(DEFAULT_CANVAS_VIEWPORT)}
                   aria-label="Reset canvas pan and zoom"
                   title="Reset view to 100%"
-                  className={`px-1.5 py-0.5 rounded font-mono text-[10.5px] tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  className={`px-1 py-0.5 rounded font-mono text-[10.5px] tabular-nums transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                     isViewportModified
                       ? 'text-[var(--ui-accent-soft)] hover:bg-white/8'
                       : 'text-zinc-400 hover:text-white'
@@ -791,16 +788,16 @@ export function BrailleSessionsCanvas({
             </>
           )}
 
-          {/* Drop Workspace Pin */}
+          {/* Quiet Pin Note Action */}
           <button
             type="button"
             data-testid="canvas-add-pin-btn"
             onClick={() => setIsPinComposerOpen((prev) => !prev)}
             aria-expanded={isPinComposerOpen}
-            className={`ui-tactile px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`ui-tactile px-2 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0 transition-colors ${
               isPinComposerOpen
-                ? 'ui-active-tab'
-                : 'border-white/12 bg-white/[0.04] hover:bg-white/[0.09] text-zinc-200 hover:text-white'
+                ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-[var(--ui-accent-soft)]'
+                : 'text-zinc-400 hover:text-white hover:bg-white/[0.06]'
             }`}
           >
             <Pin className="w-3 h-3" />

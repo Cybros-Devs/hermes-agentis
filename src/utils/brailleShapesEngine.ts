@@ -2184,8 +2184,8 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
   const profEyeY = profile.eyeY;
   const profBangBase = profile.bangBottomBase;
   const profShineY = profile.shineY;
-  const headCrownShift = pose.headX * 1.4 + hairLag * 0.8;
-  const hairWaveDrift = headCrownShift * 0.22;
+  const headCrownShift = pose.headX * 1.4;
+  const hairWaveDrift = 0;
   const hasHandPose = pose.hand !== 'none';
 
   for (let sy = 0; sy < subH; sy++) {
@@ -2214,10 +2214,8 @@ export function renderBrailleShape(params: BrailleShapeRenderParams): BrailleSha
       curBaseX += dxStepCos;
       curBaseY += dxStepSin;
 
-      if (hasHairLag) {
-        if (ny < -0.22) nx += hairLag * (-0.22 - ny) * 0.55;
-        else if (ny > 0.22) nx -= hairLag * (ny - 0.22) * 0.55;
-      }
+      // Keep Canvas Braille character silhouette rigid around pivot (no horizontal S-bend shear)
+      void hasHairLag;
 
       if (hasHaloFloat && ny < -0.48) ny -= haloFloat;
       if (hasEarTwitch && ny < -0.24) {

@@ -366,7 +366,7 @@ export function CanvasSessionNode({
           <div className="flex items-center gap-1.5 text-xs max-w-full">
             <span
               title={session.name}
-              className={`font-mono font-semibold truncate max-w-[144px] ${
+              className={`font-mono font-semibold truncate max-w-[148px] ${
                 isSelected || isChatOpen
                   ? 'text-white'
                   : 'text-zinc-200 group-hover:text-white'
@@ -380,13 +380,19 @@ export function CanvasSessionNode({
               </span>
             )}
           </div>
-          <span
-            title={session.hermesSessionId}
-            className="font-mono text-[10px] text-zinc-400 tabular-nums truncate max-w-[172px]"
-          >
-            {dotLabel.secondaryLabel}
-            {pendingApprovalCount > 0 ? ` · ${pendingApprovalCount} gate` : ''}
-          </span>
+          {(dotLabel.secondaryLabel !== 'Web' || pendingApprovalCount > 0) && (
+            <span
+              title={session.hermesSessionId}
+              className="font-mono text-[10px] text-zinc-400 tabular-nums truncate max-w-[172px]"
+            >
+              {dotLabel.secondaryLabel !== 'Web' ? dotLabel.secondaryLabel : ''}
+              {pendingApprovalCount > 0
+                ? `${dotLabel.secondaryLabel !== 'Web' ? ' · ' : ''}${pendingApprovalCount} ${
+                    pendingApprovalCount === 1 ? 'gate' : 'gates'
+                  }`
+                : ''}
+            </span>
+          )}
         </div>
       </button>
 
@@ -739,7 +745,7 @@ export function CanvasSessionNode({
         </div>
       )}
 
-      {/* OpenAI Dots-Inspired Per-Character Input Box inside its Perspective Div */}
+      {/* Per-Character Quick-Ask Input */}
       <form
         onSubmit={handleSubmit}
         onPointerDown={(e) => e.stopPropagation()}
@@ -748,12 +754,12 @@ export function CanvasSessionNode({
           isChatOpen
             ? 'w-full sm:w-[min(308px,calc(100cqw-2rem))]'
             : compact
-            ? 'w-full max-w-[196px] sm:w-[200px] sm:max-w-none'
-            : 'w-full max-w-[196px] sm:w-[216px] sm:max-w-none'
-        } flex items-center gap-1 rounded-xl border px-1.5 py-1 bg-[#11141B]/95 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[border-color,box-shadow,width] duration-150 ${
+            ? 'w-full max-w-[184px] sm:w-[190px] sm:max-w-none'
+            : 'w-full max-w-[188px] sm:w-[200px] sm:max-w-none'
+        } flex items-center gap-1 rounded-xl border px-1.5 py-1 transition-[border-color,background-color,opacity,width] duration-150 ${
           isChatOpen || isSelected
-            ? 'border-[rgba(var(--ui-accent-rgb),0.55)] shadow-[0_0_16px_rgba(var(--ui-accent-rgb),0.14)]'
-            : 'border-white/18 hover:border-[rgba(var(--ui-accent-rgb),0.40)] focus-within:border-[var(--ui-accent)]'
+            ? 'bg-[#11141B]/95 border-[rgba(var(--ui-accent-rgb),0.50)] shadow-[0_6px_18px_rgba(0,0,0,0.36)] opacity-100'
+            : 'bg-[#0F1218]/72 border-white/[0.10] opacity-75 hover:opacity-100 focus-within:opacity-100 hover:border-white/20 focus-within:border-[var(--ui-accent)]'
         }`}
       >
         <button
@@ -770,10 +776,10 @@ export function CanvasSessionNode({
               : `Open #${session.name} chat window`
           }
           title={isChatOpen ? 'Hide workspace window' : 'Open workspace window'}
-          className={`ui-tactile w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
+          className={`ui-tactile w-6 h-6 rounded-md flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
             isChatOpen
               ? 'bg-white/10 text-[var(--ui-accent-soft)]'
-              : 'bg-white/[0.05] text-zinc-300 hover:text-white hover:bg-white/10'
+              : 'text-zinc-400 hover:text-white hover:bg-white/10'
           }`}
         >
           {isChatOpen ? (
@@ -791,12 +797,8 @@ export function CanvasSessionNode({
           onChange={(e) => setDraft(e.target.value)}
           data-testid={`session-input-${session.channelId}`}
           aria-label={`Prompt for #${session.name} (${session.hermesSessionId})`}
-          placeholder={
-            isThinking
-              ? 'Thinking…'
-              : `Ask ${dotLabel.promptTarget}…`
-          }
-          className="flex-1 min-w-0 bg-transparent text-xs text-white placeholder:text-zinc-500 text-ellipsis focus:outline-none px-1.5 py-1"
+          placeholder={isThinking ? 'Thinking…' : 'Ask…'}
+          className="flex-1 min-w-0 bg-transparent text-xs text-white placeholder:text-zinc-500 focus:outline-none px-1 py-0.5"
         />
 
         {draft.trim() ? (

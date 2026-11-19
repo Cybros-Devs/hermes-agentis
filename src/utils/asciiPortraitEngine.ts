@@ -73,16 +73,24 @@ export interface PortraitFrame {
   cells: Uint8Array;
 }
 
-const BAYER_8X8 = [
-  0 / 64 - 0.5, 32 / 64 - 0.5, 8 / 64 - 0.5, 40 / 64 - 0.5, 2 / 64 - 0.5, 34 / 64 - 0.5, 10 / 64 - 0.5, 42 / 64 - 0.5,
-  48 / 64 - 0.5, 16 / 64 - 0.5, 56 / 64 - 0.5, 24 / 64 - 0.5, 50 / 64 - 0.5, 18 / 64 - 0.5, 58 / 64 - 0.5, 26 / 64 - 0.5,
-  12 / 64 - 0.5, 44 / 64 - 0.5, 4 / 64 - 0.5, 36 / 64 - 0.5, 14 / 64 - 0.5, 46 / 64 - 0.5, 6 / 64 - 0.5, 38 / 64 - 0.5,
-  60 / 64 - 0.5, 28 / 64 - 0.5, 52 / 64 - 0.5, 20 / 64 - 0.5, 62 / 64 - 0.5, 30 / 64 - 0.5, 54 / 64 - 0.5, 22 / 64 - 0.5,
-  3 / 64 - 0.5, 35 / 64 - 0.5, 11 / 64 - 0.5, 43 / 64 - 0.5, 1 / 64 - 0.5, 33 / 64 - 0.5, 9 / 64 - 0.5, 41 / 64 - 0.5,
-  51 / 64 - 0.5, 19 / 64 - 0.5, 59 / 64 - 0.5, 27 / 64 - 0.5, 49 / 64 - 0.5, 17 / 64 - 0.5, 57 / 64 - 0.5, 25 / 64 - 0.5,
-  15 / 64 - 0.5, 47 / 64 - 0.5, 7 / 64 - 0.5, 39 / 64 - 0.5, 13 / 64 - 0.5, 45 / 64 - 0.5, 5 / 64 - 0.5, 37 / 64 - 0.5,
-  63 / 64 - 0.5, 31 / 64 - 0.5, 55 / 64 - 0.5, 23 / 64 - 0.5, 61 / 64 - 0.5, 29 / 64 - 0.5, 53 / 64 - 0.5, 21 / 64 - 0.5,
+const BAYER_8X8_RANKS = [
+   0, 32,  8, 40,  2, 34, 10, 42,
+  48, 16, 56, 24, 50, 18, 58, 26,
+  12, 44,  4, 36, 14, 46,  6, 38,
+  60, 28, 52, 20, 62, 30, 54, 22,
+   3, 35, 11, 43,  1, 33,  9, 41,
+  51, 19, 59, 27, 49, 17, 57, 25,
+  15, 47,  7, 39, 13, 45,  5, 37,
+  63, 31, 55, 23, 61, 29, 53, 21,
 ];
+
+// Deterministic ordered 8x8 Bayer halftone thresholds in [0.065, 0.935]
+// Prevents serpentine error-diffusion dot-boiling/liquid shimmer during subtle motion
+// while keeping deep anime ink (<0.065) cleanly empty and specular highlights (>=0.94) solid.
+const BAYER_THRESH_8X8 = Float32Array.from(
+  BAYER_8X8_RANKS,
+  (rank) => 0.065 + ((rank + 0.5) / 64) * 0.87
+);
 
 // Standard 2x4 Unicode Braille lookup table (U+2800..U+28FF)
 const BRAILLE_CHAR_TABLE: string[] = Array.from({ length: 256 }, (_, i) =>
@@ -1317,6 +1325,8 @@ interface PrecomputedReferenceFrame {
   motion: PortraitMotionState;
   ct: number;
   st: number;
+  rigidShiftX: number;
+  rigidShiftY: number;
   glintSweep: number;
   sinT38: number;
   cosT38: number;
@@ -1324,17 +1334,8 @@ interface PrecomputedReferenceFrame {
   cosT24: number;
   sinT45: number;
   cosT45: number;
-  sinHairWave: number;
-  cosHairWave: number;
-  hairWaveAmp: number;
   waveGain: number;
   waveAmp: number;
-  mote1X: number;
-  mote1Y: number;
-  mote2X: number;
-  mote2Y: number;
-  mote3X: number;
-  mote3Y: number;
 }
 
 function buildReferenceFrameConstants(params: PortraitParams): PrecomputedReferenceFrame {
@@ -1342,7 +1343,6 @@ function buildReferenceFrameConstants(params: PortraitParams): PrecomputedRefere
   const { time, energy, isSpeaking, isListening } = params;
   const effEnergy = motion.smoothEnergy ?? energy;
   const speakEnv = motion.speakEnvelope ?? (isSpeaking ? 1 : 0);
-  const speed = isSpeaking ? 0.28 : 0.16;
   const hasTurn =
     motion.headYaw > 0.004 ||
     motion.headYaw < -0.004 ||
@@ -1351,6 +1351,11 @@ function buildReferenceFrameConstants(params: PortraitParams): PrecomputedRefere
 
   const waveAmpScale = isListening ? Math.max(speakEnv, 1) : speakEnv;
   const waveGain = clamp01(effEnergy * 1.05 * waveAmpScale);
+
+  // Poised, rigid-body portrait kinematics (zero rubber-sheet hair wave or differential shear)
+  const rigidTilt = clamp(motion.headTilt * 0.34, -0.045, 0.045);
+  const rigidShiftX = clamp(motion.headSwayX * 0.34 - motion.headYaw * 0.042, -0.028, 0.028);
+  const rigidShiftY = clamp(motion.headNodY * 0.42 - motion.headPitch * 0.032, -0.022, 0.022);
 
   return {
     time,
@@ -1362,8 +1367,10 @@ function buildReferenceFrameConstants(params: PortraitParams): PrecomputedRefere
     hasHeadYawShading: motion.headYaw > 0.02 || motion.headYaw < -0.02,
     hasBrowLift: motion.browLift > 0.08 || motion.browLift < -0.08,
     motion,
-    ct: Math.cos(motion.headTilt),
-    st: Math.sin(motion.headTilt),
+    ct: Math.cos(rigidTilt),
+    st: Math.sin(rigidTilt),
+    rigidShiftX,
+    rigidShiftY,
     glintSweep: (time * 0.52) % 1.15,
     sinT38: Math.sin(time * 3.8),
     cosT38: Math.cos(time * 3.8),
@@ -1371,17 +1378,8 @@ function buildReferenceFrameConstants(params: PortraitParams): PrecomputedRefere
     cosT24: Math.cos(time * 2.4),
     sinT45: Math.sin(time * 4.5),
     cosT45: Math.cos(time * 4.5),
-    sinHairWave: Math.sin(time * 2.45),
-    cosHairWave: Math.cos(time * 2.45),
-    hairWaveAmp: 0.0085 + Math.abs(motion.hairLagX) * 0.13 + effEnergy * 0.0028,
     waveGain,
     waveAmp: 0.011 + effEnergy * 0.012,
-    mote1X: 0.08 + Math.sin(time * 3.0) * 0.022,
-    mote1Y: 0.44 - ((time * speed) % 0.32),
-    mote2X: 0.91 + Math.cos(time * 2.5) * 0.02,
-    mote2Y: 0.54 - (((time + 0.45) * speed) % 0.34),
-    mote3X: 0.12 + Math.cos(time * 2.2) * 0.018,
-    mote3Y: 0.70 - (((time + 0.22) * speed) % 0.28),
   };
 }
 
@@ -1777,7 +1775,7 @@ function sampleReferenceWithExpression(
 ): number {
   const { motion, ct, st, energy } = fc;
 
-  // 1. Safe viewport framing inset so crown arc, turned cheeks & bob curls never clip edges
+  // 1. Safe viewport framing inset so crown arc & bob curls never clip edges
   const framedX = (ux - 0.50) * 1.115 + 0.49;
   const framedY = (uy - 0.56) * 1.12 + 0.51;
 
@@ -1785,90 +1783,21 @@ function sampleReferenceWithExpression(
     return 0;
   }
 
-  // 2. Head/collar separation & Live2D-style 2.5D depth parallax
-  const hx = framedX - 0.43;
-  const headMask = framedY <= 0.68 ? 1 : framedY >= 0.88 ? 0 : 1 - smoothstep(0.68, 0.88, framedY);
-
-  let zDepth = 0;
-  let faceZone = 0;
-  if (fc.hasTurn && headMask > 0.004 && framedX > 0.05 && framedX < 0.90 && framedY > 0.02) {
-    const hy = framedY - 0.46;
-    const dFaceX = (hx + 0.13) / 0.25;
-    const dFaceY = (hy - 0.02) / 0.29;
-    const faceSq = dFaceX * dFaceX + dFaceY * dFaceY;
-    const faceDome = faceSq < 4.5 ? fastExpNeg(faceSq) : 0;
-    let noseDome = 0;
-    if (framedX < 0.45 && framedY > 0.25) {
-      const ndx = (framedX - 0.23) / 0.085;
-      const ndy = (framedY - 0.54) / 0.14;
-      const nSq = ndx * ndx + ndy * ndy;
-      if (nSq < 8) noseDome = fastExpNeg(nSq);
-    }
-    let crownDome = 0;
-    if (framedY < 0.55) {
-      const cdx = (framedX - 0.36) / 0.22;
-      const cdy = (framedY - 0.22) / 0.16;
-      const cSq = cdx * cdx + cdy * cdy;
-      if (cSq < 8) crownDome = fastExpNeg(cSq);
-    }
-    const backHairDepth = smoothstep(0.06, 0.40, hx) * (1 - smoothstep(0.64, 0.90, framedY));
-    zDepth = (faceDome * 1.05 + noseDome * 0.48 + crownDome * 0.38 - backHairDepth * 0.78) * headMask;
-    faceZone = faceDome * headMask;
-  }
-
-  const yawParallaxX = -motion.headYaw * (0.132 * zDepth + 0.018 * headMask);
-  const pitchParallaxY = -motion.headPitch * (0.118 * zDepth + 0.015 * headMask);
-  const foreshortenX =
-    -hx * motion.headYaw * 0.19 * faceZone +
-    (motion.headYaw > 0 ? -0.018 * motion.headYaw * faceZone : 0);
-
-  // 3. Overlapping multi-zone kinematics around neck pivot (0.38, 0.74)
-  // Keep face/chin plane anchored while outer side-locks & back hair carry secondary hair follow-through & subtle curl wave
-  const lowerFactor = framedY <= 0.45 ? 0 : framedY >= 0.90 ? 1 : smoothstep(0.45, 0.90, framedY);
-  const hairPlaneWeight = 1 - faceZone * 0.85;
-  const bangFactor =
-    framedY >= 0.42 || framedX <= 0.10
-      ? 0
-      : (framedY <= 0.28 ? 1 : 1 - smoothstep(0.28, 0.42, framedY)) *
-        (framedX >= 0.32 ? 1 : smoothstep(0.10, 0.32, framedX));
-  const shoulderFactor = framedY <= 0.70 ? 0 : framedY >= 0.94 ? 1 : smoothstep(0.70, 0.94, framedY);
-
-  let hairWaveX = 0;
-  if (lowerFactor > 0.02 && hairPlaneWeight > 0.08) {
-    const curlMask = framedX < 0.32 ? smoothstep(0.32, 0.14, framedX) : 0;
-    const yWave = framedY - 0.56;
-    hairWaveX =
-      lowerFactor *
-      hairPlaneWeight *
-      (fc.sinHairWave * (0.68 - yWave * 2.1) + fc.cosHairWave * (yWave * 2.2)) *
-      fc.hairWaveAmp *
-      (1 + curlMask * 0.85);
-  }
-
-  const localSwayX =
-    motion.headSwayX +
-    motion.hairLagX * lowerFactor * hairPlaneWeight * 1.24 +
-    hairWaveX +
-    motion.hairLagX * 0.46 * bangFactor;
-  const localNodY =
-    lerp(motion.headNodY, motion.shoulderY, shoulderFactor) +
-    motion.hairLagY * lowerFactor * hairPlaneWeight * 1.1 +
-    motion.hairLagY * 0.25 * bangFactor;
-
+  // 2. Clean rigid-body rotation + translation around neck pivot (zero liquid shear/wave)
   const pivotX = 0.38;
   const pivotY = 0.74;
-  const dx = framedX + yawParallaxX + foreshortenX - pivotX - localSwayX;
-  const dy = framedY + pitchParallaxY - pivotY - localNodY;
+  const dx = framedX - pivotX - fc.rigidShiftX;
+  const dy = framedY - pivotY - fc.rigidShiftY;
 
   const ax = pivotX + dx * ct - dy * st;
   let ay = pivotY + dx * st + dy * ct;
 
-  // 4. Coupled downward jaw & chin articulation when mouth opens wide
-  const jawAmt = clamp01(motion.jawDrop + motion.mouthOpen * 0.12);
-  if (jawAmt > 0.04 && ay > 0.630 && ay < 0.790 && ax > 0.190 && ax < 0.460) {
-    const latW = smoothstep(0.190, 0.228, ax) * (1 - smoothstep(0.320, 0.460, ax));
-    const vertW = smoothstep(0.630, 0.675, ay) * (1 - smoothstep(0.738, 0.790, ay));
-    ay -= jawAmt * 0.030 * latW * vertW;
+  // 3. Restrained jaw articulation only when actively speaking with wide mouth aperture
+  const jawAmt = clamp01(motion.jawDrop + motion.mouthOpen * 0.10);
+  if (jawAmt > 0.08 && ay > 0.630 && ay < 0.785 && ax > 0.190 && ax < 0.455) {
+    const latW = smoothstep(0.190, 0.228, ax) * (1 - smoothstep(0.320, 0.455, ax));
+    const vertW = smoothstep(0.630, 0.675, ay) * (1 - smoothstep(0.738, 0.785, ay));
+    ay -= jawAmt * 0.018 * latW * vertW;
   }
 
   if (ax < 0 || ax > 1 || ay < 0 || ay > 1) {
@@ -1916,9 +1845,9 @@ function sampleReferenceWithExpression(
     return fc.hasWaveform && ay < 0.86 ? sampleWaveformHalo(ax, ay, fc) : 0;
   }
 
-  if (ink < 0.35 && faceZone > 0.1 && (fc.hasHeadYawShading || motion.headPitch !== 0) && ay > 0.36 && ay < 0.76 && ax > 0.17 && ax < 0.48) {
+  if (ink < 0.35 && (fc.hasHeadYawShading || motion.headPitch !== 0) && ay > 0.36 && ay < 0.76 && ax > 0.17 && ax < 0.48) {
     const cheekArea = smoothstep(0.18, 0.46, ax) * smoothstep(0.38, 0.65, ay) * (1 - smoothstep(0.65, 0.76, ay));
-    lum = clamp01(lum + (motion.headYaw * 0.20 - motion.headPitch * 0.08) * cheekArea);
+    lum = clamp01(lum + (motion.headYaw * 0.14 - motion.headPitch * 0.06) * cheekArea);
   }
 
   if (fc.hasBrowLift && ink < 0.55 && ay > 0.35 && ay < 0.42 && ax > 0.18 && ax < 0.44) {
@@ -1985,73 +1914,11 @@ function sampleSpriteBankWithExpression(
     return 0;
   }
 
-  const headMask = 1 - smoothstep(0.68, 0.88, framedY);
-  const hx = framedX - 0.44;
-  const hy = framedY - 0.46;
-
-  let zDepth = 0;
-  let faceZone = 0;
-  if (fc.hasTurn && headMask > 0.004 && framedX > 0.05 && framedX < 0.92 && framedY > 0.02) {
-    const dFaceX = (hx + 0.12) / 0.26;
-    const dFaceY = (hy - 0.02) / 0.29;
-    const faceSq = dFaceX * dFaceX + dFaceY * dFaceY;
-    const faceDome = faceSq < 4.5 ? fastExpNeg(faceSq) : 0;
-    let noseDome = 0;
-    if (framedX < 0.48 && framedY > 0.25) {
-      const ndx = (framedX - 0.26) / 0.09;
-      const ndy = (framedY - 0.52) / 0.14;
-      const nSq = ndx * ndx + ndy * ndy;
-      if (nSq < 8) noseDome = fastExpNeg(nSq);
-    }
-    let crownDome = 0;
-    if (framedY < 0.55) {
-      const cdx = (framedX - 0.40) / 0.22;
-      const cdy = (framedY - 0.22) / 0.16;
-      const cSq = cdx * cdx + cdy * cdy;
-      if (cSq < 8) crownDome = fastExpNeg(cSq);
-    }
-    const backHairDepth = smoothstep(0.06, 0.40, hx) * (1 - smoothstep(0.64, 0.90, framedY));
-    zDepth = (faceDome * 1.05 + noseDome * 0.48 + crownDome * 0.38 - backHairDepth * 0.78) * headMask;
-    faceZone = faceDome * headMask;
-  }
-
-  const yawParallaxX = -motion.headYaw * (0.128 * zDepth + 0.017 * headMask);
-  const pitchParallaxY = -motion.headPitch * (0.114 * zDepth + 0.014 * headMask);
-  const foreshortenX =
-    -hx * motion.headYaw * 0.18 * faceZone +
-    (motion.headYaw > 0 ? -0.018 * motion.headYaw * faceZone : 0);
-
-  const lowerFactor = smoothstep(0.45, 0.90, framedY);
-  const hairPlaneWeight = 1 - faceZone * 0.85;
-  const bangFactor = (1 - smoothstep(0.28, 0.42, framedY)) * smoothstep(0.10, 0.32, framedX);
-  const shoulderFactor = smoothstep(0.70, 0.94, framedY);
-
-  let hairWaveX = 0;
-  if (lowerFactor > 0.02 && hairPlaneWeight > 0.08) {
-    const curlMask = framedX < 0.34 ? smoothstep(0.34, 0.15, framedX) : 0;
-    const yWave = framedY - 0.56;
-    hairWaveX =
-      lowerFactor *
-      hairPlaneWeight *
-      (fc.sinHairWave * (0.68 - yWave * 2.1) + fc.cosHairWave * (yWave * 2.2)) *
-      fc.hairWaveAmp *
-      (1 + curlMask * 0.85);
-  }
-
-  const localSwayX =
-    motion.headSwayX +
-    motion.hairLagX * lowerFactor * hairPlaneWeight * 1.38 +
-    hairWaveX +
-    motion.hairLagX * 0.52 * bangFactor;
-  const localNodY =
-    lerp(motion.headNodY, motion.shoulderY, shoulderFactor) +
-    motion.hairLagY * lowerFactor * hairPlaneWeight * 1.18 +
-    motion.hairLagY * 0.30 * bangFactor;
-
+  // Clean rigid-body portrait transform around neck pivot (zero hair-wave or rubber-sheet shear)
   const pivotX = 0.42;
   const pivotY = 0.74;
-  const dx = framedX + yawParallaxX + foreshortenX - pivotX - localSwayX;
-  const dy = framedY + pitchParallaxY - pivotY - localNodY;
+  const dx = framedX - pivotX - fc.rigidShiftX;
+  const dy = framedY - pivotY - fc.rigidShiftY;
 
   const ax = pivotX + dx * ct - dy * st;
   const ay = pivotY + dx * st + dy * ct;
@@ -2166,10 +2033,10 @@ function sampleSpriteBankWithExpression(
     }
   }
 
-  // 2.5D studio key-light cheek shading shift during head turn
-  if (ink < 0.35 && faceZone > 0.1 && Math.abs(motion.headYaw) > 0.02 && ay > 0.36 && ay < 0.76 && ax > 0.18 && ax < 0.52) {
+  // Subtle studio key-light cheek shading shift during head turn (no pixel warp)
+  if (ink < 0.35 && fc.hasHeadYawShading && ay > 0.36 && ay < 0.76 && ax > 0.18 && ax < 0.52) {
     const cheekArea = smoothstep(0.19, 0.48, ax) * smoothstep(0.38, 0.65, ay) * (1 - smoothstep(0.65, 0.76, ay));
-    lum = clamp01(lum + motion.headYaw * 0.18 * cheekArea);
+    lum = clamp01(lum + motion.headYaw * 0.12 * cheekArea);
   }
 
   // Traveling headband shimmer during speaking/listening
@@ -2462,7 +2329,7 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
     const sxLo = activeMinX > 1 ? activeMinX - 1 : 0;
     const sxHi = activeMaxX + 1 < subW ? activeMaxX + 1 : subW - 1;
 
-    // 2. Unsharp contrast boost within active bounding rect
+    // 2. Contour-preserving unsharp contrast boost within active bounding rect
     for (let sy = syLo; sy <= syHi; sy++) {
       const rowOff = sy * subW;
       const upOff = (sy > 0 ? sy - 1 : 0) * subW;
@@ -2473,24 +2340,32 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
         for (let sx = sxLo; sx <= sxHi; sx++) {
           const idx = rowOff + sx;
           const c = raw[idx];
-          if (c >= 0.975 || c <= 0.025) {
-            work[idx] = c;
+          if (c <= 0.03) {
+            work[idx] = 0;
+            continue;
+          }
+          if (c >= 0.94) {
+            work[idx] = 1;
             continue;
           }
           const avg = (raw[idx - 1] + raw[idx + 1] + raw[upOff + sx] + raw[dnOff + sx]) * 0.25;
-          const sharpened = c + (c - avg) * 0.34;
-          let t = (sharpened - 0.025) * 1.0526316;
+          const sharpened = c + (c - avg) * 0.48;
+          let t = (sharpened - 0.03) * 1.0752688;
           if (t <= 0) t = 0;
           else if (t >= 1) t = 1;
-          else t = t * t * (3 - 2 * t);
+          else t = t * 0.42 + t * t * (3 - 2 * t) * 0.58;
           work[idx] = t;
         }
       } else {
         for (let sx = sxLo; sx <= sxHi; sx++) {
           const idx = rowOff + sx;
           const c = raw[idx];
-          if (c >= 0.975 || c <= 0.025) {
-            work[idx] = c;
+          if (c <= 0.03) {
+            work[idx] = 0;
+            continue;
+          }
+          if (c >= 0.94) {
+            work[idx] = 1;
             continue;
           }
           const l = raw[rowOff + (sx > 0 ? sx - 1 : 0)];
@@ -2498,102 +2373,23 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
           const u = raw[upOff + sx];
           const d = raw[dnOff + sx];
           const avg = (l + r + u + d) * 0.25;
-          const sharpened = c + (c - avg) * 0.34;
-          let t = (sharpened - 0.025) * 1.0526316;
+          const sharpened = c + (c - avg) * 0.48;
+          let t = (sharpened - 0.03) * 1.0752688;
           if (t <= 0) t = 0;
           else if (t >= 1) t = 1;
-          else t = t * t * (3 - 2 * t);
+          else t = t * 0.42 + t * t * (3 - 2 * t) * 0.58;
           work[idx] = t;
-        }
-      }
-    }
-
-    // 3. Serpentine Bill Atkinson Error Diffusion with 8x8 Bayer jitter & interior/border split
-    const canFastX = activeMinX >= 2 && activeMaxX < subW - 2;
-    for (let sy = activeMinY; sy <= activeMaxY; sy++) {
-      const forward = (sy & 1) === 0;
-      const startX = forward ? activeMinX : activeMaxX;
-      const endX = forward ? activeMaxX + 1 : activeMinX - 1;
-      const dir = forward ? 1 : -1;
-      const rowOff = sy * subW;
-      const bayerRow = (sy & 7) << 3;
-      const hasNext1 = sy + 1 < subH;
-      const hasNext2 = sy + 2 < subH;
-      const row1 = rowOff + subW;
-      const row2 = row1 + subW;
-
-      if (canFastX && hasNext2) {
-        for (let sx = startX; sx !== endX; sx += dir) {
-          const idx = rowOff + sx;
-          const rawVal = raw[idx];
-          if (rawVal <= 0.025) {
-            work[idx] = 0;
-            continue;
-          }
-          if (rawVal >= 0.975) {
-            work[idx] = 1;
-            continue;
-          }
-
-          const oldVal = work[idx];
-          const jitter = BAYER_8X8[bayerRow + (sx & 7)] * 0.048;
-          const newVal = oldVal >= 0.455 + jitter ? 1 : 0;
-          work[idx] = newVal;
-          const err = (oldVal - newVal) * 0.125;
-          if (err === 0) continue;
-
-          work[idx + dir] += err;
-          work[idx + dir * 2] += err;
-          const r1s = row1 + sx;
-          work[r1s - dir] += err;
-          work[r1s] += err;
-          work[r1s + dir] += err;
-          work[row2 + sx] += err;
-        }
-      } else {
-        for (let sx = startX; sx !== endX; sx += dir) {
-          const idx = rowOff + sx;
-          const rawVal = raw[idx];
-          if (rawVal <= 0.025) {
-            work[idx] = 0;
-            continue;
-          }
-          if (rawVal >= 0.975) {
-            work[idx] = 1;
-            continue;
-          }
-
-          const oldVal = work[idx];
-          const jitter = BAYER_8X8[bayerRow + (sx & 7)] * 0.048;
-          const newVal = oldVal >= 0.455 + jitter ? 1 : 0;
-          work[idx] = newVal;
-          const err = (oldVal - newVal) * 0.125;
-          if (err === 0) continue;
-
-          const nx1 = sx + dir;
-          const nx2 = sx + dir * 2;
-          const px1 = sx - dir;
-
-          if (nx1 >= 0 && nx1 < subW) work[rowOff + nx1] += err;
-          if (nx2 >= 0 && nx2 < subW) work[rowOff + nx2] += err;
-          if (hasNext1) {
-            if (px1 >= 0 && px1 < subW) work[row1 + px1] += err;
-            work[row1 + sx] += err;
-            if (nx1 >= 0 && nx1 < subW) work[row1 + nx1] += err;
-          }
-          if (hasNext2) {
-            work[row2 + sx] += err;
-          }
         }
       }
     }
   }
 
-  // 4. Pack 2x4 quantized subpixels into Unicode Braille cells (U+2800..U+28FF)
+  // 3. Deterministic Ordered 8x8 Bayer Halftone Packing into Unicode Braille (U+2800..U+28FF)
+  // Zero serpentine error-diffusion cascade -> zero liquid dot-boiling across frames.
   const rLo = activeMaxY >= activeMinY ? Math.max(0, activeMinY >> 2) : rows;
-  const rHi = activeMaxY >= activeMinY ? Math.min(rows - 1, (activeMaxY + 2) >> 2) : -1;
-  const cLo = activeMaxX >= activeMinX ? Math.max(0, (activeMinX - 2) >> 1) : cols;
-  const cHi = activeMaxX >= activeMinX ? Math.min(cols - 1, (activeMaxX + 2) >> 1) : -1;
+  const rHi = activeMaxY >= activeMinY ? Math.min(rows - 1, (activeMaxY + 1) >> 2) : -1;
+  const cLo = activeMaxX >= activeMinX ? Math.max(0, (activeMinX - 1) >> 1) : cols;
+  const cHi = activeMaxX >= activeMinX ? Math.min(cols - 1, (activeMaxX + 1) >> 1) : -1;
   const emptyRowStr = ' '.repeat(cols);
 
   for (let r = 0; r < rows; r++) {
@@ -2613,10 +2409,15 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
       rowChars.fill(' ', cHi + 1, cols);
     }
 
-    const r0 = r * 4 * subW;
+    const syBase = r * 4;
+    const r0 = syBase * subW;
     const r1 = r0 + subW;
     const r2 = r1 + subW;
     const r3 = r2 + subW;
+    const bRow0 = (syBase & 7) << 3;
+    const bRow1 = ((syBase + 1) & 7) << 3;
+    const bRow2 = ((syBase + 2) & 7) << 3;
+    const bRow3 = ((syBase + 3) & 7) << 3;
 
     for (let c = cLo; c <= cHi; c++) {
       const c2 = c * 2;
@@ -2630,21 +2431,23 @@ export function renderHalftonePortrait(params: PortraitParams): PortraitFrame {
         raw[r3 + c2] +
         raw[r3 + c2 + 1];
 
-      if (lumSum <= 0.02) {
+      if (lumSum <= 0.04) {
         cells[cellRowOff + c] = 0;
         rowChars[c] = ' ';
         continue;
       }
 
+      const bx0 = c2 & 7;
+      const bx1 = (c2 + 1) & 7;
       let bits = 0;
-      if (work[r0 + c2] >= 0.5) bits |= 0x01;
-      if (work[r0 + c2 + 1] >= 0.5) bits |= 0x08;
-      if (work[r1 + c2] >= 0.5) bits |= 0x02;
-      if (work[r1 + c2 + 1] >= 0.5) bits |= 0x10;
-      if (work[r2 + c2] >= 0.5) bits |= 0x04;
-      if (work[r2 + c2 + 1] >= 0.5) bits |= 0x20;
-      if (work[r3 + c2] >= 0.5) bits |= 0x40;
-      if (work[r3 + c2 + 1] >= 0.5) bits |= 0x80;
+      if (work[r0 + c2] >= BAYER_THRESH_8X8[bRow0 + bx0]) bits |= 0x01;
+      if (work[r0 + c2 + 1] >= BAYER_THRESH_8X8[bRow0 + bx1]) bits |= 0x08;
+      if (work[r1 + c2] >= BAYER_THRESH_8X8[bRow1 + bx0]) bits |= 0x02;
+      if (work[r1 + c2 + 1] >= BAYER_THRESH_8X8[bRow1 + bx1]) bits |= 0x10;
+      if (work[r2 + c2] >= BAYER_THRESH_8X8[bRow2 + bx0]) bits |= 0x04;
+      if (work[r2 + c2 + 1] >= BAYER_THRESH_8X8[bRow2 + bx1]) bits |= 0x20;
+      if (work[r3 + c2] >= BAYER_THRESH_8X8[bRow3 + bx0]) bits |= 0x40;
+      if (work[r3 + c2 + 1] >= BAYER_THRESH_8X8[bRow3 + bx1]) bits |= 0x80;
 
       cells[cellRowOff + c] = (lumSum * 31.875 + 0.5) | 0;
       rowChars[c] = BRAILLE_CHAR_TABLE[bits];

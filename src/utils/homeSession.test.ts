@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CURATED_HOME_STARTERS,
   buildUniqueSlugForFreshChannel,
   deriveSessionFromPrompt,
   isTerminalSettledItem,
   normalizeDuetChannelId,
   pickNextShapeAndTint,
+  resolveComposerPlaceholder,
+  shouldAutoEnterThreadOnSubmit,
   shouldStartNewHomeSession,
 } from './homeSession';
 
@@ -48,6 +51,75 @@ test('shouldStartNewHomeSession only triggers on natural-language prompts when H
     shouldStartNewHomeSession({ homeSessionDraft: true, panelView: 'home', rawText: '   ' }),
     false
   );
+});
+
+test('shouldAutoEnterThreadOnSubmit transitions to Thread on any natural-language prompt from Home', () => {
+  assert.equal(
+    shouldAutoEnterThreadOnSubmit({ panelView: 'home', rawText: 'Check open PRs' }),
+    true
+  );
+  assert.equal(
+    shouldAutoEnterThreadOnSubmit({ panelView: 'home', rawText: '/skills' }),
+    false
+  );
+  assert.equal(
+    shouldAutoEnterThreadOnSubmit({ panelView: 'home', rawText: '   ' }),
+    false
+  );
+  assert.equal(
+    shouldAutoEnterThreadOnSubmit({ panelView: 'voice', rawText: 'Follow up' }),
+    false
+  );
+  assert.equal(
+    shouldAutoEnterThreadOnSubmit({
+      panelView: 'home',
+      rawText: 'Background session prompt',
+      targetChannelId: 'ops',
+    }),
+    false
+  );
+});
+
+test('resolveComposerPlaceholder formats clean concise placeholders without mid-word clipping', () => {
+  assert.equal(
+    resolveComposerPlaceholder({
+      isHomeNewDraft: true,
+      activeChannel: '',
+      isThinking: false,
+      isSpeaking: false,
+      isListening: false,
+    }),
+    'Ask Hermes anything or type / for commands…'
+  );
+  const longPlaceholder = resolveComposerPlaceholder({
+    isHomeNewDraft: false,
+    activeChannel: 'check-build-status-and-pipelines',
+    promptTarget: 'check-build-status-and-pipelines',
+    isThinking: true,
+    isSpeaking: false,
+    isListening: false,
+  });
+  assert.equal(longPlaceholder, 'Steer #check-build-status… or send next prompt…');
+  const mobilePlaceholder = resolveComposerPlaceholder({
+    isHomeNewDraft: false,
+    activeChannel: 'check-build-status-and-pipelines',
+    promptTarget: 'check-build-status-and-pipelines',
+    isThinking: false,
+    isSpeaking: false,
+    isListening: false,
+    compact: true,
+  });
+  assert.equal(mobilePlaceholder, 'Message #check-build… or /');
+  assert.ok(mobilePlaceholder.length <= 32);
+});
+
+test('CURATED_HOME_STARTERS exposes well-formed prompt and command starters', () => {
+  assert.ok(CURATED_HOME_STARTERS.length >= 3);
+  for (const starter of CURATED_HOME_STARTERS) {
+    assert.ok(starter.id.length > 0);
+    assert.ok(starter.title.length > 0);
+    assert.ok(starter.prompt.trim().length > 0);
+  }
 });
 
 test('normalizeDuetChannelId resolves chan- prefixes and alias maps accurately', () => {

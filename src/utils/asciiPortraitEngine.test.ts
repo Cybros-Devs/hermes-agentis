@@ -812,3 +812,113 @@ test('neutral portrait kinematics maintain visible breathing, head turn parallax
   assert.ok(maxYaw - minYaw > 0.30, `Expected lively neutral headYaw span > 0.30, got ${maxYaw - minYaw}`);
   assert.ok(maxHair - minHair > 0.055, `Expected lively neutral hairLagX span > 0.055, got ${maxHair - minHair}`);
 });
+
+test('renderHalftonePortrait preserves rigid straight geometry without wavy hair shear and maintains high temporal dot stability', () => {
+  const size = 96;
+  const baseLum = new Float32Array(size * size);
+  const inkMask = new Float32Array(size * size);
+  // Draw a crisp vertical midtone column (x in 38..58, y in 14..86) to detect any sinusoidal horizontal wave shear
+  for (let y = 14; y <= 86; y++) {
+    for (let x = 38; x <= 58; x++) {
+      const idx = y * size + x;
+      baseLum[idx] = 0.62;
+      inkMask[idx] = 0.05;
+    }
+  }
+  const field: PortraitSourceField = { width: size, height: size, baseLum, inkMask };
+
+  const baseMotion = createPortraitAnimator().step(
+    { time: 0.5, mood: 'neutral', viseme: 'closed', eyeState: 'open', energy: 0.05, isSpeaking: false, isListening: false },
+    0.016
+  );
+  // Zero tilt/sway/yaw/pitch, but strong hairLagX and different times: must render byte-for-byte identical (zero hairWaveX/hairLag shear!)
+  const zeroRigid = {
+    ...baseMotion,
+    headYaw: 0,
+    headPitch: 0,
+    headTilt: 0,
+    headSwayX: 0,
+    headNodY: 0,
+    shoulderY: 0,
+    blink: 0,
+    browLift: 0,
+    mouthOpen: 0,
+    jawDrop: 0,
+    listenPulse: 0,
+  };
+  const fWaveA = renderHalftonePortrait({
+    cols: 62,
+    rows: 28,
+    time: 0.4,
+    mood: 'neutral',
+    viseme: 'closed',
+    eyeState: 'open',
+    energy: 0.05,
+    isSpeaking: false,
+    isListening: false,
+    sourceField: field,
+    motion: { ...zeroRigid, hairLagX: -0.06, hairLagY: 0.03 },
+  });
+  const fWaveB = renderHalftonePortrait({
+    cols: 62,
+    rows: 28,
+    time: 1.9,
+    mood: 'neutral',
+    viseme: 'closed',
+    eyeState: 'open',
+    energy: 0.05,
+    isSpeaking: false,
+    isListening: false,
+    sourceField: field,
+    motion: { ...zeroRigid, hairLagX: 0.06, hairLagY: -0.03 },
+  });
+  assert.equal(
+    fWaveA.lines.join('\n'),
+    fWaveB.lines.join('\n'),
+    'Hair lag and time wave must not bend or shear rigid vertical character geometry'
+  );
+
+  // Temporal dot stability: a tiny motion step should not cause serpentine error-diffusion boiling across the field
+  const fStep1 = renderHalftonePortrait({
+    cols: 62,
+    rows: 28,
+    time: 1.0,
+    mood: 'neutral',
+    viseme: 'closed',
+    eyeState: 'open',
+    energy: 0.05,
+    isSpeaking: false,
+    isListening: false,
+    sourceField: field,
+    motion: { ...zeroRigid, headNodY: 0.002 },
+  });
+  const fStep2 = renderHalftonePortrait({
+    cols: 62,
+    rows: 28,
+    time: 1.03,
+    mood: 'neutral',
+    viseme: 'closed',
+    eyeState: 'open',
+    energy: 0.05,
+    isSpeaking: false,
+    isListening: false,
+    sourceField: field,
+    motion: { ...zeroRigid, headNodY: 0.004 },
+  });
+  let totalNonEmpty = 0;
+  let changedCells = 0;
+  for (let r = 0; r < fStep1.rows; r++) {
+    for (let c = 0; c < fStep1.cols; c++) {
+      const a = fStep1.lines[r][c];
+      const b = fStep2.lines[r][c];
+      if (a !== ' ' || b !== ' ') totalNonEmpty++;
+      if (a !== b) changedCells++;
+    }
+  }
+  const churnRatio = totalNonEmpty > 0 ? changedCells / totalNonEmpty : 1;
+  assert.ok(
+    churnRatio < 0.12,
+    `Expected low ordered-Bayer dot churn (<12%) on subtle motion step, got ${(churnRatio * 100).toFixed(1)}%`
+  );
+});
+

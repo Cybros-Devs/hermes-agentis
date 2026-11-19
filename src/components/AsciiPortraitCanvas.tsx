@@ -393,11 +393,11 @@ export function AsciiPortraitCanvas({
       TonalDotBucketSpec,
       TonalDotBucketSpec,
     ] = [
-      { xy: b0XY, len: 0, hex: '#94A3B8', alpha: 0.48, diameterScale: 0.75 },
-      { xy: b1XY, len: 0, hex: '#CBD5E1', alpha: 0.68, diameterScale: 0.86 },
-      { xy: b2XY, len: 0, hex: '#E2E8F0', alpha: 0.84, diameterScale: 0.96 },
-      { xy: b3XY, len: 0, hex: '#F1F5F9', alpha: 0.94, diameterScale: 1.06 },
-      { xy: b4XY, len: 0, hex: '#FFFFFF', alpha: 0.99, diameterScale: 1.15 },
+      { xy: b0XY, len: 0, hex: '#94A3B8', alpha: 0.48, diameterScale: 0.76 },
+      { xy: b1XY, len: 0, hex: '#CBD5E1', alpha: 0.68, diameterScale: 0.85 },
+      { xy: b2XY, len: 0, hex: '#E2E8F0', alpha: 0.84, diameterScale: 0.94 },
+      { xy: b3XY, len: 0, hex: '#F1F5F9', alpha: 0.94, diameterScale: 1.02 },
+      { xy: b4XY, len: 0, hex: '#FFFFFF', alpha: 0.99, diameterScale: 1.08 },
     ];
 
     const drawFrame = (now: number) => {

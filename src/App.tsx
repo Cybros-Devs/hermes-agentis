@@ -43,6 +43,7 @@ import { executeCliInput } from './utils/cliEngine';
 import {
   deriveSessionFromPrompt,
   pickNextShapeAndTint,
+  shouldAutoEnterThreadOnSubmit,
   shouldStartNewHomeSession,
 } from './utils/homeSession';
 import { mergeTasksWithSessionActivity } from './utils/taskInsights';
@@ -178,6 +179,10 @@ export default function App() {
 
   const [entries, setEntries] = useState<TerminalEntry[]>([]);
   const [draftProfile, setDraftProfile] = useState<string>('default');
+  const [homeCommandOutput, setHomeCommandOutput] = useState<{
+    command: string;
+    output: string;
+  } | null>(null);
   const [uiConfig, setUiConfig] = useState<UiCustomizationConfig>(INITIAL_UI_CONFIG);
   const [customizerOpen, setCustomizerOpen] = useState(false);
   const [customizerTab, setCustomizerTab] = useState<StudioTab>('theme');
@@ -803,6 +808,7 @@ export default function App() {
     voiceRef.current?.stopSpeaking();
     setSpeakingChannel(null);
     setSelectedItemId(null);
+    setHomeCommandOutput(null);
     setHomeSessionDraft(true);
     setPanelView('home');
     setMobileSidebarOpen(false);
@@ -981,6 +987,7 @@ export default function App() {
         // ignore
       }
       syncedSessionsRef.current.add(derived.slug);
+      setHomeCommandOutput(null);
       setHomeSessionDraft(false);
       setCanvasSessions((prev) => [...prev, provisionalSession]);
       setChannels((prev) =>
@@ -1001,6 +1008,10 @@ export default function App() {
             ]
       );
       setActiveChannel(derived.slug);
+      setSelectedItemId(provisionalSession.id);
+      setPanelView('voice');
+      setThreadVisitNonce((n) => n + 1);
+      setMobileSidebarOpen(false);
       setMood('thinking');
       setChannelThinking(derived.slug, true);
       setLastSpokenLineState(`Starting ${derived.hermesSessionId}…`);
@@ -1114,6 +1125,20 @@ export default function App() {
         return;
       }
 
+      if (
+        shouldAutoEnterThreadOnSubmit({
+          panelView: stateRef.current.panelView,
+          rawText: trimmed,
+          targetChannelId,
+        })
+      ) {
+        setHomeCommandOutput(null);
+        setHomeSessionDraft(false);
+        setPanelView('voice');
+        setThreadVisitNonce((n) => n + 1);
+        setMobileSidebarOpen(false);
+      }
+
       if (!isCommandInput && hermesConnected) {
         // No local echo on the live SSE path: the real item (POST response or SSE)
         // is the single display copy, so transcript order stays chronological.
@@ -1154,8 +1179,6 @@ export default function App() {
       if (result.type === 'handled') {
         if (result.startNewSession) {
           if (result.newSessionPrompt) {
-            setPanelView('home');
-            setMobileSidebarOpen(false);
             await startHomeSessionAndSend(result.newSessionPrompt, source);
           } else {
             handleStartNewHomeSession();
@@ -1214,6 +1237,17 @@ export default function App() {
           source: 'cli',
           text: result.output,
         });
+
+        if (stateRef.current.panelView === 'home' && !result.uiPatch?.openCustomizer) {
+          setHomeCommandOutput({ command: trimmed, output: result.output });
+        }
+
+        if (result.switchChannel) {
+          setHomeCommandOutput(null);
+          setPanelView('voice');
+          setThreadVisitNonce((n) => n + 1);
+          setMobileSidebarOpen(false);
+        }
 
         if (result.spokenText) {
           updateSpokenLine(result.spokenText, result.switchChannel ?? ch);
@@ -1948,6 +1982,31 @@ export default function App() {
     [createHermesSession, hermesConnected]
   );
 
+  const handleChangeSessionProfile = useCallback(
+    (channelId: ChannelId, profileId: string) => {
+      const target = stateRef.current.canvasSessions.find((s) => s.channelId === channelId);
+      if (target) {
+        handleUpdateDotConfig(target.id, { profile: profileId });
+        return;
+      }
+      setChannels((prev) =>
+        prev.map((c) => (c.id === channelId ? { ...c, profile: profileId } : c))
+      );
+      if (hermesConnected) {
+        const ch = stateRef.current.channels.find((c) => c.id === channelId);
+        void createHermesSession({
+          channelId,
+          name: ch?.name ?? channelId,
+          sessionId: ch?.sessionId ?? createHermesSessionId(channelId),
+          topic: ch?.description ?? '',
+          persona: ch?.persona ?? '',
+          profile: profileId,
+        }).catch(() => {});
+      }
+    },
+    [createHermesSession, handleUpdateDotConfig, hermesConnected]
+  );
+
   const handleAddCanvasPin = useCallback((pin: Omit<CanvasPin, 'id'>) => {
     const id = `pin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     setCanvasPins((prev) => [...prev, { ...pin, id }]);
@@ -2181,6 +2240,7 @@ export default function App() {
             onCycleMood={handleCycleMood}
             panelView={panelView}
             onChangePanelView={(view) => {
+              setHomeCommandOutput(null);
               if (view === 'home') {
                 setSelectedItemId(null);
                 setHomeSessionDraft(true);
@@ -2266,10 +2326,13 @@ export default function App() {
             onRemoveCanvasSession={handleRemoveCanvasSession}
             onOpenSessionThread={handleOpenSessionThread}
             homeSessionDraft={homeSessionDraft}
+            homeCommandOutput={homeCommandOutput}
+            onDismissHomeCommandOutput={() => setHomeCommandOutput(null)}
             onStartNewSession={handleStartNewHomeSession}
             profiles={profiles}
             draftProfile={draftProfile}
             onChangeDraftProfile={setDraftProfile}
+            onChangeSessionProfile={handleChangeSessionProfile}
             onSaveProfile={saveProfile}
             onDeleteProfile={deleteProfile}
             uiConfig={uiConfig}

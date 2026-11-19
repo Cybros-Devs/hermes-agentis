@@ -219,7 +219,7 @@ export function SidebarWorkspace({
   }, [activeChannel, channels.length]);
 
   const showScopeTabs = externalCount > 0;
-  const showSearchBar = scopedCount >= 5 || searchQuery.trim().length > 0;
+  const showSearchBar = scopedCount >= 8 || searchQuery.trim().length > 0;
 
   const handleCardPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const el = characterCardRef.current ?? e.currentTarget;
@@ -243,9 +243,7 @@ export function SidebarWorkspace({
       ? 'border-amber-400/35 bg-amber-500/[0.05]'
       : charState.mode === 'attention'
       ? 'border-amber-300/40 bg-amber-400/[0.05]'
-      : charState.mode === 'offline'
-      ? 'border-rose-400/30 bg-rose-500/[0.035]'
-      : 'border-white/10 bg-white/[0.03] hover:border-[rgba(var(--ui-accent-rgb),0.32)]';
+      : 'border-white/[0.09] bg-white/[0.025] hover:border-white/[0.18]';
 
   const statusToneClass =
     charState.tone === 'amber'
@@ -301,7 +299,12 @@ export function SidebarWorkspace({
         <button
           type="button"
           onClick={onNewTask}
-          className="ui-tactile flex items-center gap-1 text-xs font-medium text-zinc-200 hover:text-white transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md hover:bg-white/[0.06] shrink-0"
+          aria-pressed={homeSessionDraft}
+          className={`ui-tactile flex items-center gap-1 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap px-2 py-1 rounded-md shrink-0 ${
+            homeSessionDraft
+              ? 'bg-[rgba(var(--ui-accent-rgb),0.16)] text-white border border-[rgba(var(--ui-accent-rgb),0.36)]'
+              : 'text-zinc-200 hover:text-white hover:bg-white/[0.06]'
+          }`}
         >
           <Plus className="w-3.5 h-3.5" />
           <span>New</span>
@@ -365,42 +368,40 @@ export function SidebarWorkspace({
                 </span>
               </div>
 
-              <p className="text-[11px] text-zinc-300 truncate mt-0.5">
+              <p className="text-[11px] text-zinc-400 truncate mt-0.5">
                 {charState.gatewayLine}
               </p>
 
-              <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
-                {isSpeaking || isListening ? (
-                  <>
-                    <span className="font-mono text-[10px] text-[var(--ui-accent-soft)] truncate">
-                      {isListening ? 'mic active' : 'voice live'}
-                      {charState.runningTaskCount > 0 ? ` · ${charState.runningTaskCount} active` : ''}
+              {(isSpeaking || isListening || (charState.mode === 'working' && charState.activeTask)) && (
+                <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
+                  {isSpeaking || isListening ? (
+                    <>
+                      <span className="font-mono text-[10px] text-[var(--ui-accent-soft)] truncate">
+                        {isListening ? 'mic active' : 'voice live'}
+                        {charState.runningTaskCount > 0 ? ` · ${charState.runningTaskCount} active` : ''}
+                      </span>
+                      <span className="flex items-end gap-0.5 h-2.5 shrink-0" aria-hidden="true">
+                        {frequencyBands.slice(0, 6).map((band, idx) => (
+                          <span
+                            key={idx}
+                            className="w-0.5 h-full origin-bottom rounded-[1px] bg-[var(--ui-accent-bright)] transition-transform duration-75"
+                            style={{ transform: `scaleY(${Math.max(0.24, Math.min(1, band))})` }}
+                          />
+                        ))}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="font-mono text-[10px] text-amber-200/85 tabular-nums truncate">
+                      {charState.activeTask?.createdAtMs
+                        ? `${formatElapsedDuration(charState.activeTask.createdAtMs, nowMs)} elapsed`
+                        : 'active execution'}
+                      {charState.runningTaskCount > 1
+                        ? ` · ${charState.runningTaskCount} active`
+                        : ''}
                     </span>
-                    <span className="flex items-end gap-0.5 h-2.5 shrink-0" aria-hidden="true">
-                      {frequencyBands.slice(0, 6).map((band, idx) => (
-                        <span
-                          key={idx}
-                          className="w-0.5 h-full origin-bottom rounded-[1px] bg-[var(--ui-accent-bright)] transition-transform duration-75"
-                          style={{ transform: `scaleY(${Math.max(0.24, Math.min(1, band))})` }}
-                        />
-                      ))}
-                    </span>
-                  </>
-                ) : charState.mode === 'working' && charState.activeTask ? (
-                  <span className="font-mono text-[10px] text-amber-200/85 tabular-nums truncate">
-                    {charState.activeTask.createdAtMs
-                      ? `${formatElapsedDuration(charState.activeTask.createdAtMs, nowMs)} elapsed`
-                      : 'active execution'}
-                    {charState.runningTaskCount > 1
-                      ? ` · ${charState.runningTaskCount} active`
-                      : ''}
-                  </span>
-                ) : (
-                  <span className="font-mono text-[10px] text-zinc-400 truncate">
-                    {`mood · ${charState.mood}`}
-                  </span>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </button>
           </div>
 

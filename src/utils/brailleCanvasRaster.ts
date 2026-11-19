@@ -287,13 +287,13 @@ export function rasterizeTonalDotBucketsToSurface(
 
   const profile = options?.dotProfile ?? 'balanced';
   const bloom = Math.max(0, Math.min(1.5, options?.bloom ?? 0));
-  const profileScale = profile === 'crisp' ? 0.78 : profile === 'phosphor' ? 1.06 : 0.88;
-  const softEdgeCut = profile === 'crisp' ? 0.52 : profile === 'phosphor' ? 0.28 : 0.44;
+  const profileScale = profile === 'crisp' ? 0.76 : profile === 'phosphor' ? 1.04 : 0.84;
+  const softEdgeCut = profile === 'crisp' ? 0.58 : profile === 'phosphor' ? 0.32 : 0.52;
   const invEdgeSpan = 1 / (1.3225 - softEdgeCut); // (1.15)^2 = 1.3225
 
   const baseDotPx = Math.max(0.72, baseDotDiameterCss * dpr * profileScale);
 
-  // Pass 1 (optional): Subtle soft phosphor halo beneath top-tier bright dots
+  // Pass 1 (optional): Restrained precision halo beneath top-tier highlight dots
   if (bloom > 0.04) {
     const startBloomBucket = Math.max(0, buckets.length - 2);
     for (let bIdx = startBloomBucket; bIdx < buckets.length; bIdx++) {
@@ -301,10 +301,10 @@ export function rasterizeTonalDotBucketsToSurface(
       const len = bucket.len;
       if (len <= 0) continue;
 
-      const tierGain = bIdx === buckets.length - 1 ? 1.0 : 0.48;
+      const tierGain = bIdx === buckets.length - 1 ? 1.0 : 0.40;
       const haloAlphaMax = Math.min(
-        96,
-        Math.round(bucket.alpha * bloom * tierGain * (bucket.bloomWeight ?? 1) * 62)
+        76,
+        Math.round(bucket.alpha * bloom * tierGain * (bucket.bloomWeight ?? 1) * 44)
       );
       if (haloAlphaMax <= 2) continue;
 
@@ -312,7 +312,7 @@ export function rasterizeTonalDotBucketsToSurface(
       const scale = bucket.diameterScale ?? 1;
       const dotPx = Math.max(0.65, baseDotPx * scale);
       const centerShift = (baseDotPx - dotPx) * 0.5;
-      const haloRadius = dotPx * (0.95 + bloom * 0.38);
+      const haloRadius = dotPx * (0.86 + bloom * 0.26);
       const invHaloR2 = 1 / (haloRadius * haloRadius);
       const packedRgb = (b << 16) | (g << 8) | r;
       const xy = bucket.xy;

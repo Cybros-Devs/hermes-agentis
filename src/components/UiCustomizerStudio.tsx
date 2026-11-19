@@ -79,12 +79,6 @@ interface UiCustomizerStudioProps {
   onDismissUpdateReceipt: () => void;
 }
 
-const AGENT_PROMPT_EXAMPLES = [
-  'Amber CRT with monospace font',
-  'Move sidebar right & hide horizon wave',
-  'Zen stealth focus mode',
-];
-
 const MOOD_OPTIONS: ExpressionMood[] = ['happy', 'focused', 'thinking', 'neutral', 'alert'];
 
 function ToggleRow({
@@ -336,7 +330,7 @@ export function UiCustomizerStudio({
       </div>
 
       {/* Natural-Language UI Update Prompt inside Settings */}
-      <div className="px-5 py-2.5 border-b border-white/8 bg-white/[0.02] space-y-1.5 shrink-0">
+      <div className="px-5 py-2.5 border-b border-white/8 bg-white/[0.015] shrink-0">
         <form onSubmit={submitAgentPrompt} className="flex items-center gap-2">
           <label htmlFor="ui-studio-agent-prompt" className="sr-only">
             Ask Hermes to update the interface
@@ -347,37 +341,17 @@ export function UiCustomizerStudio({
             type="text"
             value={agentPrompt}
             onChange={(e) => setAgentPrompt(e.target.value)}
-            placeholder='Describe a UI update: "cyber violet, hide horizon"...'
-            className="flex-1 min-w-0 rounded-xl bg-black/40 border border-white/14 px-3 py-2 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-[var(--ui-accent)]"
+            placeholder='Describe a UI change (e.g. "move sidebar right", "amber CRT", "zen mode")…'
+            className="flex-1 min-w-0 rounded-lg bg-black/35 border border-white/12 px-3 py-1.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-[var(--ui-accent)]"
           />
           <button
             type="submit"
             data-testid="ui-studio-agent-submit"
-            className="ui-accent-btn ui-tactile px-3.5 py-2 rounded-xl text-xs font-semibold hover:opacity-90 shrink-0 cursor-pointer"
+            className="ui-accent-btn ui-tactile px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:opacity-90 shrink-0 cursor-pointer whitespace-nowrap"
           >
             Apply
           </button>
         </form>
-
-        <div className="flex items-center gap-x-2 gap-y-1 flex-wrap text-[11px]">
-          <span className="text-zinc-500 font-mono">Try:</span>
-          {AGENT_PROMPT_EXAMPLES.map((example, idx) => (
-            <span key={example} className="inline-flex items-center gap-2">
-              {idx > 0 && (
-                <span aria-hidden="true" className="text-zinc-600 select-none">
-                  ·
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => onAskAgent(example)}
-                className="ui-tactile text-zinc-300 hover:text-white underline underline-offset-4 decoration-white/15 hover:decoration-white/45 transition-colors cursor-pointer"
-              >
-                {example}
-              </button>
-            </span>
-          ))}
-        </div>
       </div>
 
       {/* Two-Pane Responsive Settings Body */}
@@ -399,107 +373,105 @@ export function UiCustomizerStudio({
               <>
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-zinc-300">
-                    Curated themes
+                    Themes
                   </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {CURATED_UI_PRESETS.map((preset) => {
-                    const presetAccent = preset.config.accentHex ?? '#94A3B8';
-                    const active =
-                      config.accentHex === presetAccent &&
-                      config.surfaceHex === (preset.config.surfaceHex ?? config.surfaceHex) &&
-                      config.cornerRadius === (preset.config.cornerRadius ?? config.cornerRadius);
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        data-testid={`ui-preset-${preset.id}`}
-                        onClick={() => onApplyPatch({ presetId: preset.id }, 'studio')}
-                        className={`text-left rounded-xl border px-2.5 py-2 transition-colors cursor-pointer ${
-                          active
-                            ? 'ui-active-card'
-                            : 'border-white/10 bg-white/[0.025] hover:border-white/25'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex h-2 w-10 rounded-sm overflow-hidden border border-white/15 shrink-0">
-                            <span className="flex-1" style={{ backgroundColor: presetAccent }} />
-                            <span
-                              className="flex-1"
-                              style={{ backgroundColor: preset.config.surfaceHex ?? '#11141B' }}
-                            />
-                          </span>
-                          {active && <Check className="w-3.5 h-3.5 text-[var(--ui-accent-soft)]" />}
-                        </div>
-                        <div className="mt-1.5 text-xs font-semibold text-white truncate">
-                          {preset.name}
-                        </div>
-                        <div className="text-[10.5px] text-zinc-400 leading-snug line-clamp-1 mt-0.5">
-                          {preset.subtitle}
-                        </div>
-                      </button>
-                    );
-                  })}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {CURATED_UI_PRESETS.map((preset) => {
+                      const presetAccent = preset.config.accentHex ?? '#94A3B8';
+                      const active =
+                        config.accentHex === presetAccent &&
+                        config.surfaceHex === (preset.config.surfaceHex ?? config.surfaceHex) &&
+                        config.cornerRadius === (preset.config.cornerRadius ?? config.cornerRadius);
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          data-testid={`ui-preset-${preset.id}`}
+                          title={preset.subtitle}
+                          onClick={() => onApplyPatch({ presetId: preset.id }, 'studio')}
+                          className={`text-left rounded-lg border px-2.5 py-2 flex items-center justify-between gap-2 transition-colors cursor-pointer min-w-0 ${
+                            active
+                              ? 'ui-active-card'
+                              : 'border-white/10 bg-white/[0.02] hover:border-white/25'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="flex h-3 w-3 rounded-full overflow-hidden border border-white/20 shrink-0">
+                              <span className="flex-1" style={{ backgroundColor: presetAccent }} />
+                              <span
+                                className="flex-1"
+                                style={{ backgroundColor: preset.config.surfaceHex ?? '#11141B' }}
+                              />
+                            </span>
+                            <span className="text-xs font-medium text-white truncate">
+                              {preset.name}
+                            </span>
+                          </div>
+                          {active && <Check className="w-3.5 h-3.5 text-[var(--ui-accent-soft)] shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-2 pt-2.5 border-t border-white/8">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-zinc-300">
-                    Accent palette
-                  </span>
-                  <span className="font-mono text-[11px] text-[var(--ui-accent-soft)]">{config.accentHex}</span>
-                </div>
-                <div className="flex items-center flex-wrap gap-2">
-                  {ACCENT_SWATCHES.map((swatch) => {
-                    const active = config.accentHex === swatch.accentHex;
-                    return (
-                      <button
-                        key={swatch.id}
-                        type="button"
-                        data-testid={`ui-swatch-${swatch.id}`}
-                        onClick={() => onApplyPatch({ accentPreset: swatch.id }, 'studio')}
-                        aria-label={`Set accent color to ${swatch.label}`}
-                        title={swatch.label}
-                        className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-transform cursor-pointer ${
-                          active ? 'scale-105 border-white' : 'border-white/20 hover:scale-105'
-                        }`}
-                        style={{ backgroundColor: swatch.accentHex }}
-                      >
-                        {active && <Check className="w-3.5 h-3.5 text-[#0B0D12]" />}
-                      </button>
-                    );
-                  })}
+                <div className="space-y-2.5 pt-3 border-t border-white/8">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-zinc-300">
+                      Accent &amp; surface
+                    </span>
+                    <span className="font-mono text-[11px] text-[var(--ui-accent-soft)]">{config.accentHex}</span>
+                  </div>
+                  <div className="flex items-center flex-wrap gap-2">
+                    {ACCENT_SWATCHES.map((swatch) => {
+                      const active = config.accentHex === swatch.accentHex;
+                      return (
+                        <button
+                          key={swatch.id}
+                          type="button"
+                          data-testid={`ui-swatch-${swatch.id}`}
+                          onClick={() => onApplyPatch({ accentPreset: swatch.id }, 'studio')}
+                          aria-label={`Set accent color to ${swatch.label}`}
+                          title={swatch.label}
+                          className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-transform cursor-pointer ${
+                            active ? 'scale-105 border-white' : 'border-white/20 hover:scale-105'
+                          }`}
+                          style={{ backgroundColor: swatch.accentHex }}
+                        >
+                          {active && <Check className="w-3.5 h-3.5 text-[#0B0D12]" />}
+                        </button>
+                      );
+                    })}
 
-                  <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/14 bg-white/[0.04] px-2.5 h-7 text-[11px] text-zinc-200 cursor-pointer hover:border-white/30">
-                    <span>Custom</span>
-                    <input
-                      type="color"
-                      aria-label="Custom accent hex color"
-                      value={config.accentHex}
-                      onChange={(e) => onApplyPatch({ accentHex: e.target.value }, 'studio')}
-                      className="w-3.5 h-3.5 appearance-none rounded border border-white/25 bg-transparent cursor-pointer p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-[3px]"
-                    />
+                    <label className="inline-flex items-center gap-1.5 rounded-lg border border-white/14 bg-white/[0.04] px-2.5 h-7 text-[11px] text-zinc-200 cursor-pointer hover:border-white/30">
+                      <span>Custom</span>
+                      <input
+                        type="color"
+                        aria-label="Custom accent hex color"
+                        value={config.accentHex}
+                        onChange={(e) => onApplyPatch({ accentHex: e.target.value }, 'studio')}
+                        className="w-3.5 h-3.5 appearance-none rounded border border-white/25 bg-transparent cursor-pointer p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-[3px]"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="flex items-center justify-between py-1 text-xs text-zinc-300 cursor-pointer hover:text-white transition-colors">
+                    <span>Panel surface tint</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[11px] text-zinc-400">
+                        {config.surfaceHex}
+                      </span>
+                      <input
+                        type="color"
+                        aria-label="Panel surface tint hex color"
+                        value={config.surfaceHex}
+                        onChange={(e) => onApplyPatch({ surfaceHex: e.target.value }, 'studio')}
+                        className="w-4 h-4 appearance-none rounded border border-white/25 bg-transparent cursor-pointer p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-[3px]"
+                      />
+                    </div>
                   </label>
                 </div>
 
-                <label className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.025] px-3 py-1.5 text-xs cursor-pointer hover:border-white/20 transition-colors">
-                  <span>Panel surface tint</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-zinc-400">
-                      {config.surfaceHex}
-                    </span>
-                    <input
-                      type="color"
-                      aria-label="Panel surface tint hex color"
-                      value={config.surfaceHex}
-                      onChange={(e) => onApplyPatch({ surfaceHex: e.target.value }, 'studio')}
-                      className="w-4 h-4 appearance-none rounded border border-white/25 bg-transparent cursor-pointer p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-[3px]"
-                    />
-                  </div>
-                </label>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 pt-2.5 border-t border-white/8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 pt-3 border-t border-white/8">
                 <SliderRow
                   label="Panel glass opacity"
                   valueLabel={`${Math.round(config.panelAlpha * 100)}%`}

@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Terminal } from 'lucide-react';
 import type { ChannelId, TerminalEntry } from '../types/hermes';
 import { DecodedText } from './DecodedText';
 import { ScrollToBottomButton, StatusPulse } from './ui';
@@ -74,32 +73,43 @@ export function CommandTerminal({
   return (
     <section
       aria-label="Hermes Command Line Interface"
-      className="relative flex flex-col h-full max-w-[780px] mx-auto w-full rounded-xl bg-white/[0.025] border border-white/10 overflow-hidden"
+      className="relative flex flex-col h-full max-w-[780px] mx-auto w-full overflow-hidden"
     >
-      {/* Clean Single-Row Terminal Header & Unboxed Quick-Command Strip */}
-      <div className="px-4 py-2.5 border-b border-white/[0.07] bg-black/25 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
-        <div className="flex items-center gap-2 font-mono text-xs text-zinc-200 min-w-0 sm:max-w-[235px] shrink-0">
-          <Terminal className="w-3.5 h-3.5 text-[var(--ui-accent)] shrink-0" />
-          <span className="font-semibold text-white shrink-0">hermes-agent</span>
-          <span className="text-zinc-600 shrink-0">·</span>
-          <span title={sessionLabel} className="text-zinc-400 truncate">
+      {/* Clean Single-Row Console Header */}
+      <div className="pb-2.5 border-b border-white/[0.08] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex items-baseline gap-2 min-w-0">
+          <h1 className="text-base font-semibold text-white tracking-tight shrink-0">
+            Hermes CLI
+          </h1>
+          <span aria-hidden="true" className="text-zinc-600 shrink-0">·</span>
+          <span title={sessionLabel} className="font-mono text-[11px] text-zinc-400 truncate">
             {sessionLabel}
           </span>
         </div>
 
-        <div className="flex flex-nowrap sm:flex-wrap lg:flex-nowrap items-center sm:justify-end gap-0.5 min-w-0 overflow-x-auto cyber-scroll">
-          {QUICK_COMMANDS.map(({ cmd, summary }) => (
-            <button
-              key={cmd}
-              type="button"
-              title={summary}
-              onClick={() => onSubmitInput(cmd)}
-              className="ui-tactile px-1.5 py-1 rounded-md font-mono text-[10.5px] text-zinc-400 hover:text-[var(--ui-accent-soft)] hover:bg-white/[0.05] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              {cmd}
-            </button>
-          ))}
-        </div>
+        {scopedEntries.length > 0 ? (
+          <div className="flex flex-nowrap sm:flex-wrap lg:flex-nowrap items-center sm:justify-end gap-0.5 min-w-0 overflow-x-auto cyber-scroll">
+            {QUICK_COMMANDS.map(({ cmd, summary }) => (
+              <button
+                key={cmd}
+                type="button"
+                title={summary}
+                onClick={() => onSubmitInput(cmd)}
+                className="ui-tactile px-1.5 py-1 rounded-md font-mono text-[10.5px] text-zinc-400 hover:text-[var(--ui-accent-soft)] hover:bg-white/[0.05] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                {cmd}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onSubmitInput('/help')}
+            className="self-start sm:self-auto font-mono text-[11px] text-zinc-400 hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            /help
+          </button>
+        )}
       </div>
 
       {/* Scrollable Output Stream */}
@@ -114,25 +124,25 @@ export function CommandTerminal({
           setAwayFromBottom(dist > 140);
         }}
         data-testid="terminal-stream"
-        className="cyber-scroll flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs leading-relaxed"
+        className="cyber-scroll flex-1 overflow-y-auto py-4 space-y-3 font-mono text-xs leading-relaxed"
       >
         {scopedEntries.length === 0 ? (
           <div className="h-full flex flex-col justify-center max-w-[540px] mx-auto py-4 space-y-4">
             <div className="space-y-1">
-              <div className="text-xs font-semibold text-white">
+              <div className="text-sm font-sans font-semibold text-white">
                 {readyHeading}
               </div>
-              <p className="text-[11.5px] text-zinc-400">
-                Select a diagnostic command below or enter a prompt in the composer.
+              <p className="text-xs font-sans text-zinc-400">
+                Run a quick command below or enter a prompt in the composer.
               </p>
             </div>
             <div className="divide-y divide-white/[0.06] border-y border-white/[0.07]">
-              {QUICK_COMMANDS.slice(0, 4).map(({ cmd, summary }) => (
+              {QUICK_COMMANDS.slice(0, 6).map(({ cmd, summary }) => (
                 <button
                   key={cmd}
                   type="button"
                   onClick={() => onSubmitInput(cmd)}
-                  className="ui-tactile w-full text-left py-2 px-1 flex items-center justify-between gap-4 hover:bg-white/[0.03] transition-colors cursor-pointer group"
+                  className="ui-tactile w-full text-left py-2.5 px-1 flex items-center justify-between gap-4 hover:bg-white/[0.03] transition-colors cursor-pointer group"
                 >
                   <span className="text-[var(--ui-accent-soft)] font-semibold shrink-0 group-hover:translate-x-0.5 transition-transform">
                     {cmd}
@@ -200,14 +210,15 @@ export function CommandTerminal({
         )}
       </div>
 
-      {/* Compact Terminal Footer */}
-      <div className="px-4 py-2 border-t border-white/[0.07] bg-black/25 flex items-center justify-between gap-3 font-mono text-[10.5px] text-zinc-500 tabular-nums shrink-0">
-        <span className="truncate">Tab autocomplete · ↑↓ command history</span>
-        <span className="shrink-0">
-          {activeChannel ? `#${activeChannel}` : 'global'} · {scopedEntries.length}{' '}
-          {scopedEntries.length === 1 ? 'entry' : 'entries'}
-        </span>
-      </div>
+      {/* Quiet Terminal Footer */}
+      {scopedEntries.length > 0 && (
+        <div className="pt-2 border-t border-white/[0.07] flex items-center justify-between gap-3 font-mono text-[10.5px] text-zinc-500 tabular-nums shrink-0">
+          <span className="truncate">Tab autocomplete · ↑↓ history</span>
+          <span className="shrink-0">
+            {scopedEntries.length} {scopedEntries.length === 1 ? 'entry' : 'entries'}
+          </span>
+        </div>
+      )}
 
       <ScrollToBottomButton
         visible={awayFromBottom}

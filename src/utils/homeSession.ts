@@ -137,6 +137,112 @@ export function shouldStartNewHomeSession(params: {
 }
 
 /**
+ * Returns true when submitting a prompt from Home should transition the user
+ * automatically into the live Thread ('voice') view for that session.
+ */
+export function shouldAutoEnterThreadOnSubmit(params: {
+  panelView: string;
+  rawText: string;
+  targetChannelId?: string;
+}): boolean {
+  if (params.targetChannelId) return false;
+  if (params.panelView !== 'home') return false;
+  const trimmed = params.rawText.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('/')) return false;
+  return true;
+}
+
+export interface HomeStarterPrompt {
+  id: string;
+  title: string;
+  description: string;
+  prompt: string;
+  kind: 'prompt' | 'command';
+}
+
+export const CURATED_HOME_STARTERS: readonly HomeStarterPrompt[] = [
+  {
+    id: 'workspace-audit',
+    title: 'Inspect this workspace',
+    description: 'Review open tasks, recent changes, and next priorities',
+    prompt: 'Inspect the current workspace state, recent activity, and what needs attention next.',
+    kind: 'prompt',
+  },
+  {
+    id: 'skills-tools',
+    title: 'Explore skills & tools',
+    description: 'Check active Hermes capabilities available in this session',
+    prompt: 'Show what skills, toolsets, and connected capabilities are available right now.',
+    kind: 'prompt',
+  },
+  {
+    id: 'plan-task',
+    title: 'Plan a multi-step task',
+    description: 'Break down a goal into live trackable steps and approvals',
+    prompt: 'Help me break down a multi-step engineering task with clear checkpoints.',
+    kind: 'prompt',
+  },
+  {
+    id: 'gateway-doctor',
+    title: 'Run gateway diagnostics',
+    description: 'Verify endpoint health, active model, and transport mode',
+    prompt: '/gateway',
+    kind: 'command',
+  },
+];
+
+function truncateAtWordBoundary(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const slice = text.slice(0, maxLen - 1);
+  const lastSep = Math.max(slice.lastIndexOf(' '), slice.lastIndexOf('-'));
+  const clean = lastSep >= Math.floor(maxLen * 0.45) ? slice.slice(0, lastSep) : slice;
+  return `${clean.replace(/[\s-]+$/, '')}…`;
+}
+
+/**
+ * Formats a concise, word-safe composer placeholder so long session slugs
+ * never clip awkwardly mid-character inside narrow mobile/desktop inputs.
+ */
+export function resolveComposerPlaceholder(params: {
+  isHomeNewDraft: boolean;
+  activeChannel: string;
+  promptTarget?: string;
+  isThinking: boolean;
+  isSpeaking: boolean;
+  isListening: boolean;
+  compact?: boolean;
+}): string {
+  if (params.isHomeNewDraft || !params.activeChannel) {
+    if (params.isListening) {
+      return params.compact ? 'Listening…' : 'Listening for new session prompt…';
+    }
+    return params.compact
+      ? 'Ask Hermes or type /…'
+      : 'Ask Hermes anything or type / for commands…';
+  }
+  const rawTarget = (params.promptTarget || params.activeChannel).trim();
+  const formattedTarget = rawTarget.startsWith('#')
+    ? rawTarget
+    : rawTarget.startsWith('chan-') || rawTarget.startsWith('hermes-')
+    ? rawTarget
+    : `#${rawTarget}`;
+  const compactTarget = truncateAtWordBoundary(formattedTarget, params.compact ? 14 : 22);
+
+  if (params.isThinking || params.isSpeaking) {
+    return params.compact
+      ? `Steer ${compactTarget}…`
+      : `Steer ${compactTarget} or send next prompt…`;
+  }
+  if (params.isListening) {
+    return `Listening in ${compactTarget}…`;
+  }
+  return params.compact
+    ? `Message ${compactTarget} or /`
+    : `Message ${compactTarget} or type / for commands…`;
+}
+
+/**
  * Normalizes a Hermes channel/lane id into the canonical local slug used by UI lanes.
  */
 export function normalizeChannelId(

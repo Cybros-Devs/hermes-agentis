@@ -354,8 +354,8 @@ export function MobileWorkspaceBar({
         </div>
       </div>
 
-      {/* Row 2: Overlapping Subagent / Parallel Braille Session Avatar Cluster (shown when dots exist) */}
-      {canvasSessions.length > 0 && (
+      {/* Row 2: Overlapping Subagent / Parallel Braille Session Avatar Cluster (shown on Home/Canvas when sessions exist) */}
+      {canvasSessions.length > 0 && panelView !== 'voice' && (
         <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-2 rounded-full bg-[#11141B]/88 border border-white/12 pl-1.5 pr-3 py-1 max-w-full overflow-hidden">
           <div className="flex items-center -space-x-2 shrink-0">

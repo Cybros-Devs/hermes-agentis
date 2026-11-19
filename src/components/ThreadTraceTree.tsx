@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
   Brain,
+  Check,
   ChevronDown,
+  Copy,
   CornerDownRight,
   Link2,
   MessageSquareText,
@@ -11,6 +13,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { coalesceConsecutiveSteps, type ClassifiedTraceStep } from '../utils/threadTrace';
+import { summarizeTraceHeader } from '../utils/threadSearch';
 import { AnimatedCollapsible, StaggerItem, StatusPulse } from './ui';
 
 interface ThreadTraceTreeProps {
@@ -32,6 +35,7 @@ export function ThreadTraceTree({
 }: ThreadTraceTreeProps) {
   const [collapsed, setCollapsed] = useState(true);
   const [showAllSteps, setShowAllSteps] = useState(false);
+  const [copiedStepId, setCopiedStepId] = useState<string | null>(null);
 
   const coalescedItems = useMemo(() => coalesceConsecutiveSteps(items), [items]);
 
@@ -59,13 +63,17 @@ export function ThreadTraceTree({
     }
   };
 
-  const hasReasoning = items.some((s) => s.icon === 'reasoning' || s.isReasoning);
-  const stepSummary =
-    items.length > 0
-      ? `${items.length} ${items.length === 1 ? 'step' : 'steps'}${hasReasoning ? ' · reasoning' : ''}`
-      : isLive
-      ? 'Running'
-      : '';
+  const stepSummary = summarizeTraceHeader(items, isLive);
+
+  const handleCopyStep = (stepId: string, content: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(content).catch(() => {});
+    }
+    setCopiedStepId(stepId);
+    window.setTimeout(() => {
+      setCopiedStepId((curr) => (curr === stepId ? null : curr));
+    }, 1400);
+  };
 
   return (
     <div className="max-w-[66ch] py-0.5" data-testid="thread-trace-tree" title={sessionId}>
@@ -73,19 +81,19 @@ export function ThreadTraceTree({
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
-        className={`ui-tactile inline-flex items-center gap-2 min-h-[28px] text-left group cursor-pointer rounded-lg px-2.5 py-1 border transition-colors ${
+        className={`ui-tactile inline-flex items-center gap-2 min-h-[28px] max-w-full text-left group cursor-pointer rounded-lg px-2.5 py-1 border transition-colors ${
           !collapsed || isLive
             ? 'border-white/[0.08] bg-[#14171F]/90 hover:bg-[#191D27]'
             : 'border-transparent hover:border-white/[0.07] hover:bg-[#14171F]/70'
         }`}
       >
         <StatusPulse size="sm" state={isLive ? 'thinking' : 'idle'} />
-        <span className="text-[12.5px] font-medium text-zinc-200 group-hover:text-white transition-colors">
+        <span className="text-[12.5px] font-medium text-zinc-200 group-hover:text-white transition-colors shrink-0">
           {agentLabel}
         </span>
         {stepSummary && (
           <span
-            className={`font-mono text-[11px] tabular-nums ${
+            className={`font-mono text-[11px] tabular-nums truncate ${
               isLive ? 'text-amber-300/90' : 'text-zinc-400'
             }`}
           >
@@ -93,7 +101,7 @@ export function ThreadTraceTree({
           </span>
         )}
         <ChevronDown
-          className={`w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-200 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          className={`w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-200 shrink-0 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
             collapsed ? '-rotate-90' : 'rotate-0'
           }`}
           aria-hidden="true"
@@ -136,9 +144,31 @@ export function ThreadTraceTree({
                           {step.label}
                         </span>
                       </div>
-                      <span className="font-mono text-[10.5px] tabular-nums text-zinc-500 shrink-0">
-                        {step.timestamp}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {step.detail && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopyStep(step.id, step.detail)}
+                            aria-label="Copy reasoning note"
+                            className="inline-flex items-center gap-1 font-mono text-[10px] text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer"
+                          >
+                            {copiedStepId === step.id ? (
+                              <>
+                                <Check className="w-2.5 h-2.5 text-[var(--ui-accent-soft)]" />
+                                <span className="text-[var(--ui-accent-soft)]">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-2.5 h-2.5" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                        <span className="font-mono text-[10.5px] tabular-nums text-zinc-500">
+                          {step.timestamp}
+                        </span>
+                      </div>
                     </div>
                     {step.detail && (
                       <p
